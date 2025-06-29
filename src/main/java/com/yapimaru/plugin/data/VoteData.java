@@ -4,6 +4,7 @@ import java.util.*;
 
 public class VoteData {
 
+    private final int numericId;
     private final String directoryName;
     private final String question;
     private final List<String> options;
@@ -13,7 +14,8 @@ public class VoteData {
     private final Map<Integer, Set<UUID>> votes = new HashMap<>();
     private final Map<UUID, Set<Integer>> playerVotes = new HashMap<>();
 
-    public VoteData(String directoryName, String question, List<String> options, boolean multiChoice, long durationMillis) {
+    public VoteData(int numericId, String directoryName, String question, List<String> options, boolean multiChoice, long durationMillis) {
+        this.numericId = numericId;
         this.directoryName = directoryName;
         this.question = question;
         this.options = new ArrayList<>(options);
@@ -26,6 +28,7 @@ public class VoteData {
     }
 
     // Getters
+    public int getNumericId() { return numericId; }
     public String getDirectoryName() { return directoryName; }
     public String getQuestion() { return question; }
     public List<String> getOptions() { return new ArrayList<>(options); }

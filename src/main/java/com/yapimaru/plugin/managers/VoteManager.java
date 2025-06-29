@@ -17,6 +17,7 @@ import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 
 public class VoteManager {
@@ -24,10 +25,12 @@ public class VoteManager {
     private final YAPIMARU_Plugin plugin;
     private final BukkitAudiences adventure;
     private final Map<String, VoteData> activePolls = new ConcurrentHashMap<>();
+    private final Map<Integer, String> numericIdToFullIdMap = new ConcurrentHashMap<>();
     private final Map<String, BossBar> pollBossBars = new ConcurrentHashMap<>();
     private final File votingFolder;
 
     private NameManager nameManager;
+    private static final AtomicInteger nextPollNumericId = new AtomicInteger(1);
 
     public enum ResultDisplayMode { OPEN, ANONYMITY }
 
@@ -65,14 +68,16 @@ public class VoteManager {
         }
     }
 
-    public boolean createPoll(String directoryName, String question, List<String> options, boolean multiChoice, long durationMillis) {
+    public VoteData createPoll(String directoryName, String question, List<String> options, boolean multiChoice, long durationMillis) {
         String fullPollId = directoryName + "::" + question;
         if (activePolls.containsKey(fullPollId)) {
-            return false;
+            return null;
         }
 
-        VoteData voteData = new VoteData(directoryName, question, options, multiChoice, durationMillis);
+        int numericId = nextPollNumericId.getAndIncrement();
+        VoteData voteData = new VoteData(numericId, directoryName, question, options, multiChoice, durationMillis);
         activePolls.put(fullPollId, voteData);
+        numericIdToFullIdMap.put(numericId, fullPollId);
 
         BossBar bossBar = BossBar.bossBar(Component.text("Q. " + question), 1.0f, BossBar.Color.BLUE, BossBar.Overlay.PROGRESS);
         pollBossBars.put(fullPollId, bossBar);
@@ -102,7 +107,7 @@ public class VoteManager {
             Bukkit.getOnlinePlayers().forEach(p -> nameManager.updatePlayerName(p, false));
         }
 
-        return true;
+        return voteData;
     }
 
     public void endPoll(String fullPollId, ResultDisplayMode displayMode) {
@@ -110,6 +115,7 @@ public class VoteManager {
         if (voteData == null) {
             return;
         }
+        numericIdToFullIdMap.remove(voteData.getNumericId());
 
         BossBar bossBar = pollBossBars.remove(fullPollId);
         if (bossBar != null) {
@@ -128,17 +134,21 @@ public class VoteManager {
         return activePolls;
     }
 
-    public VoteData getPoll(String fullPollId) {
+    public VoteData getPollByNumericId(int numericId) {
+        String fullPollId = numericIdToFullIdMap.get(numericId);
+        if (fullPollId == null) {
+            return null;
+        }
         return activePolls.get(fullPollId);
     }
 
     public void showPollToPlayer(Player player, VoteData voteData) {
-        adventure.player(player).sendMessage(Component.text("------ 投票開始 ------", NamedTextColor.GOLD));
+        adventure.player(player).sendMessage(Component.text("------ 投票開始 (ID: " + voteData.getNumericId() + ") ------", NamedTextColor.GOLD));
         adventure.player(player).sendMessage(Component.text("Q. " + voteData.getQuestion(), NamedTextColor.AQUA));
         for (int i = 0; i < voteData.getOptions().size(); i++) {
             adventure.player(player).sendMessage(Component.text((i + 1) + ". " + voteData.getOptions().get(i), NamedTextColor.YELLOW));
         }
-        adventure.player(player).sendMessage(Component.text("チャットで /voting answer \"" + voteData.getDirectoryName() + "\" \"" + voteData.getQuestion() + "\" <番号> で投票", NamedTextColor.GRAY));
+        adventure.player(player).sendMessage(Component.text("チャットで /voting answer " + voteData.getNumericId() + " <番号> で投票", NamedTextColor.GRAY));
         if (voteData.isMultiChoice()) {
             adventure.player(player).sendMessage(Component.text("(複数選択可)", NamedTextColor.GRAY));
         }
@@ -211,7 +221,7 @@ public class VoteManager {
     @SuppressWarnings("deprecation")
     private void displayResults(VoteData voteData, ResultDisplayMode displayMode) {
         Bukkit.getOnlinePlayers().forEach(p -> {
-            adventure.player(p).sendMessage(Component.text("------ 投票結果 ------", NamedTextColor.GOLD));
+            adventure.player(p).sendMessage(Component.text("------ 投票結果 (ID: " + voteData.getNumericId() + ") ------", NamedTextColor.GOLD));
             adventure.player(p).sendMessage(Component.text("Q. " + voteData.getQuestion(), NamedTextColor.AQUA));
 
             for (int i = 0; i < voteData.getOptions().size(); i++) {
