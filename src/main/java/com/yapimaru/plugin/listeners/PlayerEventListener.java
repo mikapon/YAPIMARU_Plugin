@@ -114,7 +114,7 @@ public class PlayerEventListener implements Listener {
                 event.setCancelled(true);
                 return;
             }
-            if (pvpManager.isLocationInSpawnProtection(player.getLocation())) {
+            if (pvpManager.isPlayerInOwnSpawnProtection(player)) {
                 event.setCancelled(true);
                 return;
             }

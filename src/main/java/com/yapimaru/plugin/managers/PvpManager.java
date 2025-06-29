@@ -107,8 +107,8 @@ public class PvpManager {
     private BoundingBox getSpawnProtectionBox(Location spawn) {
         if (spawn == null) return null;
         Location l = spawn.getBlock().getLocation();
-        // 3x3 (x, z) and 5 high (y)
-        return new BoundingBox(l.getX() - 1, l.getY(), l.getZ() - 1, l.getX() + 2, l.getY() + 5, l.getZ() + 2);
+        // 3x3 (x, z) and 5+1 high (y), including the wool block below.
+        return new BoundingBox(l.getX() - 1, l.getY() - 1, l.getZ() - 1, l.getX() + 2, l.getY() + 4, l.getZ() + 2);
     }
 
     public boolean isLocationInSpawnProtection(Location loc) {
@@ -120,6 +120,18 @@ public class PvpManager {
             }
         }
         return false;
+    }
+
+    public boolean isPlayerInOwnSpawnProtection(Player player) {
+        if (gameState == GameState.IDLE) return false;
+        String playerTeam = getPlayerTeamTag(player);
+        if (playerTeam == null) return false;
+
+        ArenaData data = teamDataMap.get(playerTeam);
+        if (data == null) return false;
+
+        BoundingBox box = getSpawnProtectionBox(data.getSpawnLocation());
+        return box != null && box.contains(player.getLocation().toVector());
     }
 
     public boolean isPlayerInEnemySpawnProtection(Player player) {
