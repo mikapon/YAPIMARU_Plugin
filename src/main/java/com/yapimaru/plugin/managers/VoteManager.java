@@ -7,7 +7,6 @@ import net.kyori.adventure.platform.bukkit.BukkitAudiences;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
@@ -18,6 +17,7 @@ import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Level;
 
 public class VoteManager {
 
@@ -36,7 +36,9 @@ public class VoteManager {
         this.adventure = plugin.getAdventure();
         this.votingFolder = new File(plugin.getDataFolder(), "voting");
         if (!votingFolder.exists()) {
-            votingFolder.mkdirs();
+            if (!votingFolder.mkdirs()) {
+                plugin.getLogger().warning("Failed to create voting directory.");
+            }
         }
     }
 
@@ -63,7 +65,7 @@ public class VoteManager {
         }
     }
 
-    public boolean createPoll(String directoryName, String question, List<String> options, boolean multiChoice, long durationMillis, CommandSender creator) {
+    public boolean createPoll(String directoryName, String question, List<String> options, boolean multiChoice, long durationMillis) {
         String fullPollId = directoryName + "::" + question;
         if (activePolls.containsKey(fullPollId)) {
             return false;
@@ -166,7 +168,9 @@ public class VoteManager {
     private void saveResultFile(VoteData voteData) {
         File dir = new File(this.votingFolder, voteData.getDirectoryName());
         if (!dir.exists()) {
-            dir.mkdirs();
+            if (!dir.mkdirs()) {
+                plugin.getLogger().warning("Failed to create directory for poll results: " + dir.getPath());
+            }
         }
 
         String date = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss").format(new Date());
@@ -200,8 +204,7 @@ public class VoteManager {
         try {
             config.save(resultFile);
         } catch (IOException e) {
-            plugin.getLogger().severe("Failed to save poll result file: " + resultFile.getName());
-            e.printStackTrace();
+            plugin.getLogger().log(Level.SEVERE, "Failed to save poll result file: " + resultFile.getName(), e);
         }
     }
 

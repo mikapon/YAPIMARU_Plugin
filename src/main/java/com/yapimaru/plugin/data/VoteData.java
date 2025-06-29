@@ -1,11 +1,6 @@
 package com.yapimaru.plugin.data;
 
-import org.bukkit.configuration.file.YamlConfiguration;
-
-import java.io.File;
-import java.io.IOException;
 import java.util.*;
-import java.util.stream.Collectors;
 
 public class VoteData {
 
@@ -13,7 +8,7 @@ public class VoteData {
     private final String question;
     private final List<String> options;
     private final boolean multiChoice;
-    private long endTime; // 0 for indefinite
+    private final long endTime; // 0 for indefinite
 
     private final Map<Integer, Set<UUID>> votes = new HashMap<>();
     private final Map<UUID, Set<Integer>> playerVotes = new HashMap<>();
@@ -35,7 +30,6 @@ public class VoteData {
     public String getQuestion() { return question; }
     public List<String> getOptions() { return new ArrayList<>(options); }
     public boolean isMultiChoice() { return multiChoice; }
-    public long getEndTime() { return endTime; }
     public Map<Integer, Set<UUID>> getVotes() { return votes; }
     public Map<UUID, Set<Integer>> getPlayerVotes() { return playerVotes; }
 
@@ -49,9 +43,7 @@ public class VoteData {
         }
 
         if (!multiChoice && playerVotes.containsKey(playerUuid)) {
-            playerVotes.get(playerUuid).forEach(previousChoice -> {
-                votes.get(previousChoice).remove(playerUuid);
-            });
+            playerVotes.get(playerUuid).forEach(previousChoice -> votes.get(previousChoice).remove(playerUuid));
             playerVotes.get(playerUuid).clear();
         }
 

@@ -7,6 +7,7 @@ import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -23,7 +24,7 @@ public class VotingCommand implements CommandExecutor {
     }
 
     @Override
-    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+    public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command, @NotNull String label, @NotNull String[] args) {
         if (args.length == 0) {
             sendHelp(sender);
             return true;
@@ -33,17 +34,15 @@ public class VotingCommand implements CommandExecutor {
         String[] subArgs = new String[args.length - 1];
         System.arraycopy(args, 1, subArgs, 0, args.length - 1);
 
-        switch (subCommand) {
-            case "question":
-                return handleQuestion(sender, subArgs);
-            case "answer":
-                return handleAnswer(sender, subArgs);
-            case "end_poll":
-                return handleEndPoll(sender, subArgs);
-            default:
+        return switch (subCommand) {
+            case "question" -> handleQuestion(sender, subArgs);
+            case "answer" -> handleAnswer(sender, subArgs);
+            case "end_poll" -> handleEndPoll(sender, subArgs);
+            default -> {
                 sendHelp(sender);
-                return true;
-        }
+                yield true;
+            }
+        };
     }
 
     private boolean handleQuestion(CommandSender sender, String[] args) {
@@ -53,7 +52,7 @@ public class VotingCommand implements CommandExecutor {
         }
         if (args.length < 4) {
             sender.sendMessage(ChatColor.RED + "使い方: /voting question <企画名> <質問文> <選択肢1> <選択肢2> ... [-duration <時間>] [-multi]");
-            return true;
+            return false;
         }
 
         String directoryName = args[0];
@@ -70,12 +69,12 @@ public class VotingCommand implements CommandExecutor {
                     durationMillis = parseDuration(args[currentArgIndex + 1]);
                     if (durationMillis == -1) {
                         sender.sendMessage(ChatColor.RED + "無効な時間形式です。例: 1h, 30m, 2d");
-                        return true;
+                        return false;
                     }
                     currentArgIndex += 2;
                 } else {
                     sender.sendMessage(ChatColor.RED + "-duration の後には時間を指定してください。");
-                    return true;
+                    return false;
                 }
             } else if (arg.equalsIgnoreCase("-multi")) {
                 multiChoice = true;
@@ -88,11 +87,10 @@ public class VotingCommand implements CommandExecutor {
 
         if (options.size() < 2) {
             sender.sendMessage(ChatColor.RED + "選択肢は少なくとも2つ必要です。");
-            return true;
+            return false;
         }
 
-        String fullPollId = directoryName + "::" + question;
-        if (voteManager.createPoll(directoryName, question, options, multiChoice, durationMillis, sender)) {
+        if (voteManager.createPoll(directoryName, question, options, multiChoice, durationMillis)) {
             sender.sendMessage(ChatColor.GREEN + "投票「" + question + "」を開始しました。");
         } else {
             sender.sendMessage(ChatColor.RED + "同じ企画・質問の投票「" + question + "」は既に存在します。");
@@ -108,7 +106,7 @@ public class VotingCommand implements CommandExecutor {
         if (args.length != 3) {
             player.sendMessage(ChatColor.RED + "使い方: /voting answer <企画名> <質問文> <番号>");
             player.sendMessage(ChatColor.GRAY + "企画名や質問文にスペースが含まれる場合は \"\" で囲ってください。");
-            return true;
+            return false;
         }
 
         String directoryName = args[0];
@@ -145,7 +143,7 @@ public class VotingCommand implements CommandExecutor {
         }
         if (args.length != 3) {
             sender.sendMessage(ChatColor.RED + "使い方: /voting end_poll <企画名> <質問文> <open|anonymity>");
-            return true;
+            return false;
         }
 
         String directoryName = args[0];
@@ -161,7 +159,7 @@ public class VotingCommand implements CommandExecutor {
             displayMode = VoteManager.ResultDisplayMode.valueOf(args[2].toUpperCase());
         } catch (IllegalArgumentException e) {
             sender.sendMessage(ChatColor.RED + "結果表示モードは 'open' または 'anonymity' を指定してください。");
-            return true;
+            return false;
         }
 
         voteManager.endPoll(fullPollId, displayMode);
