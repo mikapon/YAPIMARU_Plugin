@@ -1,0 +1,70 @@
+name: YAPIMARU_Plugin
+version: 2.5.1
+main: com.yapimaru.plugin.YAPIMARU_Plugin
+api-version: '1.21'
+author: YAPIMARU
+description: 動画撮影に便利なプラグインです。
+load: STARTUP
+depend: [WorldEdit]
+
+commands:
+  yapimaru:
+    description: YAPIMARUプラグインの管理コマンドです。
+    usage: /<command> [reload|cmlist]
+    aliases: [ym]
+    permission: yapimaru.admin
+    permission-message: このコマンドを使用する権限がありません。
+  hub:
+    description: ハブにテレポートします。
+    usage: /<command>
+  skinlist:
+    description: スキン名の一覧を表示します。
+    usage: /<command>
+    permission: yapimaru.skinlist
+  timer:
+    description: タイマーを管理します。
+    usage: /<command> [subcommand] [args]
+    aliases: [tm]
+    permission: yapimaru.admin
+    permission-message: このコマンドを使用する権限がありません。
+  pvp:
+    description: PvPモードを管理します。
+    usage: /<command> [subcommand] [args]
+    permission: yapimaru.admin
+    permission-message: このコマンドを使用する権限がありません。
+  name:
+    description: 偽名と名前の色を管理します。
+    usage: /<command> [subcommand] [args]
+    permission: yapimaru.admin
+    permission-message: このコマンドを使用する権限がありません。
+  creator:
+    description: 便利な管理GUIを開きます。
+    usage: /<command> [subcommand] [args]
+    aliases: [c]
+    permission: yapimaru.admin
+    permission-message: このコマンドを使用する権限がありません。
+  server:
+    description: サーバーの停止・再起動を管理します。
+    usage: /<command> [off|restart]
+    permission: yapimaru.admin
+    permission-message: このコマンドを使用する権限がありません。
+  spectator:
+    description: スペクテイターの表示設定を管理します。
+    usage: /<command> [on|off]
+    permission: yapimaru.admin
+    permission-message: このコマンドを使用する権限がありません。
+
+  # ★★★ 変更点 ★★★
+  # 投票コマンドを /voting に統一
+  voting:
+    description: 投票関連のコマンドです。
+    usage: /<command> <question|answer|end_poll> [args]
+    aliases: [vote]
+
+permissions:
+  yapimaru.admin:
+    description: 全ての管理コマンドへのアクセスを許可します。
+    default: op
+  yapimaru.skinlist:
+    description: /skinlist コマンドの使用を許可します。
+    default: true

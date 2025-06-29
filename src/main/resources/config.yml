@@ -1,0 +1,379 @@
+# ==================================
+#  YAPIMARU_Plugin Configuration
+# ==================================
+
+# /hub コマンドのテレポート先座標
+hub-location:
+  world: 'hub'
+  x: 336.50
+  y: 192.00
+  z: -94.50
+  yaw: 0.00
+  pitch: 0.00
+
+# ==================================
+#  Whitelist (ホワイトリスト) 機能
+# ==================================
+# このセクションはプラグインによって管理されます。
+# オーナー(operators)リストのみ手動で編集可能です。
+whitelist:
+  mode: OFF
+  owners:
+    - "002c8ff8-fbdb-4752-b166-fe609ee031b4"
+  candidates: []
+  allowed: []
+
+
+# ==================================
+#  FakeName (偽名) 機能
+# ==================================
+# プレイヤーの偽名設定はこの下に自動的に保存されます。
+players:
+  a72adb64-acef-49ab-a8e8-d6bb424aff54:
+    base_name: KURU
+    linked_name: 'KURU'
+  458574b6-4951-4d0e-a6d1-52709771be9b:
+    base_name: YAPIMARU
+    linked_name: 'YAPIMARU'
+  00000000-0000-0000-0009-01fc1e3647f8:
+    base_name: YAPIMARU
+    linked_name: 'YAPIMARU'
+  305672f0-da6b-4c79-b4d6-64a6d676c639:
+    base_name: みくろ
+    linked_name: 'みくろ'
+  00000000-0000-0000-0009-01f86b2feb79:
+    base_name: みくろ
+    linked_name: 'みくろ'
+  dbde0329-e5b9-417b-8163-30ecaed0468f:
+    base_name: みろか
+    linked_name: 'みろか'
+  00000000-0000-0000-0009-01f0138a4ea5:
+    base_name: なりえだ
+    linked_name: '８ビット'
+  00000000-0000-0000-0009-01ffbbd91f10:
+    base_name: の!む
+    linked_name: 'Emz'
+  61a550eb-6069-49b9-81a1-73abd0e61749:
+    base_name: しら
+    linked_name: 'MAX'
+  57d6e5f5-cf96-4267-8c4d-345b6c0961b9:
+    base_name: 五臓六腑
+    linked_name: 'R-T'
+  7971ec94-c2ac-4d82-b30f-d127cb2ac476:
+    base_name: アッシュ
+    linked_name: 'アッシュ'
+  00000000-0000-0000-0009-01f3796420bb:
+    base_name: Shigure Lunar
+    linked_name: 'アンジェロ'
+  00000000-0000-0000-0009-01fbec7f563c:
+    base_name: みどぴー
+    linked_name: 'アンバー'
+  00000000-0000-0000-0009-01f6ba32b1fc:
+    base_name: えぴまよ
+    linked_name: 'イヴ'
+  00000000-0000-0000-0009-01f43d9eb313:
+    base_name: 百瀬イマジネーション
+    linked_name: 'ウィロー'
+  00000000-0000-0000-0009-01f254c8f7ce:
+    base_name: ぴーます
+    linked_name: 'エドガー'
+  9759c876-df95-426b-abdc-5aa551090f51:
+    base_name: ちん
+    linked_name: 'エリザベス'
+  00000000-0000-0000-0009-01f9cd332e50:
+    base_name: タルン
+    linked_name: 'エル・プリモ'
+  00000000-0000-0000-0009-01fc87e2e213:
+    base_name: Leia
+    linked_name: 'オーティス'
+  ceb27c38-6210-403d-af31-bd602e1917b8:
+    base_name: せな
+    linked_name: 'オーリー'
+  00000000-0000-0000-0009-01f0606160a1:
+    base_name: せな
+    linked_name: 'オーリー'
+  00000000-0000-0000-0009-01fd47a7b1c2:
+    base_name: もはお
+    linked_name: 'ガス'
+  f6fb5723-7807-4d1d-accc-0ab601632a73:
+    base_name: Dの意思
+    linked_name: 'カゼ'
+  00000000-0000-0000-0009-01f3bbee6b8b:
+    base_name: Dの意思
+    linked_name: 'カゼ'
+  fdc5a128-b431-4225-a631-cc037bdc8c61:
+    base_name: もくざい🪵
+    linked_name: 'キット'
+  e566a109-8004-4ad4-9c9b-1891cdf88a94:
+    base_name: いなここ
+    linked_name: 'クランシー'
+  00000000-0000-0000-0009-01f772df6f87:
+    base_name: えく
+    linked_name: 'グリフ'
+  00000000-0000-0000-0009-01f2a19dc479:
+    base_name: みんちゃ
+    linked_name: 'グレイ'
+  00000000-0000-0000-0009-01fd4482d154:
+    base_name: ぴーふゆ
+    linked_name: 'クロウ'
+  00000000-0000-0000-0009-01fb76c0c510:
+    base_name: ぐみ
+    linked_name: 'グロム'
+  4cc215e2-172d-48b0-8bd6-493eaee9fb61:
+    base_name: halhal
+    linked_name: 'ゲイル'
+  00000000-0000-0000-0009-01f26d0a440b:
+    base_name: halhal
+    linked_name: 'ゲイル'
+  00000000-0000-0000-0009-01fc6965a24e:
+    base_name: GA
+    linked_name: 'ケンジ'
+  49a8a2dd-87c8-4f3b-96ac-57e8129e1a95:
+    base_name: そう
+    linked_name: 'コーデリアス'
+  25df0d97-abb8-4218-8f49-7a7b315c9229:
+    base_name: Kinora
+    linked_name: 'コルト'
+  00000000-0000-0000-0009-01f2b7986943:
+    base_name: 卵マン
+    linked_name: 'コレット'
+  00000000-0000-0000-0009-01f32f87532d:
+    base_name: さじなげ
+    linked_name: 'サージ'
+  1ebbc065-96ff-4575-b6f5-0a9b39fe0f43:
+    base_name: ろりまに
+    linked_name: 'サム'
+  36ce0385-95fa-4b4b-83c2-f70d278cb6ba:
+    base_name: IBO
+    linked_name: 'サンディ'
+  00000000-0000-0000-0009-01f46a9ba84d:
+    base_name: syou
+    linked_name: 'シェイド'
+  b563d3f3-ba75-41f8-b0dc-29f1dd92d31f:
+    base_name: なよ
+    linked_name: 'ジェシー'
+  00000000-0000-0000-0009-01f7a0bdac8d:
+    base_name: Nemesis
+    linked_name: 'ジェヨン'
+  f2c8796b-4662-471a-b296-cfbddd55f1f9:
+    base_name: ゆぅべぁ
+    linked_name: 'シェリー'
+  00000000-0000-0000-0009-01f15b8efcc4:
+    base_name: ゆぅべぁ
+    linked_name: 'シェリー'
+  a0c2f4f7-9b14-4c69-b5f9-3dc2d41b8678:
+    base_name: まき
+    linked_name: 'ジャッキー'
+  00000000-0000-0000-0009-01fd6c662f2f:
+    base_name: まき
+    linked_name: 'ジャッキー'
+  f18e3d63-4533-49ca-9909-a75f44ea63ab:
+    base_name: そうくん
+    linked_name: 'ジャネット'
+  00000000-0000-0000-0009-01f13397c389:
+    base_name: Kaspe
+    linked_name: 'ジュジュ'
+  2fcbd892-a516-45e1-9506-79657c50c0fd:
+    base_name: のーむ
+    linked_name: 'スクウィーク'
+  ab4a15c7-df17-4e34-a63b-07679d88825e:
+    base_name: のるがぶ
+    linked_name: 'ストゥー'
+  00000000-0000-0000-0009-01f241aeece9:
+    base_name: のるがぶ
+    linked_name: 'ストゥー'
+  00000000-0000-0000-0009-01f58105f73f:
+    base_name: みんちゃJr
+    linked_name: 'スパイク'
+  00000000-0000-0000-0009-01f7b52367ae:
+    base_name: 豆ちゃんまん
+    linked_name: 'スプラウト'
+  1506c1fa-e173-4fc4-b749-a36867f93fb2:
+    base_name: Taku
+    linked_name: 'ダイナマイク'
+  00000000-0000-0000-0009-01f6a010220f:
+    base_name: Taku
+    linked_name: 'ダイナマイク'
+  9e86123c-8c27-4e2d-a521-794d0b538c53:
+    base_name: ゆーちぃ
+    linked_name: 'ダグ'
+  00000000-0000-0000-0009-01fe1b071026:
+    base_name: よな
+    linked_name: 'タラ'
+  00000000-0000-0000-0009-01fc750db849:
+    base_name: もぐにぃ
+    linked_name: 'ダリル'
+  00000000-0000-0000-0009-01fdfa4f0824:
+    base_name: ぴいざ
+    linked_name: 'チェスター'
+  cce46048-7470-45ac-9343-eea95e146c7a:
+    base_name: ポッキー
+    linked_name: 'チャーリー'
+  00000000-0000-0000-0009-01f542d6329b:
+    base_name: ポッキー
+    linked_name: 'チャーリー'
+  00000000-0000-0000-0009-01fb4a64478f:
+    base_name: tatu
+    linked_name: 'チャック'
+  5653cfd9-6274-4464-aec5-6edff2a85ff8:
+    base_name: mizukiti
+    linked_name: 'ティック'
+  00000000-0000-0000-0009-01f5adf8e52b:
+    base_name: mizukiti
+    linked_name: 'ティック'
+  72b12686-a6a0-4daf-9186-5a90a8b9db86:
+    base_name: AKAKISUSHI
+    linked_name: 'ドラコ'
+  98e76d4f-7957-4c46-ba07-40d39391ab34:
+    base_name: 大工
+    linked_name: 'ナーニ'
+  300c0991-7c40-4b9f-8932-eda1162286c1:
+    base_name: きらろけ
+    linked_name: 'ニタ'
+  78f0a95c-afb4-4488-803b-97e335b8c39b:
+    base_name: うぐぅ
+    linked_name: 'バーリー'
+  00000000-0000-0000-0009-01f8fbad4d99:
+    base_name: もあい
+    linked_name: 'パール'
+  323de687-fd91-4251-b410-ad312916fd91:
+    base_name: Tiger
+    linked_name: 'バイロン'
+  00000000-0000-0000-0009-01f7a04a96fe:
+    base_name: Tiger
+    linked_name: 'バイロン'
+  00000000-0000-0000-0009-01f5b1963363:
+    base_name: りーち
+    linked_name: 'バズ'
+  00000000-0000-0000-0009-01f2aadb02e2:
+    base_name: あーる
+    linked_name: 'バスター'
+  00000000-0000-0000-0009-01fc744763d7:
+    base_name: らて
+    linked_name: 'パム'
+  00000000-0000-0000-0009-01f47dc8e9b5:
+    base_name: tosi
+    linked_name: 'ハンク'
+  70bc0910-bfed-4aa9-b1cf-add835c9f2f6:
+    base_name: shonbo
+    linked_name: 'ビー'
+  00000000-0000-0000-0009-01f8ca4c186f:
+    base_name: 四葉のくまちゃんぱんつ
+    linked_name: 'ビビ'
+  00000000-0000-0000-0009-01f144e7ee47:
+    base_name: ちいかわ
+    linked_name: 'ファング'
+  002c8ff8-fbdb-4752-b166-fe609ee031b4:
+    base_name: みか
+    linked_name: 'フィンクス'
+  53d9b80a-1f20-4efc-8ddb-166c49e23f6b:
+    base_name: あきね
+    linked_name: 'フランケン'
+  00000000-0000-0000-0009-01fe91c20733:
+    base_name: あきね
+    linked_name: 'フランケン'
+  00000000-0000-0000-0009-01f5d5a41f25:
+    base_name: ひさぽん
+    linked_name: 'ブル'
+  aed99939-43fe-4f4a-919c-aafa23d8bd18:
+    base_name: '₍ᐢ‥ᐢ₎ '
+    linked_name: 'ブロック'
+  4b5d81c6-7c93-41e9-97bf-3ed825b1d8f0:
+    base_name: まかろに
+    linked_name: 'ペニー'
+  00000000-0000-0000-0009-01fa1bf2e275:
+    base_name: まかろに
+    linked_name: 'ペニー'
+  00000000-0000-0000-0009-01f432136c28:
+    base_name: ザラシ
+    linked_name: 'ベリー'
+  00000000-0000-0000-0009-01f0bffa128b:
+    base_name: 雷雷雷
+    linked_name: 'ベル'
+  46ec5e53-d8b3-4f67-b93f-2eb6976329ac:
+    base_name: やる気まんまん丸
+    linked_name: 'ボウ'
+  00000000-0000-0000-0009-01fa5d909ed8:
+    base_name: やる気まんまん丸
+    linked_name: 'ボウ'
+  00000000-0000-0000-0009-01f0ef81fdc7:
+    base_name: ひろ
+    linked_name: 'ポコ'
+  00000000-0000-0000-0009-01fcc0a4fa6d:
+    base_name: おたい
+    linked_name: 'ボニー'
+  00000000-0000-0000-0009-01f46bea9e19:
+    base_name: よ
+    linked_name: 'マンディ'
+  00000000-0000-0000-0009-01f6d6dca770:
+    base_name: しん
+    linked_name: 'ミープル'
+  00000000-0000-0000-0009-01fcfce095cf:
+    base_name: しんじん
+    linked_name: 'ミコ'
+  00000000-0000-0000-0009-01f8c7be29d8:
+    base_name: こるぶる
+    linked_name: 'ミスターP'
+  00000000-0000-0000-0009-01fca4c5c231:
+    base_name: ドーナツ
+    linked_name: 'メイジー'
+  00000000-0000-0000-0009-01f7971089a6:
+    base_name: 赤水
+    linked_name: 'メグ'
+  1e70cf8c-a154-4a47-b90b-743c6ccd916e:
+    base_name: やまゆう
+    linked_name: 'メロディー'
+  f87d5f94-54ef-44fe-a2b9-a71a43c28680:
+    base_name: N.s0807
+    linked_name: 'モー'
+  00000000-0000-0000-0009-01fbd0d4983e:
+    base_name: N.s0807
+    linked_name: 'モー'
+  c0f88948-3f95-4c2d-8d9e-ce2da783153a:
+    base_name: OwG
+    linked_name: 'モーティス'
+  00000000-0000-0000-0009-01f31556c6fc:
+    base_name: OwG
+    linked_name: 'モーティス'
+  3e7919d4-adb9-4ae0-ada5-031147c11623:
+    base_name: だーす
+    linked_name: 'ラフス'
+  00000000-0000-0000-0009-01ffe6350060:
+    base_name: トミーJr
+    linked_name: 'ラリー'
+  2a966d90-244d-4ae3-a541-2cdb5498ba47:
+    base_name: スパナ
+    linked_name: 'リコ'
+  b0a585ee-cc9f-4fe1-8e58-96b3796c7c06:
+    base_name: しげる
+    linked_name: 'リリー'
+  00000000-0000-0000-0009-01f35c34a1ae:
+    base_name: りか
+    linked_name: 'ルー'
+  00000000-0000-0000-0009-01fb09e403f5:
+    base_name: IGUTYAN
+    linked_name: 'ルミ'
+  f7f189d3-b65f-4876-9ec2-8377860f5d68:
+    base_name: ぶどう
+    linked_name: 'レオン'
+  00000000-0000-0000-0009-01f544928627:
+    base_name: ぶどう
+    linked_name: 'レオン'
+  fb790cc7-fc16-4471-b5b6-909ce6af951e:
+    base_name: Mira
+    linked_name: 'ローサ'
+  89083010-d104-4f0d-b969-9040264545e1:
+    base_name: Sora
+    linked_name: 'ローラ'
+  00000000-0000-0000-0009-01fe6e5c117e:
+    base_name: Sora
+    linked_name: 'ローラ'
+  00000000-0000-0000-0009-01f6b6b85408:
+    base_name: トミー
+    linked_name: 'ローリー'
+  690d5928-d1d9-4098-a768-e6b8fb92e9d6:
+    base_name: みか
+    linked_name: '管理人'
+  00000000-0000-0000-0009-01f8e1f83f1a:
+    base_name: みか
+    linked_name: 'フィンクス'
