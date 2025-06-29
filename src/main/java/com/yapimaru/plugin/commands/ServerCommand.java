@@ -74,8 +74,12 @@ public class ServerCommand implements CommandExecutor {
         timerManager.setRotatingSubtitles(subtitles, 2);
 
         timerManager.clearOnEndActions();
-        timerManager.addOnEndAction(sender, "cmd", 1, "stop");
 
+        if ("restart".equals(type)) {
+            timerManager.addOnEndAction(sender, "cmd", 1, "restart");
+        } else {
+            timerManager.addOnEndAction(sender, "cmd", 1, "stop");
+        }
         timerManager.start(sender);
 
         adventure.sender(sender).sendMessage(Component.text("サーバーの" + ("off".equals(type) ? "停止" : "再起動") + "シーケンスを開始しました。", NamedTextColor.GOLD));
