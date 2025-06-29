@@ -65,8 +65,6 @@ public class PvpManager {
     private int gracePeriodTime = 3;
     private boolean isGracePeriodActive = false;
 
-    // ★★★ 追加 ★★★
-    // GracePeriodと敵地ダメージのタスク、カウントダウン秒数を管理するフィールドを追加
     private BukkitTask gracePeriodTask;
     private BukkitTask hostileAreaDamageTask;
     private int gracePeriodCountdown;
@@ -107,16 +105,13 @@ public class PvpManager {
     public int getRespawnInvincibleTime() { return respawnInvincibleTime; }
     public int getGracePeriodTime() { return gracePeriodTime; }
 
-    // ★★★ 追加 ★★★
-    // 3x3x5のスポーン保護エリアのBoundingBoxを生成する
     private BoundingBox getSpawnProtectionBox(Location spawn) {
         if (spawn == null) return null;
         Location l = spawn.getBlock().getLocation();
+        // 3x3 (x, z) and 5 high (y)
         return new BoundingBox(l.getX() - 1, l.getY(), l.getZ() - 1, l.getX() + 2, l.getY() + 5, l.getZ() + 2);
     }
 
-    // ★★★ 追加 ★★★
-    // 指定した場所がいずれかの3x3x5スポーン保護エリア内か判定する
     public boolean isLocationInSpawnProtection(Location loc) {
         if (gameState == GameState.IDLE) return false;
         for (ArenaData data : teamDataMap.values()) {
@@ -128,8 +123,6 @@ public class PvpManager {
         return false;
     }
 
-    // ★★★ 追加 ★★★
-    // プレイヤーが敵チームの3x3x5スポーン保護エリア内にいるか判定する
     public boolean isPlayerInEnemySpawnProtection(Player player) {
         if (gameState != GameState.RUNNING) return false;
         String playerTeam = getPlayerTeamTag(player);
@@ -138,7 +131,6 @@ public class PvpManager {
             String teamColor = entry.getKey();
             ArenaData data = entry.getValue();
 
-            // 自分のチームのエリアは無視
             if (teamColor.equals(playerTeam)) continue;
 
             BoundingBox box = getSpawnProtectionBox(data.getSpawnLocation());
@@ -222,8 +214,6 @@ public class PvpManager {
         teleportPlayersAndCreateBoxes();
     }
 
-    // ★★★ 変更点 ★★★
-    // ゲーム開始時にGracePeriodと敵地ダメージのタスクを開始する
     public void startGame() {
         if (!featureEnabled || gameState == GameState.RUNNING) return;
         this.gameState = GameState.RUNNING;
@@ -231,7 +221,6 @@ public class PvpManager {
         createArenaWalls();
         unleashPlayers();
 
-        // 準備時間(Grace Period)の処理
         if (gracePeriodEnabled && gracePeriodTime > 0) {
             isGracePeriodActive = true;
             gracePeriodCountdown = gracePeriodTime;
@@ -253,7 +242,6 @@ public class PvpManager {
             }.runTaskTimer(plugin, 20L, 20L);
         }
 
-        // 敵地侵入時のダメージ処理
         hostileAreaDamageTask = new BukkitRunnable() {
             @Override
             public void run() {
@@ -263,15 +251,13 @@ public class PvpManager {
                 }
                 for (Player player : Bukkit.getOnlinePlayers()) {
                     if (isPlayerInEnemySpawnProtection(player)) {
-                        player.damage(2.0); // 2ダメージ (ハート1個分)
+                        player.damage(2.0);
                     }
                 }
             }
-        }.runTaskTimer(plugin, 40L, 20L); // 2秒後から1秒ごとに実行
+        }.runTaskTimer(plugin, 40L, 20L);
     }
 
-    // ★★★ 変更点 ★★★
-    // ゲーム終了時に新しいタスクもキャンセルする
     public void stopGame(CommandSender sender) {
         if (gameState == GameState.IDLE) return;
 
@@ -510,17 +496,17 @@ public class PvpManager {
 
     public boolean isPlayerInOwnTeamProtectedArea(Player player) {
         if (gameState != GameState.RUNNING) {
-            return false; // ゲーム実行中のみ適用
+            return false;
         }
 
         String teamTag = getPlayerTeamTag(player);
         if (teamTag == null) {
-            return false; // チームに所属していない
+            return false;
         }
 
         ArenaData teamArenaData = teamDataMap.get(teamTag);
         if (teamArenaData == null || teamArenaData.getArenaRegion() == null) {
-            return false; // チームのアリーナが設定されていない
+            return false;
         }
 
         Region region = teamArenaData.getArenaRegion();
@@ -647,8 +633,6 @@ public class PvpManager {
         return Bukkit.getOnlinePlayers().stream().filter(p -> getPlayerTeamTag(p) != null).collect(Collectors.toList());
     }
 
-    // ★★★ 変更点 ★★★
-    // スコアボードの表示内容を大幅に更新
     @SuppressWarnings("deprecation")
     public void updatePlayerScoreboard(Player player) {
         if (!player.isOnline()) return;
@@ -679,7 +663,6 @@ public class PvpManager {
         AtomicInteger scoreCounter = new AtomicInteger(15);
         boolean hasStatus = false;
 
-        // 無敵状態の表示 (優先度順)
         if (isGracePeriodActive) {
             objective.getScore("§b準備時間: §e" + gracePeriodCountdown + "秒").setScore(scoreCounter.getAndDecrement());
             hasStatus = true;
@@ -697,7 +680,6 @@ public class PvpManager {
             hasStatus = true;
         }
 
-        // 残機システムの表示 (有効な場合のみ)
         if(livesFeatureEnabled) {
             if(hasStatus) objective.getScore(" ").setScore(scoreCounter.getAndDecrement());
             objective.getScore("§6- 残り残機 -").setScore(scoreCounter.getAndDecrement());

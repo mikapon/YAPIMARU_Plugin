@@ -64,10 +64,6 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
             nameManager.updatePlayerName(player, false);
         }
 
-        if (voteManager != null) {
-            voteManager.loadAllPolls();
-        }
-
         getLogger().info("YAPIMARU Plugin has been enabled!");
     }
 
@@ -79,8 +75,6 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
             }
         }
         if (timerManager != null) timerManager.forceStop(true);
-
-        if (voteManager != null) voteManager.endAllPollsOnDisable();
 
         if(adventure != null) {
             adventure.close();

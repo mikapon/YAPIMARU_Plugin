@@ -52,30 +52,17 @@ public class VotingCommand implements CommandExecutor {
             return true;
         }
         if (args.length < 4) {
-            sender.sendMessage(ChatColor.RED + "使い方: /voting question <ファイル名> <anonymity|open> <集計内容> <選択肢1> <選択肢2> ... [-duration <時間>] [-multi]");
+            sender.sendMessage(ChatColor.RED + "使い方: /voting question <企画名> <質問文> <選択肢1> <選択肢2> ... [-duration <時間>] [-multi]");
             return true;
         }
 
-        String pollId = args[0];
-        if (!pollId.matches("^[a-zA-Z0-9_-]+$")) {
-            sender.sendMessage(ChatColor.RED + "ファイル名には英数字、アンダースコア(_)、ハイフン(-)のみが使用できます。");
-            return true;
-        }
-
-        VoteData.VoteMode mode;
-        try {
-            mode = VoteData.VoteMode.valueOf(args[1].toUpperCase());
-        } catch (IllegalArgumentException e) {
-            sender.sendMessage(ChatColor.RED + "モードは 'anonymity' または 'open' を指定してください。");
-            return true;
-        }
-
-        String question = args[2];
+        String directoryName = args[0];
+        String question = args[1];
         List<String> options = new ArrayList<>();
         long durationMillis = 0;
         boolean multiChoice = false;
 
-        int currentArgIndex = 3;
+        int currentArgIndex = 2;
         while (currentArgIndex < args.length) {
             String arg = args[currentArgIndex];
             if (arg.equalsIgnoreCase("-duration")) {
@@ -104,10 +91,11 @@ public class VotingCommand implements CommandExecutor {
             return true;
         }
 
-        if (voteManager.createPoll(pollId, question, options, mode, multiChoice, durationMillis, sender)) {
-            sender.sendMessage(ChatColor.GREEN + "投票「" + pollId + "」を開始しました。");
+        String fullPollId = directoryName + "::" + question;
+        if (voteManager.createPoll(directoryName, question, options, multiChoice, durationMillis, sender)) {
+            sender.sendMessage(ChatColor.GREEN + "投票「" + question + "」を開始しました。");
         } else {
-            sender.sendMessage(ChatColor.RED + "投票「" + pollId + "」は既に存在します。");
+            sender.sendMessage(ChatColor.RED + "同じ企画・質問の投票「" + question + "」は既に存在します。");
         }
         return true;
     }
@@ -117,29 +105,32 @@ public class VotingCommand implements CommandExecutor {
             sender.sendMessage("このコマンドはプレイヤーのみ実行できます。");
             return true;
         }
-        if (args.length != 2) {
-            player.sendMessage(ChatColor.RED + "使い方: /voting answer <ファイル名> <番号>");
+        if (args.length != 3) {
+            player.sendMessage(ChatColor.RED + "使い方: /voting answer <企画名> <質問文> <番号>");
+            player.sendMessage(ChatColor.GRAY + "企画名や質問文にスペースが含まれる場合は \"\" で囲ってください。");
             return true;
         }
 
-        String pollId = args[0];
-        VoteData voteData = voteManager.getPoll(pollId);
+        String directoryName = args[0];
+        String question = args[1];
+        String fullPollId = directoryName + "::" + question;
+        VoteData voteData = voteManager.getPoll(fullPollId);
 
         if (voteData == null) {
-            player.sendMessage(ChatColor.RED + "投票「" + pollId + "」は見つかりません。");
+            player.sendMessage(ChatColor.RED + "投票「" + question + "」は見つかりません。");
             return true;
         }
 
         int choice;
         try {
-            choice = Integer.parseInt(args[1]);
+            choice = Integer.parseInt(args[2]);
         } catch (NumberFormatException e) {
             player.sendMessage(ChatColor.RED + "選択肢は番号で指定してください。");
             return true;
         }
 
         if (voteData.vote(player.getUniqueId(), choice)) {
-            player.sendMessage(ChatColor.GREEN + "投票「" + pollId + "」の選択肢 " + choice + " に投票しました。");
+            player.sendMessage(ChatColor.GREEN + "投票「" + question + "」の選択肢 " + choice + " に投票しました。");
             voteManager.updatePlayerVoteStatus(player);
         } else {
             player.sendMessage(ChatColor.RED + "無効な選択肢です。");
@@ -152,35 +143,38 @@ public class VotingCommand implements CommandExecutor {
             sender.sendMessage(ChatColor.RED + "このコマンドを使用する権限がありません。");
             return true;
         }
-        if (args.length != 2) {
-            sender.sendMessage(ChatColor.RED + "使い方: /voting end_poll <ファイル名> <open|anonymity>");
+        if (args.length != 3) {
+            sender.sendMessage(ChatColor.RED + "使い方: /voting end_poll <企画名> <質問文> <open|anonymity>");
             return true;
         }
 
-        String pollId = args[0];
-        if (voteManager.getPoll(pollId) == null) {
-            sender.sendMessage(ChatColor.RED + "投票「" + pollId + "」は見つかりません。");
+        String directoryName = args[0];
+        String question = args[1];
+        String fullPollId = directoryName + "::" + question;
+        if (voteManager.getPoll(fullPollId) == null) {
+            sender.sendMessage(ChatColor.RED + "投票「" + question + "」は見つかりません。");
             return true;
         }
 
         VoteManager.ResultDisplayMode displayMode;
         try {
-            displayMode = VoteManager.ResultDisplayMode.valueOf(args[1].toUpperCase());
+            displayMode = VoteManager.ResultDisplayMode.valueOf(args[2].toUpperCase());
         } catch (IllegalArgumentException e) {
             sender.sendMessage(ChatColor.RED + "結果表示モードは 'open' または 'anonymity' を指定してください。");
             return true;
         }
 
-        voteManager.endPoll(pollId, displayMode);
-        sender.sendMessage(ChatColor.GREEN + "投票「" + pollId + "」を終了しました。");
+        voteManager.endPoll(fullPollId, displayMode);
+        sender.sendMessage(ChatColor.GREEN + "投票「" + question + "」を終了しました。");
         return true;
     }
 
     private void sendHelp(CommandSender sender) {
         sender.sendMessage(ChatColor.GOLD + "--- Voting Command Help ---");
-        sender.sendMessage(ChatColor.AQUA + "/voting question <ID> <mode> <question> <options...> [-duration] [-multi]");
-        sender.sendMessage(ChatColor.AQUA + "/voting answer <ID> <number>");
-        sender.sendMessage(ChatColor.AQUA + "/voting end_poll <ID> <open|anonymity>");
+        sender.sendMessage(ChatColor.AQUA + "/voting question <企画名> <質問文> <選択肢...> [-duration 時間] [-multi]");
+        sender.sendMessage(ChatColor.AQUA + "/voting answer <企画名> <質問文> <番号>");
+        sender.sendMessage(ChatColor.AQUA + "/voting end_poll <企画名> <質問文> <open|anonymity>");
+        sender.sendMessage(ChatColor.GRAY + "企画名や質問文にスペースが含まれる場合は \"\" で囲ってください。");
     }
 
     private long parseDuration(String durationStr) {

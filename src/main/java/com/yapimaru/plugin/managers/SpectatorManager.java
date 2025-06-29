@@ -61,7 +61,7 @@ public class SpectatorManager implements Listener {
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
-        // 退出時には特に処理は不要
+        // No specific action needed on quit
     }
 
     private void handlePlayerState(Player player) {

@@ -17,7 +17,6 @@ public class NameManager {
     private Map<UUID, String> frozenDisplayNames = new HashMap<>();
     private org.bukkit.configuration.file.FileConfiguration config;
     private VoteManager voteManager;
-    // ★ここをpublicに
     public static final Set<String> WOOL_COLOR_NAMES = Set.of(
             "white", "orange", "magenta", "light_blue", "yellow", "lime", "pink", "gray", "light_gray",
             "cyan", "purple", "blue", "brown", "green", "red", "black"
@@ -166,7 +165,6 @@ public class NameManager {
             team.setSuffix("");
         }
 
-        // チャット欄の名前もlinked_nameやbase_nameを使うように
         targetPlayer.setDisplayName(listName);
         targetPlayer.setPlayerListName(votePrefix + listName);
     }

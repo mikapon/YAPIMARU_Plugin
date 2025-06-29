@@ -48,7 +48,6 @@ public class PlayerEventListener implements Listener {
         this.adventure = plugin.getAdventure();
     }
 
-    // --- ログイン・接続イベント (変更なし) ---
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerLogin(AsyncPlayerPreLoginEvent event) {
         String kickMessage = whitelistManager.checkLogin(event.getUniqueId());
@@ -105,43 +104,33 @@ public class PlayerEventListener implements Listener {
         guiManager.handlePlayerQuit(player);
     }
 
-
-    // ★★★ 変更点 ★★★
-    // ダメージイベントの保護ロジックを全面的に更新
     @EventHandler
     public void onEntityDamage(EntityDamageEvent event) {
         if (!(event.getEntity() instanceof Player player)) return;
 
-        // PvPゲーム中か判定
-        if (pvpManager.isGameRunning()) {
-            // 準備時間中は全員ダメージ無効
+        if (pvpManager.getGameState() != PvpManager.GameState.IDLE) {
             if (pvpManager.isGracePeriodActive()) {
                 event.setCancelled(true);
                 return;
             }
-            // 3x3x5のスポーン保護エリア内は全員ダメージ無効
             if (pvpManager.isLocationInSpawnProtection(player.getLocation())) {
                 event.setCancelled(true);
                 return;
             }
-            // 自分のチームの広い保護エリア内ではダメージ無効
             if (pvpManager.isPlayerInOwnTeamProtectedArea(player)) {
                 event.setCancelled(true);
                 return;
             }
-            // デス待機エリア内ではダメージ無効
             if (pvpManager.isLocationInProtectedDedArea(player.getLocation())) {
                 event.setCancelled(true);
                 return;
             }
-            // PvP中のリスポーン無敵
             if (pvpManager.getInvinciblePlayers().containsKey(player.getUniqueId())) {
                 event.setCancelled(true);
                 return;
             }
         }
 
-        // PvP外のログイン時無敵
         if (joinInvinciblePlayers.containsKey(player.getUniqueId())) {
             event.setCancelled(true);
         }
@@ -218,12 +207,9 @@ public class PlayerEventListener implements Listener {
         }
     }
 
-
-    // ★★★ 変更点 ★★★
-    // ブロック破壊・設置の保護ロジックを更新
     @EventHandler
     public void onBlockBreak(BlockBreakEvent event) {
-        if (!pvpManager.isGameRunning()) return;
+        if (pvpManager.getGameState() == PvpManager.GameState.IDLE) return;
         if (pvpManager.isLocationInProtectedArea(event.getBlock().getLocation()) || pvpManager.isLocationInSpawnProtection(event.getBlock().getLocation())) {
             adventure.player(event.getPlayer()).sendMessage(Component.text("保護エリア内ではブロックを破壊できません。", NamedTextColor.RED));
             event.setCancelled(true);
@@ -232,7 +218,7 @@ public class PlayerEventListener implements Listener {
 
     @EventHandler
     public void onBlockPlace(BlockPlaceEvent event) {
-        if (!pvpManager.isGameRunning()) return;
+        if (pvpManager.getGameState() == PvpManager.GameState.IDLE) return;
         if (pvpManager.isLocationInProtectedArea(event.getBlock().getLocation()) || pvpManager.isLocationInSpawnProtection(event.getBlock().getLocation())) {
             adventure.player(event.getPlayer()).sendMessage(Component.text("保護エリア内ではブロックを設置できません。", NamedTextColor.RED));
             event.setCancelled(true);
@@ -241,7 +227,7 @@ public class PlayerEventListener implements Listener {
 
     @EventHandler
     public void onBucketEmpty(PlayerBucketEmptyEvent event) {
-        if (!pvpManager.isGameRunning()) return;
+        if (pvpManager.getGameState() == PvpManager.GameState.IDLE) return;
         if (pvpManager.isLocationInProtectedArea(event.getBlock().getLocation()) || pvpManager.isLocationInSpawnProtection(event.getBlock().getLocation())) {
             adventure.player(event.getPlayer()).sendMessage(Component.text("保護エリア内では液体を設置できません。", NamedTextColor.RED));
             event.setCancelled(true);
@@ -250,29 +236,24 @@ public class PlayerEventListener implements Listener {
 
     @EventHandler
     public void onBucketFill(PlayerBucketFillEvent event) {
-        if (!pvpManager.isGameRunning()) return;
+        if (pvpManager.getGameState() == PvpManager.GameState.IDLE) return;
         if (pvpManager.isLocationInProtectedArea(event.getBlock().getLocation()) || pvpManager.isLocationInSpawnProtection(event.getBlock().getLocation())) {
             adventure.player(event.getPlayer()).sendMessage(Component.text("保護エリア内から液体を汲むことはできません。", NamedTextColor.RED));
             event.setCancelled(true);
         }
     }
 
-    // ★★★ 追加 ★★★
-    // 液体が保護エリアに流れないようにする
     @EventHandler
     public void onBlockFromTo(BlockFromToEvent event) {
-        if (!pvpManager.isGameRunning()) return;
+        if (pvpManager.getGameState() == PvpManager.GameState.IDLE) return;
         if (pvpManager.isLocationInSpawnProtection(event.getToBlock().getLocation())) {
             event.setCancelled(true);
         }
     }
 
-    // ★★★ 追加 ★★★
-    // 爆発が保護エリアに影響しないようにする
     @EventHandler
     public void onEntityExplode(EntityExplodeEvent event) {
-        if (!pvpManager.isGameRunning()) return;
-        // 爆発で破壊されるブロックリストから、保護エリア内のものを削除
+        if (pvpManager.getGameState() == PvpManager.GameState.IDLE) return;
         event.blockList().removeIf(block -> pvpManager.isLocationInSpawnProtection(block.getLocation()));
     }
 
