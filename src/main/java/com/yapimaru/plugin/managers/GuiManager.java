@@ -35,6 +35,7 @@ public class GuiManager {
     }
     private final Map<UUID, Integer> playerTpGuiPages = new HashMap<>();
     private final Map<UUID, TeleportMode> playerTpModes = new HashMap<>();
+    private final Set<UUID> awaitingTpAllTarget = new HashSet<>();
 
     private static final Map<Material, PotionEffect> TOGGLEABLE_EFFECTS;
 
@@ -59,13 +60,12 @@ public class GuiManager {
         this.nameManager = nameManager;
     }
 
-    public void handleInventoryClick(Player player, String title, ItemStack clickedItem) {
-        // タイトル文字列のページ部分を削除して比較
+    public void handleInventoryClick(Player player, String title, ItemStack clickedItem, Inventory inventory) {
         String baseTitle = title.split(" §8\\(")[0];
         switch (baseTitle) {
             case MAIN_MENU_TITLE -> handleMainMenuClick(player, clickedItem);
-            case TP_MENU_TITLE -> handleTeleportMenuClick(player, clickedItem);
-            case EFFECT_MENU_TITLE -> handleEffectMenuClick(player, clickedItem);
+            case TP_MENU_TITLE -> handleTeleportMenuClick(player, clickedItem, inventory);
+            case EFFECT_MENU_TITLE -> handleEffectMenuClick(player, clickedItem, inventory);
             case GAMEMODE_MENU_TITLE -> handleGamemodeMenuClick(player, clickedItem);
         }
     }
@@ -79,6 +79,9 @@ public class GuiManager {
     }
 
     public void openTeleportMenu(Player p) {
+        playerTpModes.put(p.getUniqueId(), TeleportMode.TELEPORT_TO);
+        awaitingTpAllTarget.remove(p.getUniqueId());
+
         playerTpGuiPages.putIfAbsent(p.getUniqueId(), 0);
         int page = playerTpGuiPages.get(p.getUniqueId());
 
@@ -91,7 +94,6 @@ public class GuiManager {
 
         for (Player target : Bukkit.getOnlinePlayers()) {
             if (target.equals(p)) continue;
-
             String playerColor = getPlayerColorName(target);
             if (playerColor != null) {
                 playersByColor.get(playerColor).add(target);
@@ -113,7 +115,7 @@ public class GuiManager {
 
         int totalPages = Math.max(1, (int) Math.ceil((double) guiItems.size() / 45.0));
         if (page >= totalPages) {
-            page = totalPages - 1;
+            page = totalPages > 0 ? totalPages - 1 : 0;
             playerTpGuiPages.put(p.getUniqueId(), page);
         }
 
@@ -139,11 +141,11 @@ public class GuiManager {
         TeleportMode currentMode = playerTpModes.getOrDefault(p.getUniqueId(), TeleportMode.TELEPORT_TO);
         if (currentMode == TeleportMode.TELEPORT_TO) {
             gui.setItem(48, createItem(Material.ENDER_PEARL, "§aモード: 自分をTP", "§7クリックで「相手をTP」に切替"));
+            gui.setItem(50, createItem(Material.BEACON, "§c全員を自分の場所にTP", "§7自分以外の全員を召喚します"));
         } else {
             gui.setItem(48, createItem(Material.ENDER_EYE, "§bモード: 相手をTP", "§7クリックで「自分をTP」に切替"));
+            gui.setItem(50, createItem(Material.NETHER_STAR, "§c全員を選択した人へTP", "§7これをクリック後、", "§7対象のプレイヤーをクリックしてください"));
         }
-
-        gui.setItem(50, createItem(Material.BEACON, "§c全員を自分の場所にTP", "§7自分以外の全員を召喚します"));
 
         p.openInventory(gui);
     }
@@ -151,24 +153,27 @@ public class GuiManager {
     public void openEffectMenu(Player p) {
         Inventory gui = Bukkit.createInventory(null, 54, EFFECT_MENU_TITLE);
 
-        addEffectButton(gui, 10, p, Material.GLASS);
-        addEffectButton(gui, 11, p, Material.GLOWSTONE_DUST);
-        addEffectButton(gui, 12, p, Material.GLOW_BERRIES);
+        addEffectButton(gui, 10, Material.GLASS, "透明化");
+        addEffectButton(gui, 11, Material.GLOWSTONE_DUST, "暗視");
+        addEffectButton(gui, 12, Material.GLOW_BERRIES, "発光");
 
-        addEffectButton(gui, 19, p, Material.SUGAR);
-        addEffectButton(gui, 20, p, Material.FEATHER);
+        addEffectButton(gui, 19, Material.SUGAR, "移動速度上昇 V");
+        addEffectButton(gui, 20, Material.FEATHER, "跳躍力上昇 V");
 
-        addEffectButton(gui, 28, p, Material.GOLDEN_PICKAXE);
-        addEffectButton(gui, 29, p, Material.DIAMOND_SWORD);
-        addEffectButton(gui, 30, p, Material.GHAST_TEAR);
-        addEffectButton(gui, 31, p, Material.NETHERITE_CHESTPLATE);
-        addEffectButton(gui, 32, p, Material.MAGMA_CREAM);
-        addEffectButton(gui, 33, p, Material.HEART_OF_THE_SEA);
+        addEffectButton(gui, 28, Material.GOLDEN_PICKAXE, "採掘速度上昇 MAX");
+        addEffectButton(gui, 29, Material.DIAMOND_SWORD, "攻撃力上昇 MAX");
+        addEffectButton(gui, 30, Material.GHAST_TEAR, "再生能力 MAX");
+        addEffectButton(gui, 31, Material.NETHERITE_CHESTPLATE, "ダメージ耐性 MAX");
+        addEffectButton(gui, 32, Material.MAGMA_CREAM, "火炎耐性 MAX");
+        addEffectButton(gui, 33, Material.HEART_OF_THE_SEA, "水中呼吸 MAX");
 
         gui.setItem(40, createItem(Material.GLISTERING_MELON_SLICE, "§d即時回復＆満腹度回復", "§7クリックで即座に効果を発動"));
 
         gui.setItem(45, createItem(Material.MILK_BUCKET, "§c全エフェクト解除"));
         gui.setItem(53, createItem(Material.OAK_DOOR, "§eメインメニューに戻る"));
+
+        updateEffectButtons(gui, p);
+
         p.openInventory(gui);
     }
 
@@ -189,15 +194,41 @@ public class GuiManager {
     private void handleMainMenuClick(Player p, ItemStack item) {
         if (item == null) return;
         switch (item.getType()) {
-            case ENDER_PEARL -> openTeleportMenu(p);
-            case BEACON -> openEffectMenu(p);
-            case DIAMOND_PICKAXE -> openGamemodeMenu(p);
+            case ENDER_PEARL:
+                openTeleportMenu(p);
+                break;
+            case BEACON:
+                openEffectMenu(p);
+                break;
+            case DIAMOND_PICKAXE:
+                openGamemodeMenu(p);
+                break;
         }
     }
 
     @SuppressWarnings("deprecation")
-    private void handleTeleportMenuClick(Player p, ItemStack item) {
+    private void handleTeleportMenuClick(Player p, ItemStack item, Inventory inventory) {
         if (item == null) return;
+
+        if (awaitingTpAllTarget.contains(p.getUniqueId())) {
+            if (item.getType() == Material.PLAYER_HEAD && item.getItemMeta() instanceof SkullMeta meta && meta.getOwningPlayer() != null) {
+                Player destination = Bukkit.getPlayer(meta.getOwningPlayer().getUniqueId());
+                if (destination != null) {
+                    p.sendMessage("§c" + destination.getName() + " の元へ、自分以外の全プレイヤーをテレポートさせます...");
+                    Bukkit.getOnlinePlayers().stream()
+                            .filter(target -> !target.equals(p) && !target.equals(destination))
+                            .forEach(target -> target.teleport(destination));
+                    p.closeInventory();
+                } else {
+                    p.sendMessage("§cテレポート先のプレイヤーが見つかりません。");
+                }
+            } else {
+                p.sendMessage("§cキャンセルしました。プレイヤーの頭をクリックしてください。");
+            }
+            awaitingTpAllTarget.remove(p.getUniqueId());
+            return;
+        }
+
         switch(item.getType()) {
             case PLAYER_HEAD:
                 if (item.getItemMeta() instanceof SkullMeta meta && meta.getOwningPlayer() != null) {
@@ -241,15 +272,21 @@ public class GuiManager {
                 p.sendMessage("§c自分以外の全プレイヤーをあなたの場所に召喚しました。");
                 p.closeInventory();
                 break;
+            case NETHER_STAR:
+                awaitingTpAllTarget.add(p.getUniqueId());
+                p.sendMessage("§e[全員テレポート] 次にクリックしたプレイヤーに全員をテレポートさせます。");
+                p.closeInventory();
+                p.openInventory(inventory);
+                break;
         }
     }
 
-    private void handleEffectMenuClick(Player p, ItemStack item) {
+    private void handleEffectMenuClick(Player p, ItemStack item, Inventory inventory) {
         if (item == null || item.getType() == Material.AIR) return;
 
         if (TOGGLEABLE_EFFECTS.containsKey(item.getType())) {
             toggleEffect(p, TOGGLEABLE_EFFECTS.get(item.getType()));
-            openEffectMenu(p);
+            updateEffectButtons(inventory, p);
             return;
         }
 
@@ -347,39 +384,35 @@ public class GuiManager {
         return null;
     }
 
-    private void addEffectButton(Inventory gui, int slot, Player p, Material material) {
-        PotionEffect effect = TOGGLEABLE_EFFECTS.get(material);
-        if (effect == null) return;
-
-        ItemMeta meta = Bukkit.getItemFactory().getItemMeta(material);
-        String name = meta != null && meta.hasDisplayName() ? meta.getDisplayName() : effect.getType().getName();
-        int amp = effect.getAmplifier();
-
-        String nameWithLevel;
-        if (amp == 254) {
-            nameWithLevel = name + " MAX";
-        } else if (amp > 0) {
-            nameWithLevel = name + " " + (amp + 1);
-        } else {
-            nameWithLevel = name;
-        }
-
-        boolean hasEffect = p.hasPotionEffect(effect.getType());
-        ItemStack item = createItem(material, "§b" + nameWithLevel);
-
-        ItemMeta itemMeta = item.getItemMeta();
-        if (itemMeta != null) {
-            List<String> lore = new ArrayList<>();
-            lore.add("§7状態: " + (hasEffect ? "§aON" : "§cOFF"));
-            lore.add("§7クリックで切り替え");
-            itemMeta.setLore(lore);
-            if (hasEffect) {
-                itemMeta.addEnchant(Enchantment.LURE, 1, true);
-            }
-            item.setItemMeta(itemMeta);
-        }
-
+    private void addEffectButton(Inventory gui, int slot, Material material, String name) {
+        ItemStack item = createItem(material, "§b" + name);
         gui.setItem(slot, item);
+    }
+
+    private void updateEffectButtons(Inventory gui, Player p) {
+        for (int i = 0; i < gui.getSize(); i++) {
+            ItemStack item = gui.getItem(i);
+            if (item == null || !TOGGLEABLE_EFFECTS.containsKey(item.getType())) {
+                continue;
+            }
+
+            PotionEffect effect = TOGGLEABLE_EFFECTS.get(item.getType());
+            boolean hasEffect = p.hasPotionEffect(effect.getType());
+
+            ItemMeta meta = item.getItemMeta();
+            if (meta != null) {
+                List<String> lore = new ArrayList<>();
+                lore.add("§7状態: " + (hasEffect ? "§aON" : "§cOFF"));
+                lore.add("§7クリックで切り替え");
+                meta.setLore(lore);
+                if (hasEffect) {
+                    if(!meta.hasEnchants()) meta.addEnchant(Enchantment.LURE, 1, true);
+                } else {
+                    meta.removeEnchant(Enchantment.LURE);
+                }
+                item.setItemMeta(meta);
+            }
+        }
     }
 
     private void toggleEffect(Player p, PotionEffect effect) {
@@ -424,5 +457,6 @@ public class GuiManager {
         stickyGameModes.remove(player.getUniqueId());
         playerTpGuiPages.remove(player.getUniqueId());
         playerTpModes.remove(player.getUniqueId());
+        awaitingTpAllTarget.remove(player.getUniqueId());
     }
 }
