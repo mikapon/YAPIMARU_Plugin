@@ -1,75 +1,89 @@
 package com.yapimaru.plugin.commands;
 
-import org.bukkit.GameMode;
+import com.yapimaru.plugin.YAPIMARU_Plugin;
+import com.yapimaru.plugin.managers.TimerManager;
+import net.kyori.adventure.platform.bukkit.BukkitAudiences;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
-import org.bukkit.entity.Player;
 
-/**
- * Minecraftサーバーのゲームモードを設定するためのコマンドを処理します。
- * プレイヤーにクリエイティブモードまたはサバイバルモードを切り替える機能を提供します。
- */
+import java.util.List;
+
 public class ServerCommand implements CommandExecutor {
 
-    /**
-     * コマンドが実行されたときに呼び出されるメソッドです。
-     *
-     * @param sender コマンドの送信者（プレイヤーまたはコンソール）
-     * @param command 実行されたコマンドのオブジェクト
-     * @param label コマンドのエイリアス
-     * @param args コマンドに続く引数の配列
-     * @return コマンドが正常に処理された場合はtrue、そうでない場合はfalse
-     */
+    private final YAPIMARU_Plugin plugin;
+    private final TimerManager timerManager;
+    private final BukkitAudiences adventure;
+
+    public ServerCommand(YAPIMARU_Plugin plugin, TimerManager timerManager) {
+        this.plugin = plugin;
+        this.timerManager = timerManager;
+        this.adventure = plugin.getAdventure();
+    }
+
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        // コマンドの送信者がプレイヤーであるかを確認し、Playerオブジェクトにキャストします。
-        // コンソールからの実行の場合、playerはnullになります。
-        Player player = null;
-        if (sender instanceof Player) {
-            player = (Player) sender;
-        }
-
-        // 引数の数が適切かどうかをチェックします。
-        // 引数が0の場合（例: /server のみ）、使用方法を表示します。
         if (args.length == 0) {
-            sender.sendMessage("§c使用方法: /server <creative|survival>");
+            sendHelp(sender);
             return true;
         }
 
-        // コマンドの送信者がプレイヤー以外（例: コンソール）である場合、
-        // このコマンドはプレイヤーのみが実行できることを伝えます。
-        if (player == null) {
-            sender.sendMessage("§cこのコマンドはプレイヤーのみ実行できます。");
+        if (timerManager.isRunning()) {
+            adventure.sender(sender).sendMessage(Component.text("既にタイマーが作動中です。/timer stop で停止してください。", NamedTextColor.RED));
             return true;
         }
 
-        // コマンドの最初の引数をゲームモードの文字列として取得し、小文字に変換します。
-        // 例: "Creative" -> "creative"
-        String serverMode = args[0].toLowerCase();
-
-        // 設定するゲームモードを保持するための変数を初期化します。
-        GameMode gameMode = null;
-
-        // 指定されたゲームモードの文字列に基づいて、対応するGameMode列挙型を設定します。
-        // "creative" が指定された場合はCREATIVEモードに、"survival" が指定された場合はSURVIVALモードに設定します。
-        if (serverMode.equals("creative")) {
-            gameMode = GameMode.CREATIVE;
-        } else if (serverMode.equals("survival")) {
-            gameMode = GameMode.SURVIVAL;
-        } else {
-            // "creative" または "survival" 以外の無効なゲームモードが指定された場合、
-            // プレイヤーにエラーメッセージを表示します。
-            player.sendMessage("§c不明なゲームモードです。creativeまたはsurvivalを指定してください。");
-            return true;
+        switch (args[0].toLowerCase()) {
+            case "off":
+                setupServerStop(sender, "off");
+                break;
+            case "restart":
+                setupServerStop(sender, "restart");
+                break;
+            default:
+                sendHelp(sender);
+                break;
         }
-
-        // プレイヤーのゲームモードを、決定されたGameModeに設定します。
-        player.setGameMode(gameMode);
-        // プレイヤーにゲームモードが正常に設定されたことを通知するメッセージを表示します。
-        player.sendMessage("§aゲームモードを" + serverMode + "に設定しました。");
-
-        // コマンドが正常に処理されたことを呼び出し元に通知するためにtrueを返します。
         return true;
+    }
+
+    private void setupServerStop(CommandSender sender, String type) {
+        timerManager.reset(sender);
+
+        timerManager.setTime(sender, "5m");
+
+        timerManager.setDisplay(sender, "title");
+
+        List<String> subtitles;
+        if ("off".equals(type)) {
+            subtitles = List.of(
+                    "メンテナンスを行うため",
+                    "サーバーを停止します。",
+                    "終了後にはdiscordにて",
+                    "お知らせします。"
+            );
+        } else { // restart
+            subtitles = List.of(
+                    "アップデートを行うため",
+                    "サーバーを再起動します。",
+                    "1分程で終了します"
+            );
+        }
+        timerManager.setRotatingSubtitles(subtitles, 2);
+
+        timerManager.clearOnEndActions();
+        timerManager.addOnEndAction(sender, "cmd", 1, "stop");
+
+        timerManager.start(sender);
+
+        adventure.sender(sender).sendMessage(Component.text("サーバーの" + ("off".equals(type) ? "停止" : "再起動") + "シーケンスを開始しました。", NamedTextColor.GOLD));
+    }
+
+    private void sendHelp(CommandSender sender) {
+        adventure.sender(sender).sendMessage(Component.text("§6--- Server Command Help ---"));
+        adventure.sender(sender).sendMessage(Component.text("§e/server off §7- 5分後にサーバーを停止します。"));
+        adventure.sender(sender).sendMessage(Component.text("§e/server restart §7- 5分後にサーバーを再起動します。"));
     }
 }

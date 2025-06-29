@@ -1,184 +1,186 @@
 package com.yapimaru.plugin;
 
-import com.yapimaru.plugin.commands.ServerCommand;
-import com.yapimaru.plugin.commands.VoteCommand;
-import com.yapimaru.plugin.commands.YmCommand;
-import com.yapimaru.plugin.listeners.ChatListener;
-import com.yapimaru.plugin.listeners.PlayerListener;
-import com.yapimaru.plugin.managers.ConfigManager;
-import com.yapimaru.plugin.managers.DatabaseManager;
-import com.yapimaru.plugin.managers.DiscordManager;
-import com.yapimaru.plugin.managers.TimerManager;
+import com.sk89q.worldedit.WorldEdit;
+import com.yapimaru.plugin.commands.*;
+import com.yapimaru.plugin.completers.*;
+import com.yapimaru.plugin.listeners.GuiListener;
+import com.yapimaru.plugin.listeners.PlayerEventListener;
+import com.yapimaru.plugin.listeners.VoteListener;
+import com.yapimaru.plugin.managers.*;
+import net.kyori.adventure.platform.bukkit.BukkitAudiences;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
-import org.bukkit.Material;
-import org.bukkit.NamespacedKey;
+import org.bukkit.command.CommandExecutor;
+import org.bukkit.command.PluginCommand;
+import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
-import org.bukkit.event.Listener;
-import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.ShapedRecipe;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import java.sql.SQLException;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.List;
 
-public final class YAPIMARU_Plugin extends JavaPlugin implements Listener {
-    private static YAPIMARU_Plugin instance;
-    private DatabaseManager databaseManager;
-    private ConfigManager configManager;
-    private DiscordManager discordManager;
-    private ChatListener chatListener;
+public final class YAPIMARU_Plugin extends JavaPlugin {
 
-    private boolean pollActive = false;
-    private String pollQuestion;
-    private Map<UUID, Integer> playerVotes = new HashMap<>();
-    private Map<Integer, String> pollOptions = new HashMap<>();
+    private BukkitAudiences adventure;
+    private WorldEdit worldEditHook;
 
-    public YAPIMARU_Plugin() {
-        instance = this;
-    }
+    private NameManager nameManager;
+    private GuiManager creatorGuiManager;
+    private TimerManager timerManager;
+    private PvpManager pvpManager;
+    private WhitelistManager whitelistManager;
+    private PlayerRestrictionManager restrictionManager;
+    private SpectatorManager spectatorManager;
+    private VoteManager voteManager;
+    private YmCommand ymCommand;
 
-    public static YAPIMARU_Plugin getInstance() {
-        return instance;
-    }
-
-    public DatabaseManager getDatabaseManager() {
-        return databaseManager;
-    }
-
-    public ConfigManager getConfigManager() {
-        return configManager;
-    }
-
-    public DiscordManager getDiscordManager() {
-        return discordManager;
-    }
-
-    public ChatListener getChatListener() {
-        return chatListener;
-    }
-
-    // 投票システムのゲッターとセッター
-    public boolean isPollActive() {
-        return pollActive;
-    }
-
-    public void setPollActive(boolean pollActive) {
-        this.pollActive = pollActive;
-    }
-
-    public String getPollQuestion() {
-        return pollQuestion;
-    }
-
-    public void setPollQuestion(String pollQuestion) {
-        this.pollQuestion = pollQuestion;
-    }
-
-    public Map<UUID, Integer> getPlayerVotes() {
-        return playerVotes;
-    }
-
-    public Map<Integer, String> getPollOptions() {
-        return pollOptions;
-    }
+    private List<String> commandManual = new ArrayList<>();
 
     @Override
     public void onEnable() {
-        // Plugin startup logic
-        getLogger().info(ChatColor.GREEN + "YAPIMARU_Plugin が有効になりました。");
+        this.adventure = BukkitAudiences.create(this);
 
-        // インスタンスの初期化
-        instance = this;
-        configManager = new ConfigManager(this);
-        discordManager = new DiscordManager(this);
-        chatListener = new ChatListener(this);
-
-        try {
-            databaseManager = new DatabaseManager(this);
-        } catch (SQLException e) {
-            getLogger().severe("データベースの初期化に失敗しました。");
-            e.printStackTrace();
-            getServer().getPluginManager().disablePlugin(this);
-            return;
+        if (Bukkit.getPluginManager().isPluginEnabled("WorldEdit")) {
+            this.worldEditHook = WorldEdit.getInstance();
+        } else {
+            getLogger().warning("WorldEdit not found. Some features will be disabled.");
         }
 
-        // TimerManagerの初期化
-        TimerManager timerManager = new TimerManager(this);
-        timerManager.startTimers();
+        saveDefaultConfig();
+        loadConfigAndManual();
 
-        // リスナーの登録
-        getServer().getPluginManager().registerEvents(new PlayerListener(this), this);
-        getServer().getPluginManager().registerEvents(chatListener, this);
+        initializeManagers();
+        linkManagers();
 
-        // コマンドの登録
-        YmCommand ymCommand = new YmCommand(this);
-        getCommand("ym").setExecutor(ymCommand);
-        getCommand("vote").setExecutor(new VoteCommand(this));
+        registerListeners();
+        registerCommands();
 
-        // [修正点 1] ServerCommandクラスには引数なしのコンストラクタしかないため、引数を渡さずにインスタンス化します。
-        // 元のコード: getCommand("server").setExecutor(new ServerCommand(this, timerManager, ymCommand));
-        getCommand("server").setExecutor(new ServerCommand());
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            nameManager.updatePlayerName(player, false);
+        }
 
-        // [修正点 2] 以下のコマンドとタブ補完は、対応するクラスファイルが存在しないためコンパイルエラーになります。
-        // 実装が完了するまで一時的にコメントアウトします。
-        // getCommand("vote").setTabCompleter(new VoteTabCompleter());
-        // getCommand("question").setExecutor(new QuestionCommand(this));
-        // getCommand("answer").setExecutor(new AnswerCommand(this));
-        // getCommand("endpoll").setExecutor(new EndPollCommand(this));
+        if (voteManager != null) {
+            voteManager.loadAllPolls();
+        }
 
-        // カスタムレシピの登録
-        registerCustomRecipes();
+        getLogger().info("YAPIMARU Plugin has been enabled!");
     }
 
     @Override
     public void onDisable() {
-        // Plugin shutdown logic
-        getLogger().info(ChatColor.RED + "YAPIMARU_Plugin が無効になりました。");
-        if (databaseManager != null) {
-            databaseManager.closeConnection();
+        if (nameManager != null) {
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                nameManager.updatePlayerName(player, true);
+            }
         }
-        if (discordManager != null) {
-            discordManager.shutdown();
+        if (timerManager != null) timerManager.forceStop(true);
+
+        if (voteManager != null) voteManager.endAllPollsOnDisable();
+
+        if(adventure != null) {
+            adventure.close();
+            this.adventure = null;
+        }
+        getLogger().info("YAPIMARU Plugin has been disabled!");
+    }
+
+    public void loadConfigAndManual() {
+        reloadConfig();
+
+        File manualFile = new File(getDataFolder(), "commands.txt");
+        if (!manualFile.exists()) {
+            try (InputStream in = getResource("commands.txt")) {
+                if (in != null) {
+                    Files.copy(in, manualFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                }
+            } catch (IOException e) {
+                getLogger().severe("Could not save commands.txt!");
+                e.printStackTrace();
+            }
+        }
+        try {
+            commandManual = Files.readAllLines(manualFile.toPath(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            getLogger().severe("Could not read commands.txt!");
+            e.printStackTrace();
+        }
+
+        if (nameManager != null) nameManager.reloadData();
+        if (whitelistManager != null) whitelistManager.load();
+    }
+
+    public List<String> getCommandManual() {
+        return commandManual;
+    }
+
+    private void initializeManagers() {
+        voteManager = new VoteManager(this);
+        nameManager = new NameManager(this);
+
+        whitelistManager = new WhitelistManager(this);
+        creatorGuiManager = new GuiManager(this, nameManager, whitelistManager);
+        pvpManager = new PvpManager(this);
+        timerManager = new TimerManager(this);
+        restrictionManager = new PlayerRestrictionManager();
+        spectatorManager = new SpectatorManager(this, pvpManager);
+        ymCommand = new YmCommand(this);
+    }
+
+    private void linkManagers() {
+        nameManager.setVoteManager(voteManager);
+        voteManager.setNameManager(nameManager);
+    }
+
+    private void registerListeners() {
+        Bukkit.getPluginManager().registerEvents(new PlayerEventListener(this), this);
+        Bukkit.getPluginManager().registerEvents(new GuiListener(this, ymCommand), this);
+        Bukkit.getPluginManager().registerEvents(new VoteListener(voteManager), this);
+        Bukkit.getPluginManager().registerEvents(restrictionManager, this);
+        Bukkit.getPluginManager().registerEvents(spectatorManager, this);
+    }
+
+    private void registerCommands() {
+        setExecutor("yapimaru", ymCommand, new YmTabCompleter());
+        setExecutor("c", new CreatorCommand(creatorGuiManager), new CreatorTabCompleter());
+        setExecutor("hub", new HubCommand(this));
+        setExecutor("name", new NameCommand(this, nameManager), new NameTabCompleter());
+        setExecutor("pvp", new PvpCommand(this, pvpManager), new PvpTabCompleter(pvpManager));
+        setExecutor("timer", new TimerCommand(this, timerManager), new TimerTabCompleter());
+        setExecutor("skinlist", new SkinListCommand(adventure));
+        setExecutor("server", new ServerCommand(this, timerManager), new ServerTabCompleter());
+        setExecutor("spectator", new SpectatorCommand(spectatorManager, adventure), new SpectatorTabCompleter());
+
+        setExecutor("voting", new VotingCommand(voteManager), new VotingTabCompleter(voteManager));
+    }
+
+    private void setExecutor(String commandName, CommandExecutor executor) {
+        PluginCommand command = getCommand(commandName);
+        if (command != null) {
+            command.setExecutor(executor);
         }
     }
 
-    private void registerCustomRecipes() {
-        // レシピ: ダイヤモンド9個 -> ネザライトインゴット1個
-        ItemStack netheriteIngot = new ItemStack(Material.NETHERITE_INGOT);
-        NamespacedKey netheriteKey = new NamespacedKey(this, "netherite_ingot_from_diamonds");
-        ShapedRecipe netheriteRecipe = new ShapedRecipe(netheriteKey, netheriteIngot);
-        netheriteRecipe.shape("DDD", "DDD", "DDD");
-        netheriteRecipe.setIngredient('D', Material.DIAMOND);
-        // レシピが既に存在しないか確認してから追加
-        if (Bukkit.getRecipe(netheriteKey) == null) {
-            Bukkit.addRecipe(netheriteRecipe);
-        }
-
-        // レシピ: エリトラ1個 -> ダイヤモンド8個
-        ItemStack diamonds = new ItemStack(Material.DIAMOND, 8);
-        NamespacedKey diamondsKey = new NamespacedKey(this, "diamonds_from_elytra");
-        ShapedRecipe diamondsRecipe = new ShapedRecipe(diamondsKey, diamonds);
-        diamondsRecipe.shape(" ", " E ", " ");
-        diamondsRecipe.setIngredient('E', Material.ELYTRA);
-        if (Bukkit.getRecipe(diamondsKey) == null) {
-            Bukkit.addRecipe(diamondsRecipe);
+    private void setExecutor(String commandName, CommandExecutor executor, TabCompleter completer) {
+        setExecutor(commandName, executor);
+        PluginCommand command = getCommand(commandName);
+        if (command != null) {
+            command.setTabCompleter(completer);
         }
     }
 
-    public void sendVoteStatus(Player player) {
-        if (!isPollActive()) {
-            player.sendMessage("現在、投票は行われていません。");
-            return;
-        }
-
-        player.sendMessage("現在の投票状況:");
-        player.sendMessage("質問: " + getPollQuestion());
-        for (Map.Entry<Integer, String> entry : getPollOptions().entrySet()) {
-            long count = getPlayerVotes().values().stream().filter(v -> v.equals(entry.getKey())).count();
-            player.sendMessage(entry.getKey() + ": " + entry.getValue() + " (" + count + "票)");
-        }
-    }
+    public WorldEdit getWorldEditHook() { return this.worldEditHook; }
+    public BukkitAudiences getAdventure() { return this.adventure; }
+    public NameManager getNameManager() { return nameManager; }
+    public TimerManager getTimerManager() { return timerManager; }
+    public PvpManager getPvpManager() { return pvpManager; }
+    public WhitelistManager getWhitelistManager() { return whitelistManager; }
+    public PlayerRestrictionManager getRestrictionManager() { return restrictionManager; }
+    public SpectatorManager getSpectatorManager() { return spectatorManager; }
+    public VoteManager getVoteManager() { return voteManager; }
+    public GuiManager getCreatorGuiManager() { return creatorGuiManager; }
 }
