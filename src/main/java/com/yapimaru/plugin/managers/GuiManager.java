@@ -2,6 +2,7 @@ package com.yapimaru.plugin.managers;
 
 import com.yapimaru.plugin.YAPIMARU_Plugin;
 import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
 import org.bukkit.GameMode;
 import org.bukkit.Material;
 import org.bukkit.enchantments.Enchantment;
@@ -23,7 +24,6 @@ public class GuiManager {
 
     private final YAPIMARU_Plugin plugin;
     private final NameManager nameManager;
-    private final WhitelistManager whitelistManager;
 
     public static final String MAIN_MENU_TITLE = "クリエイターメニュー";
     public static final String TP_MENU_TITLE = "クリエイターメニュー - テレポート";
@@ -33,10 +33,16 @@ public class GuiManager {
     private final Map<UUID, Set<PotionEffect>> stickyEffects = new HashMap<>();
     private final Map<UUID, GameMode> stickyGameModes = new HashMap<>();
 
+    // --- テレポートGUI用の状態管理 ---
+    private enum TeleportMode {
+        TELEPORT_TO, SUMMON
+    }
+    private final Map<UUID, Integer> playerTpGuiPages = new HashMap<>();
+    private final Map<UUID, TeleportMode> playerTpModes = new HashMap<>();
+
     public GuiManager(YAPIMARU_Plugin plugin, NameManager nameManager, WhitelistManager whitelistManager) {
         this.plugin = plugin;
         this.nameManager = nameManager;
-        this.whitelistManager = whitelistManager;
     }
 
     public void handleInventoryClick(Player player, String title, ItemStack clickedItem) {
@@ -57,18 +63,82 @@ public class GuiManager {
     }
 
     public void openTeleportMenu(Player p) {
+        playerTpGuiPages.putIfAbsent(p.getUniqueId(), 0);
+        int page = playerTpGuiPages.get(p.getUniqueId());
+
+        // --- データ準備 ---
+        Map<String, List<Player>> playersByColor = new LinkedHashMap<>();
+        List<Player> noColorPlayers = new ArrayList<>();
+
+        // 色ごとのリストを初期化
+        for (String colorName : NameManager.WOOL_COLOR_NAMES) {
+            playersByColor.put(colorName, new ArrayList<>());
+        }
+
+        // プレイヤーを色で分類
+        for (Player target : Bukkit.getOnlinePlayers()) {
+            if (target.equals(p)) continue; // 自分自身は除外
+
+            String playerColor = getPlayerColorName(target);
+            if (playerColor != null) {
+                playersByColor.get(playerColor).add(target);
+            } else {
+                noColorPlayers.add(target);
+            }
+        }
+        playersByColor.put("none", noColorPlayers); // 色なしグループを追加
+
+        // --- GUIアイテムリスト生成 ---
+        List<ItemStack> guiItems = new ArrayList<>();
+        playersByColor.forEach((color, players) -> {
+            if (!players.isEmpty()) {
+                // ヘッダー（羊毛）を追加
+                guiItems.add(createTeamHeader(color));
+                // プレイヤーヘッドを追加
+                players.stream()
+                        .sorted(Comparator.comparing(Player::getName))
+                        .forEach(player -> guiItems.add(createPlayerHead(player)));
+            }
+        });
+
+        // --- GUI構築 ---
+        int totalPages = (int) Math.ceil((double) guiItems.size() / 45.0);
+        if (totalPages > 0 && page >= totalPages) {
+            page = totalPages - 1;
+            playerTpGuiPages.put(p.getUniqueId(), page);
+        }
+
         Inventory gui = Bukkit.createInventory(null, 54, TP_MENU_TITLE);
 
-        List<Player> players = Bukkit.getOnlinePlayers().stream()
-                .filter(pl -> !pl.getUniqueId().equals(p.getUniqueId()))
-                .sorted(Comparator.comparing(Player::getName))
-                .collect(Collectors.toList());
-
-        for (int i = 0; i < Math.min(players.size(), 53); i++) {
-            Player target = players.get(i);
-            gui.setItem(i, createPlayerHead(target, "§eクリックで" + target.getName() + "にテレポート"));
+        // ページに合わせてアイテムを配置
+        int startIndex = page * 45;
+        for (int i = 0; i < 45; i++) {
+            int itemIndex = startIndex + i;
+            if (itemIndex < guiItems.size()) {
+                gui.setItem(i, guiItems.get(itemIndex));
+            }
         }
-        gui.setItem(53, createItem(Material.ARROW, "§e戻る"));
+
+        // --- 下部コントロールパネル ---
+        if (page > 0) {
+            gui.setItem(45, createItem(Material.ARROW, "§e前のページ", "§7" + page + "/" + totalPages));
+        }
+        if ((page + 1) < totalPages) {
+            gui.setItem(53, createItem(Material.ARROW, "§e次のページ", "§7" + (page + 2) + "/" + totalPages));
+        }
+        gui.setItem(49, createItem(Material.OAK_DOOR, "§eメインメニューに戻る"));
+
+        // モード切替ボタン
+        TeleportMode currentMode = playerTpModes.getOrDefault(p.getUniqueId(), TeleportMode.TELEPORT_TO);
+        if (currentMode == TeleportMode.TELEPORT_TO) {
+            gui.setItem(48, createItem(Material.ENDER_PEARL, "§aモード: 自分をTP", "§7クリックで「相手をTP」に切替"));
+        } else {
+            gui.setItem(48, createItem(Material.ENDER_EYE, "§bモード: 相手をTP", "§7クリックで「自分をTP」に切替"));
+        }
+
+        // 全員TPボタン
+        gui.setItem(50, createItem(Material.BEACON, "§c全員を自分の場所にTP", "§7自分以外の全員を召喚します"));
+
         p.openInventory(gui);
     }
 
@@ -110,20 +180,51 @@ public class GuiManager {
 
     @SuppressWarnings("deprecation")
     private void handleTeleportMenuClick(Player p, ItemStack item) {
-        if (item.getType() == Material.PLAYER_HEAD) {
-            SkullMeta meta = (SkullMeta) item.getItemMeta();
-            if (meta != null && meta.getOwningPlayer() != null) {
-                Player target = Bukkit.getPlayer(meta.getOwningPlayer().getUniqueId());
-                if (target != null) {
-                    p.teleport(target.getLocation());
-                    p.sendMessage("§a" + target.getName() + "にテレポートしました。");
-                    p.closeInventory();
-                } else {
-                    p.sendMessage("§cテレポート先のプレイヤーが見つかりません。");
+        switch(item.getType()) {
+            case PLAYER_HEAD:
+                SkullMeta meta = (SkullMeta) item.getItemMeta();
+                if (meta != null && meta.getOwningPlayer() != null) {
+                    Player target = Bukkit.getPlayer(meta.getOwningPlayer().getUniqueId());
+                    if (target != null) {
+                        TeleportMode currentMode = playerTpModes.getOrDefault(p.getUniqueId(), TeleportMode.TELEPORT_TO);
+                        if (currentMode == TeleportMode.TELEPORT_TO) {
+                            p.teleport(target.getLocation());
+                            p.sendMessage("§a" + target.getName() + "にテレポートしました。");
+                        } else {
+                            target.teleport(p.getLocation());
+                            p.sendMessage("§b" + target.getName() + "をあなたの場所に召喚しました。");
+                        }
+                        p.closeInventory();
+                    } else {
+                        p.sendMessage("§cテレポート先のプレイヤーが見つかりません。");
+                    }
                 }
-            }
-        } else if (item.getType() == Material.ARROW) {
-            openMainMenu(p);
+                break;
+            case ARROW:
+                int currentPage = playerTpGuiPages.getOrDefault(p.getUniqueId(), 0);
+                if (item.getItemMeta().getDisplayName().contains("前")) {
+                    playerTpGuiPages.put(p.getUniqueId(), Math.max(0, currentPage - 1));
+                } else {
+                    playerTpGuiPages.put(p.getUniqueId(), currentPage + 1);
+                }
+                openTeleportMenu(p);
+                break;
+            case OAK_DOOR:
+                openMainMenu(p);
+                break;
+            case ENDER_PEARL:
+            case ENDER_EYE:
+                TeleportMode currentMode = playerTpModes.getOrDefault(p.getUniqueId(), TeleportMode.TELEPORT_TO);
+                playerTpModes.put(p.getUniqueId(), currentMode == TeleportMode.TELEPORT_TO ? TeleportMode.SUMMON : TeleportMode.TELEPORT_TO);
+                openTeleportMenu(p);
+                break;
+            case BEACON:
+                Bukkit.getOnlinePlayers().stream()
+                        .filter(target -> !target.equals(p))
+                        .forEach(target -> target.teleport(p.getLocation()));
+                p.sendMessage("§c自分以外の全プレイヤーをあなたの場所に召喚しました。");
+                p.closeInventory();
+                break;
         }
     }
 
@@ -131,7 +232,7 @@ public class GuiManager {
         switch (item.getType()) {
             case POTION, LINGERING_POTION, SPLASH_POTION, LIME_DYE, GRAY_DYE -> {
                 PotionMeta meta = (PotionMeta) item.getItemMeta();
-                if (meta != null) {
+                if (meta != null && meta.getBasePotionType() != null) {
                     PotionEffectType type = meta.getBasePotionType().getEffectType();
                     if (type != null) {
                         int amp = type == PotionEffectType.SPEED || type == PotionEffectType.JUMP_BOOST ? 1 : (type == PotionEffectType.RESISTANCE ? 4 : 0);
@@ -184,15 +285,41 @@ public class GuiManager {
     }
 
     @SuppressWarnings("deprecation")
-    private ItemStack createPlayerHead(Player p, String... lore) {
+    private ItemStack createPlayerHead(Player p) {
         ItemStack head = new ItemStack(Material.PLAYER_HEAD);
         SkullMeta meta = (SkullMeta) head.getItemMeta();
         if(meta == null) return head;
         meta.setOwningPlayer(p);
         meta.setDisplayName("§r" + nameManager.getDisplayName(p.getUniqueId()));
-        meta.setLore(Arrays.asList(lore));
+
+        TeleportMode currentMode = playerTpModes.getOrDefault(p.getUniqueId(), TeleportMode.TELEPORT_TO);
+        if (currentMode == TeleportMode.TELEPORT_TO) {
+            meta.setLore(Collections.singletonList("§eクリックでこのプレイヤーへテレポート"));
+        } else {
+            meta.setLore(Collections.singletonList("§bクリックでこのプレイヤーを召喚"));
+        }
+
         head.setItemMeta(meta);
         return head;
+    }
+
+    private ItemStack createTeamHeader(String colorName) {
+        Material woolMaterial;
+        try {
+            woolMaterial = Material.valueOf(colorName.toUpperCase() + "_WOOL");
+        } catch (IllegalArgumentException e) {
+            woolMaterial = Material.WHITE_WOOL;
+        }
+        return createItem(woolMaterial, "§l" + colorName.toUpperCase() + " Team");
+    }
+
+    private String getPlayerColorName(Player player) {
+        for (String colorName : NameManager.WOOL_COLOR_NAMES) {
+            if (player.getScoreboardTags().contains(colorName)) {
+                return colorName;
+            }
+        }
+        return null; // 色が設定されていない場合
     }
 
     private void addEffectButton(Inventory gui, int slot, Player p, PotionEffectType type, int amp, String name) {
@@ -264,5 +391,7 @@ public class GuiManager {
     public void handlePlayerQuit(Player player) {
         stickyEffects.remove(player.getUniqueId());
         stickyGameModes.remove(player.getUniqueId());
+        playerTpGuiPages.remove(player.getUniqueId());
+        playerTpModes.remove(player.getUniqueId());
     }
 }
