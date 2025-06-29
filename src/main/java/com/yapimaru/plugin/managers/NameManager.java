@@ -4,17 +4,19 @@ import com.yapimaru.plugin.YAPIMARU_Plugin;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.OfflinePlayer;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Player;
 import org.bukkit.scoreboard.Scoreboard;
+import org.bukkit.scoreboard.ScoreboardManager;
 import org.bukkit.scoreboard.Team;
 
 import java.util.*;
 
 public class NameManager {
     private final YAPIMARU_Plugin plugin;
-    private Map<UUID, String> baseNames = new HashMap<>();
-    private Map<UUID, String> linkedNames = new HashMap<>();
-    private Map<UUID, String> frozenDisplayNames = new HashMap<>();
+    private final Map<UUID, String> baseNames = new HashMap<>();
+    private final Map<UUID, String> linkedNames = new HashMap<>();
+    private final Map<UUID, String> frozenDisplayNames = new HashMap<>();
     private org.bukkit.configuration.file.FileConfiguration config;
     private VoteManager voteManager;
     public static final Set<String> WOOL_COLOR_NAMES = Set.of(
@@ -36,8 +38,9 @@ public class NameManager {
         baseNames.clear();
         linkedNames.clear();
         frozenDisplayNames.clear();
-        if (config.contains("players")) {
-            for (String uuidStr : config.getConfigurationSection("players").getKeys(false)) {
+        ConfigurationSection playersSection = config.getConfigurationSection("players");
+        if (playersSection != null) {
+            for (String uuidStr : playersSection.getKeys(false)) {
                 UUID uuid = UUID.fromString(uuidStr);
                 if (config.contains("players." + uuidStr + ".base_name")) {
                     baseNames.put(uuid, config.getString("players." + uuidStr + ".base_name"));
@@ -71,18 +74,14 @@ public class NameManager {
     }
 
     public void removeFrozenData(UUID uuid) {
-        config.set("players." + uuid.toString() + ".frozen_display_name", null);
+        config.set("players." + uuid + ".frozen_display_name", null);
         frozenDisplayNames.remove(uuid);
         plugin.saveConfig();
     }
 
-    public String getFrozenDisplayName(UUID uuid) {
-        return frozenDisplayNames.get(uuid);
-    }
-
     public void setBaseName(UUID uuid, String name) {
         baseNames.put(uuid, name);
-        config.set("players." + uuid.toString() + ".base_name", name);
+        config.set("players." + uuid + ".base_name", name);
         plugin.saveConfig();
         Player onlinePlayer = Bukkit.getPlayer(uuid);
         if (onlinePlayer != null) {
@@ -97,10 +96,10 @@ public class NameManager {
     public void setLinkedName(UUID uuid, String name) {
         if (name == null || name.isEmpty()) {
             linkedNames.remove(uuid);
-            config.set("players." + uuid.toString() + ".linked_name", null);
+            config.set("players." + uuid + ".linked_name", null);
         } else {
             linkedNames.put(uuid, name);
-            config.set("players." + uuid.toString() + ".linked_name", name);
+            config.set("players." + uuid + ".linked_name", name);
         }
         plugin.saveConfig();
         Player onlinePlayer = Bukkit.getPlayer(uuid);
@@ -127,6 +126,8 @@ public class NameManager {
         if (targetPlayer == null) return;
 
         Team team = getPlayerTeam(targetPlayer.getUniqueId());
+        if (team == null) return; // Could not get or create team
+
         if (!team.hasEntry(targetPlayer.getName())) {
             team.addEntry(targetPlayer.getName());
         }
@@ -147,7 +148,7 @@ public class NameManager {
         }
 
         ChatColor teamColor = team.getColor();
-        if (teamColor == null || teamColor == ChatColor.RESET) {
+        if (teamColor == ChatColor.RESET) {
             teamColor = ChatColor.WHITE;
         }
 
@@ -169,11 +170,13 @@ public class NameManager {
         targetPlayer.setPlayerListName(votePrefix + listName);
     }
 
+    @SuppressWarnings("deprecation")
     public boolean setPlayerColor(String playerName, String colorName) {
         OfflinePlayer player = Bukkit.getOfflinePlayer(playerName);
         if (!player.hasPlayedBefore() && !player.isOnline()) return false;
 
         Team team = getPlayerTeam(player.getUniqueId());
+        if (team == null) return false;
 
         if (colorName.equalsIgnoreCase("reset")) {
             team.setColor(ChatColor.WHITE);
@@ -216,7 +219,10 @@ public class NameManager {
     }
 
     public Team getPlayerTeam(UUID uuid) {
-        Scoreboard scoreboard = Bukkit.getScoreboardManager().getMainScoreboard();
+        ScoreboardManager manager = Bukkit.getScoreboardManager();
+        if (manager == null) return null;
+        Scoreboard scoreboard = manager.getMainScoreboard();
+
         String uuidString = uuid.toString();
         String uniquePart = uuidString.substring(uuidString.length() - 12);
         String teamName = "name_" + uniquePart;

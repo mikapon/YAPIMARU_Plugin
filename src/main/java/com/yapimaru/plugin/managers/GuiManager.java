@@ -2,7 +2,6 @@ package com.yapimaru.plugin.managers;
 
 import com.yapimaru.plugin.YAPIMARU_Plugin;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.GameMode;
 import org.bukkit.Material;
 import org.bukkit.enchantments.Enchantment;
@@ -31,7 +30,6 @@ public class GuiManager {
     public static final String EFFECT_MENU_TITLE = "クリエイターメニュー - エフェクト";
     public static final String GAMEMODE_MENU_TITLE = "クリエイターメニュー - ゲームモード";
 
-    // ★★★ プレイヤーが設定したエフェクトを記憶するためのMapを追加 ★★★
     private final Map<UUID, Set<PotionEffect>> stickyEffects = new HashMap<>();
     private final Map<UUID, GameMode> stickyGameModes = new HashMap<>();
 
@@ -110,6 +108,7 @@ public class GuiManager {
         }
     }
 
+    @SuppressWarnings("deprecation")
     private void handleTeleportMenuClick(Player p, ItemStack item) {
         if (item.getType() == Material.PLAYER_HEAD) {
             SkullMeta meta = (SkullMeta) item.getItemMeta();
@@ -142,7 +141,6 @@ public class GuiManager {
                 }
             }
             case MILK_BUCKET -> {
-                // ★★★ 記憶しているエフェクトもクリア ★★★
                 stickyEffects.remove(p.getUniqueId());
                 new ArrayList<>(p.getActivePotionEffects()).forEach(eff -> p.removePotionEffect(eff.getType()));
                 openEffectMenu(p);
@@ -185,6 +183,7 @@ public class GuiManager {
         return item;
     }
 
+    @SuppressWarnings("deprecation")
     private ItemStack createPlayerHead(Player p, String... lore) {
         ItemStack head = new ItemStack(Material.PLAYER_HEAD);
         SkullMeta meta = (SkullMeta) head.getItemMeta();
@@ -207,16 +206,20 @@ public class GuiManager {
         ItemStack item = createItem(mat, "§b" + name);
         if(mat == Material.POTION) {
             PotionMeta pmeta = (PotionMeta) item.getItemMeta();
-            pmeta.setBasePotionType(PotionType.getByEffect(type));
-            item.setItemMeta(pmeta);
+            if (pmeta != null) {
+                pmeta.setBasePotionType(PotionType.getByEffect(type));
+                item.setItemMeta(pmeta);
+            }
         }
 
         ItemMeta meta = item.getItemMeta();
-        List<String> lore = new ArrayList<>();
-        lore.add("§7状態: " + (p.hasPotionEffect(type) ? "§aON" : "§cOFF"));
-        lore.add("§7クリックで切り替え");
-        meta.setLore(lore);
-        item.setItemMeta(meta);
+        if (meta != null) {
+            List<String> lore = new ArrayList<>();
+            lore.add("§7状態: " + (p.hasPotionEffect(type) ? "§aON" : "§cOFF"));
+            lore.add("§7クリックで切り替え");
+            meta.setLore(lore);
+            item.setItemMeta(meta);
+        }
 
         gui.setItem(slot, item);
     }
@@ -254,12 +257,10 @@ public class GuiManager {
         return stickyGameModes.get(uuid);
     }
 
-    // ★★★ リスポーン時に呼び出すためのメソッドを追加 ★★★
     public Set<PotionEffect> getStickyEffectsForPlayer(UUID uuid) {
         return stickyEffects.get(uuid);
     }
 
-    // ★★★ プレイヤー退出時に呼び出すメソッドを追加 ★★★
     public void handlePlayerQuit(Player player) {
         stickyEffects.remove(player.getUniqueId());
         stickyGameModes.remove(player.getUniqueId());

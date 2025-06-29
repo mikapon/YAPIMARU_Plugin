@@ -57,6 +57,7 @@ public class PlayerEventListener implements Listener {
     }
 
     @EventHandler
+    @SuppressWarnings("deprecation")
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
         Bukkit.getScheduler().runTaskLater(plugin, () -> nameManager.updatePlayerName(player, false), 5L);

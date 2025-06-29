@@ -23,6 +23,7 @@ import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.logging.Level;
 
 public final class YAPIMARU_Plugin extends JavaPlugin {
 
@@ -93,15 +94,13 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
                     Files.copy(in, manualFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
                 }
             } catch (IOException e) {
-                getLogger().severe("Could not save commands.txt!");
-                e.printStackTrace();
+                getLogger().log(Level.SEVERE, "Could not save commands.txt!", e);
             }
         }
         try {
             commandManual = Files.readAllLines(manualFile.toPath(), StandardCharsets.UTF_8);
         } catch (IOException e) {
-            getLogger().severe("Could not read commands.txt!");
-            e.printStackTrace();
+            getLogger().log(Level.SEVERE, "Could not read commands.txt!", e);
         }
 
         if (nameManager != null) nameManager.reloadData();
@@ -175,6 +174,5 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
     public WhitelistManager getWhitelistManager() { return whitelistManager; }
     public PlayerRestrictionManager getRestrictionManager() { return restrictionManager; }
     public SpectatorManager getSpectatorManager() { return spectatorManager; }
-    public VoteManager getVoteManager() { return voteManager; }
     public GuiManager getCreatorGuiManager() { return creatorGuiManager; }
 }
