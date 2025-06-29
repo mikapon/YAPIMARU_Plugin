@@ -95,7 +95,6 @@ public class PvpManager {
     public Location getDedSpawn() { return dedArenaData.getSpawnLocation(); }
     public int getDedTime() { return dedTime; }
     public boolean isFeatureEnabled() { return featureEnabled; }
-    public boolean isGameRunning() { return gameState == GameState.RUNNING; }
     public boolean isGracePeriodActive() { return isGracePeriodActive; }
     public List<String> getDefaultTeamColors() { return DEFAULT_TEAM_COLORS; }
     public boolean isDedFeatureEnabled() { return dedFeatureEnabled; }
@@ -180,7 +179,10 @@ public class PvpManager {
         if (enabled) {
             updateAllScoreboards();
         } else {
-            Bukkit.getOnlinePlayers().forEach(p -> p.setScoreboard(Bukkit.getScoreboardManager().getMainScoreboard()));
+            ScoreboardManager manager = Bukkit.getScoreboardManager();
+            if (manager != null) {
+                Bukkit.getOnlinePlayers().forEach(p -> p.setScoreboard(manager.getMainScoreboard()));
+            }
         }
     }
 
@@ -283,7 +285,10 @@ public class PvpManager {
         removeArenaWalls();
         removeSpawnBoxes();
 
-        Bukkit.getOnlinePlayers().forEach(p -> p.setScoreboard(Bukkit.getScoreboardManager().getMainScoreboard()));
+        ScoreboardManager manager = Bukkit.getScoreboardManager();
+        if (manager != null) {
+            Bukkit.getOnlinePlayers().forEach(p -> p.setScoreboard(manager.getMainScoreboard()));
+        }
 
         if (sender != null) {
             adventure.all().sendMessage(Component.text("[PvP] ゲームが終了しました！", NamedTextColor.AQUA));
@@ -368,7 +373,12 @@ public class PvpManager {
         setDedSpawn(player);
         if (dedArenaData.getArenaRegion() != null) {
             Region region = dedArenaData.getArenaRegion();
-            World world = BukkitAdapter.adapt(region.getWorld());
+            World world = region.getWorld() != null ? BukkitAdapter.adapt(region.getWorld()) : null;
+            if (world == null) {
+                adventure.player(player).sendMessage(Component.text("デス待機場所のワールドが見つかりません。", NamedTextColor.RED));
+                return;
+            }
+
             for (BlockVector3 point : region) {
                 if (point.x() == region.getMinimumPoint().x() || point.x() == region.getMaximumPoint().x() ||
                         point.z() == region.getMinimumPoint().z() || point.z() == region.getMaximumPoint().z() ||
@@ -453,6 +463,7 @@ public class PvpManager {
         playerStateTasks.put(player.getUniqueId(), task);
     }
 
+    @SuppressWarnings("deprecation")
     public void giveInvincibilityOnGrounded(Player player) {
         if (!respawnInvincibleEnabled) return;
         new BukkitRunnable() {
@@ -487,11 +498,7 @@ public class PvpManager {
             }
         }
 
-        if (dedArenaData.getArenaRegion() != null && dedArenaData.getArenaRegion().contains(locVector)) {
-            return true;
-        }
-
-        return false;
+        return dedArenaData.getArenaRegion() != null && dedArenaData.getArenaRegion().contains(locVector);
     }
 
     public boolean isPlayerInOwnTeamProtectedArea(Player player) {
@@ -637,12 +644,14 @@ public class PvpManager {
     public void updatePlayerScoreboard(Player player) {
         if (!player.isOnline()) return;
 
+        ScoreboardManager manager = Bukkit.getScoreboardManager();
+        if (manager == null) return;
+
         if (!livesFeatureEnabled && !isGracePeriodActive && !invinciblePlayers.containsKey(player.getUniqueId()) && !respawnTimers.containsKey(player.getUniqueId())) {
-            player.setScoreboard(Bukkit.getScoreboardManager().getMainScoreboard());
+            player.setScoreboard(manager.getMainScoreboard());
             return;
         }
 
-        ScoreboardManager manager = Bukkit.getScoreboardManager();
         Scoreboard board = manager.getNewScoreboard();
 
         Objective objective = board.registerNewObjective("pvp_status", "dummy", "§e§lステータス");
@@ -650,13 +659,13 @@ public class PvpManager {
 
         for (Player p : Bukkit.getOnlinePlayers()) {
             Team mainBoardTeam = nameManager.getPlayerTeam(p.getUniqueId());
-            Team pvpBoardTeam = board.registerNewTeam(mainBoardTeam.getName());
+            if (mainBoardTeam == null) continue;
 
+            Team pvpBoardTeam = board.registerNewTeam(mainBoardTeam.getName());
             pvpBoardTeam.setColor(mainBoardTeam.getColor());
             pvpBoardTeam.setPrefix(mainBoardTeam.getPrefix());
             pvpBoardTeam.setSuffix(mainBoardTeam.getSuffix());
             pvpBoardTeam.setOption(Team.Option.NAME_TAG_VISIBILITY, mainBoardTeam.getOption(Team.Option.NAME_TAG_VISIBILITY));
-
             pvpBoardTeam.addEntry(p.getName());
         }
 
@@ -701,7 +710,7 @@ public class PvpManager {
                         });
             }
         } else if (!hasStatus) {
-            player.setScoreboard(Bukkit.getScoreboardManager().getMainScoreboard());
+            player.setScoreboard(manager.getMainScoreboard());
             return;
         }
         player.setScoreboard(board);
@@ -796,11 +805,7 @@ public class PvpManager {
     }
 
     private void createArenaWalls() {
-        teamDataMap.values().forEach(data -> {
-            if (data.getArenaRegion() != null) {
-                // Arena wall logic can be implemented here if needed
-            }
-        });
+        // This method is a placeholder for potential future functionality.
     }
 
     private void removeArenaWalls() {
