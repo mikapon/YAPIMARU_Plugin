@@ -8,6 +8,7 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -54,12 +55,7 @@ public class VoteManager {
     }
 
     public boolean hasPlayerVoted(UUID playerUuid) {
-        for (VoteData voteData : activePolls.values()) {
-            if (voteData.hasVoted(playerUuid)) {
-                return true;
-            }
-        }
-        return false;
+        return activePolls.values().stream().anyMatch(voteData -> voteData.hasVoted(playerUuid));
     }
 
     public void updatePlayerVoteStatus(Player player) {
@@ -68,14 +64,14 @@ public class VoteManager {
         }
     }
 
-    public VoteData createPoll(String directoryName, String question, List<String> options, boolean multiChoice, long durationMillis) {
+    public VoteData createPoll(String directoryName, String question, List<String> options, boolean multiChoice, boolean isEvaluation, long durationMillis) {
         String fullPollId = directoryName + "::" + question;
         if (activePolls.containsKey(fullPollId)) {
             return null;
         }
 
         int numericId = nextPollNumericId.getAndIncrement();
-        VoteData voteData = new VoteData(numericId, directoryName, question, options, multiChoice, durationMillis);
+        VoteData voteData = new VoteData(numericId, directoryName, question, options, multiChoice, isEvaluation, durationMillis);
         activePolls.put(fullPollId, voteData);
         numericIdToFullIdMap.put(numericId, fullPollId);
 
@@ -95,7 +91,7 @@ public class VoteManager {
                     return;
                 }
                 if (voteData.isExpired()) {
-                    endPoll(fullPollId, ResultDisplayMode.ANONYMITY);
+                    endPoll(fullPollId);
                     this.cancel();
                 } else {
                     updateBossBar(fullPollId);
@@ -110,10 +106,10 @@ public class VoteManager {
         return voteData;
     }
 
-    public void endPoll(String fullPollId, ResultDisplayMode displayMode) {
+    public VoteData endPoll(String fullPollId) {
         VoteData voteData = activePolls.remove(fullPollId);
         if (voteData == null) {
-            return;
+            return null;
         }
         numericIdToFullIdMap.remove(voteData.getNumericId());
 
@@ -123,11 +119,11 @@ public class VoteManager {
         }
 
         saveResultFile(voteData);
-        displayResults(voteData, displayMode);
 
         if (nameManager != null && activePolls.isEmpty()) {
             Bukkit.getOnlinePlayers().forEach(p -> nameManager.updatePlayerName(p, false));
         }
+        return voteData;
     }
 
     public Map<String, VoteData> getActivePolls() {
@@ -136,10 +132,7 @@ public class VoteManager {
 
     public VoteData getPollByNumericId(int numericId) {
         String fullPollId = numericIdToFullIdMap.get(numericId);
-        if (fullPollId == null) {
-            return null;
-        }
-        return activePolls.get(fullPollId);
+        return (fullPollId != null) ? activePolls.get(fullPollId) : null;
     }
 
     public void showPollToPlayer(Player player, VoteData voteData) {
@@ -162,7 +155,7 @@ public class VoteManager {
         int totalVotes = (int) voteData.getPlayerVotes().keySet().stream().distinct().count();
         Component title = Component.text("Q. " + voteData.getQuestion() + " (" + totalVotes + "票)", NamedTextColor.WHITE);
 
-        if (voteData.getOptions().size() == 2) {
+        if (voteData.getOptions().size() == 2 && !voteData.isEvaluation()) {
             int votes1 = voteData.getVotes().get(1).size();
             int votes2 = voteData.getVotes().get(2).size();
             int total = votes1 + votes2;
@@ -177,23 +170,25 @@ public class VoteManager {
 
     private void saveResultFile(VoteData voteData) {
         File dir = new File(this.votingFolder, voteData.getDirectoryName());
-        if (!dir.exists()) {
-            if (!dir.mkdirs()) {
-                plugin.getLogger().warning("Failed to create directory for poll results: " + dir.getPath());
-            }
+        if (!dir.exists() && !dir.mkdirs()) {
+            plugin.getLogger().warning("Failed to create directory for poll results: " + dir.getPath());
         }
 
         String date = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss").format(new Date());
-        String fileName = voteData.getQuestion().replaceAll("[\\\\/:*?\"<>|]", "_") + "_" + date + ".yml";
+        String fileName = voteData.getQuestion().replaceAll("[\\\\/:*?\"<>|]", "_") + "_" + voteData.getNumericId() + "_" + date + ".yml";
         File resultFile = new File(dir, fileName);
 
         YamlConfiguration config = new YamlConfiguration();
 
+        config.set("numeric-id", voteData.getNumericId());
         config.set("directory-name", voteData.getDirectoryName());
         config.set("question", voteData.getQuestion());
         config.set("options", voteData.getOptions());
+        config.set("is-evaluation", voteData.isEvaluation());
         config.set("timestamp", new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date()));
 
+        double totalScore = 0;
+        int totalVotes = 0;
         Map<String, List<String>> detailedResults = new LinkedHashMap<>();
         for (int i = 0; i < voteData.getOptions().size(); i++) {
             int choiceNumber = i + 1;
@@ -201,15 +196,23 @@ public class VoteManager {
             Set<UUID> voterUuids = voteData.getVotes().get(choiceNumber);
             if (voterUuids == null) continue;
 
+            if (voteData.isEvaluation()) {
+                totalScore += (double) choiceNumber * voterUuids.size();
+                totalVotes += voterUuids.size();
+            }
+
             List<String> voterInfo = new ArrayList<>();
             for (UUID uuid : voterUuids) {
                 String displayName = (nameManager != null) ? nameManager.getDisplayName(uuid) : Bukkit.getOfflinePlayer(uuid).getName();
-                if (displayName == null) displayName = uuid.toString();
                 voterInfo.add(displayName + " (" + uuid + ")");
             }
             detailedResults.put(choiceNumber + ". " + optionText, voterInfo);
         }
         config.set("results", detailedResults);
+
+        if (voteData.isEvaluation() && totalVotes > 0) {
+            config.set("average-rating", totalScore / totalVotes);
+        }
 
         try {
             config.save(resultFile);
@@ -219,30 +222,43 @@ public class VoteManager {
     }
 
     @SuppressWarnings("deprecation")
-    private void displayResults(VoteData voteData, ResultDisplayMode displayMode) {
-        Bukkit.getOnlinePlayers().forEach(p -> {
-            adventure.player(p).sendMessage(Component.text("------ 投票結果 (ID: " + voteData.getNumericId() + ") ------", NamedTextColor.GOLD));
-            adventure.player(p).sendMessage(Component.text("Q. " + voteData.getQuestion(), NamedTextColor.AQUA));
+    public void displayResults(YamlConfiguration resultConfig, ResultDisplayMode displayMode, CommandSender sender) {
+        adventure.sender(sender).sendMessage(Component.text("------ 投票結果 (ID: " + resultConfig.getInt("numeric-id") + ") ------", NamedTextColor.GOLD));
+        adventure.sender(sender).sendMessage(Component.text("Q. " + resultConfig.getString("question"), NamedTextColor.AQUA));
 
-            for (int i = 0; i < voteData.getOptions().size(); i++) {
-                int choiceNumber = i + 1;
-                String optionText = voteData.getOptions().get(i);
-                Set<UUID> voters = voteData.getVotes().get(choiceNumber);
-                int voteCount = (voters != null) ? voters.size() : 0;
+        ConfigurationSection resultsSection = resultConfig.getConfigurationSection("results");
+        if (resultsSection != null) {
+            for (String key : resultsSection.getKeys(false)) {
+                List<String> voters = resultsSection.getStringList(key);
+                adventure.sender(sender).sendMessage(Component.text(key + " (" + voters.size() + "票)", NamedTextColor.YELLOW));
 
-                adventure.player(p).sendMessage(Component.text((i + 1) + ". " + optionText + " (" + voteCount + "票)", NamedTextColor.YELLOW));
-
-                if (displayMode == ResultDisplayMode.OPEN && voters != null && !voters.isEmpty()) {
+                if (displayMode == ResultDisplayMode.OPEN && !voters.isEmpty()) {
                     List<String> voterNames = new ArrayList<>();
-                    for(UUID uuid : voters) {
-                        String name = (nameManager != null) ? nameManager.getDisplayName(uuid) : Bukkit.getOfflinePlayer(uuid).getName();
-                        if (name == null) name = "Unknown";
-                        voterNames.add(name);
+                    for(String voterInfo : voters) {
+                        voterNames.add(voterInfo.split(" \\(")[0]);
                     }
-                    adventure.player(p).sendMessage(Component.text("    " + String.join(", ", voterNames), NamedTextColor.GRAY));
+                    adventure.sender(sender).sendMessage(Component.text("    " + String.join(", ", voterNames), NamedTextColor.GRAY));
                 }
             }
-            adventure.player(p).sendMessage(Component.text("--------------------", NamedTextColor.GOLD));
-        });
+        }
+
+        if (resultConfig.getBoolean("is-evaluation")) {
+            adventure.sender(sender).sendMessage(Component.text("--------------------", NamedTextColor.GOLD));
+            adventure.sender(sender).sendMessage(Component.text("平均評価: " + String.format("%.2f", resultConfig.getDouble("average-rating")), NamedTextColor.AQUA));
+        }
+        adventure.sender(sender).sendMessage(Component.text("--------------------", NamedTextColor.GOLD));
+    }
+
+    public Integer getMaxStarsForProject(String projectName) {
+        return plugin.getConfig().getInt("voting-settings.project-max-stars." + projectName, 0);
+    }
+
+    public void setMaxStarsForProject(String projectName, int stars) {
+        plugin.getConfig().set("voting-settings.project-max-stars." + projectName, stars);
+        plugin.saveConfig();
+    }
+
+    public File getVotingFolder() {
+        return votingFolder;
     }
 }

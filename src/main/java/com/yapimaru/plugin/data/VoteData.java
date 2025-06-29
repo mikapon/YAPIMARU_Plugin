@@ -9,17 +9,19 @@ public class VoteData {
     private final String question;
     private final List<String> options;
     private final boolean multiChoice;
-    private final long endTime; // 0 for indefinite
+    private final boolean isEvaluation;
+    private final long endTime;
 
     private final Map<Integer, Set<UUID>> votes = new HashMap<>();
     private final Map<UUID, Set<Integer>> playerVotes = new HashMap<>();
 
-    public VoteData(int numericId, String directoryName, String question, List<String> options, boolean multiChoice, long durationMillis) {
+    public VoteData(int numericId, String directoryName, String question, List<String> options, boolean multiChoice, boolean isEvaluation, long durationMillis) {
         this.numericId = numericId;
         this.directoryName = directoryName;
         this.question = question;
         this.options = new ArrayList<>(options);
         this.multiChoice = multiChoice;
+        this.isEvaluation = isEvaluation;
         this.endTime = (durationMillis > 0) ? System.currentTimeMillis() + durationMillis : 0;
 
         for (int i = 0; i < options.size(); i++) {
@@ -27,12 +29,12 @@ public class VoteData {
         }
     }
 
-    // Getters
     public int getNumericId() { return numericId; }
     public String getDirectoryName() { return directoryName; }
     public String getQuestion() { return question; }
     public List<String> getOptions() { return new ArrayList<>(options); }
     public boolean isMultiChoice() { return multiChoice; }
+    public boolean isEvaluation() { return isEvaluation; }
     public Map<Integer, Set<UUID>> getVotes() { return votes; }
     public Map<UUID, Set<Integer>> getPlayerVotes() { return playerVotes; }
 
@@ -42,7 +44,7 @@ public class VoteData {
 
     public boolean vote(UUID playerUuid, int choice) {
         if (choice < 1 || choice > options.size()) {
-            return false; // Invalid choice
+            return false;
         }
 
         if (!multiChoice && playerVotes.containsKey(playerUuid)) {
