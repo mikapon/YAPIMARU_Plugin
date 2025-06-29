@@ -107,7 +107,6 @@ public class PvpManager {
     private BoundingBox getSpawnProtectionBox(Location spawn) {
         if (spawn == null) return null;
         Location l = spawn.getBlock().getLocation();
-        // 3x3 (x, z) and 5+1 high (y), including the wool block below.
         return new BoundingBox(l.getX() - 1, l.getY() - 1, l.getZ() - 1, l.getX() + 2, l.getY() + 4, l.getZ() + 2);
     }
 
@@ -152,8 +151,6 @@ public class PvpManager {
         return false;
     }
 
-
-    // --- Setters with feedback ---
     public void setFeatureEnabled(boolean enabled, CommandSender sender) {
         if (this.featureEnabled == enabled) {
             adventure.sender(sender).sendMessage(Component.text("PvPモードは既に" + (enabled ? "有効" : "無効") + "です。", NamedTextColor.YELLOW));
@@ -269,7 +266,7 @@ public class PvpManager {
                     }
                 }
             }
-        }.runTaskTimer(plugin, 40L, 20L);
+        }.runTaskTimer(plugin, 40L, 10L);
     }
 
     public void stopGame(CommandSender sender) {
@@ -817,7 +814,6 @@ public class PvpManager {
     }
 
     private void createArenaWalls() {
-        // This method is a placeholder for potential future functionality.
     }
 
     private void removeArenaWalls() {
@@ -840,7 +836,7 @@ public class PvpManager {
             case "dark_gray" -> '8'; case "blue" -> '9';
             case "green", "lime" -> 'a'; case "aqua", "light_blue", "cyan" -> 'b';
             case "red" -> 'c'; case "light_purple", "pink", "magenta" -> 'd';
-            case "yellow" -> 'e'; default -> 'f'; // white, brown etc.
+            case "yellow" -> 'e'; default -> 'f';
         };
     }
 }
