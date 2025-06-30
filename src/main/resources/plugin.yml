@@ -41,7 +41,6 @@ commands:
     description: 便利な管理GUIを開きます。
     usage: /<command> [subcommand] [args]
     aliases: [c]
-    # permission行を削除し、コマンドクラスでyapimaru.adminとyapimaru.creatorのチェックを行う
     permission-message: このコマンドを使用する権限がありません。
   server:
     description: サーバーの停止・再起動を管理します。
@@ -56,9 +55,16 @@ commands:
 
   voting:
     description: 投票関連のコマンドです。
-    usage: /<command> [question|evaluation|answer|end|result|average|list] [args]
+    # ★★★ 修正箇所 ★★★
+    # usageからanswerを削除
+    usage: /<command> [question|evaluation|end|result|average|list] [args]
     aliases: [vote]
-    # permission行を削除し、コマンドクラスでanswerサブコマンドのみ権限チェックをしないように制御
+
+  # ★★★ 修正箇所 ★★★
+  # 新しい /ans コマンドを定義。権限は設定せず、誰でも使えるようにする。
+  ans:
+    description: 進行中の投票に回答します。
+    usage: /<command> <投票ID> <番号>
 
 permissions:
   yapimaru.admin:

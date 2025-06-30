@@ -140,7 +140,9 @@ public class VoteManager {
         for (int i = 0; i < voteData.getOptions().size(); i++) {
             adventure.player(player).sendMessage(Component.text((i + 1) + ". " + voteData.getOptions().get(i), NamedTextColor.YELLOW));
         }
-        adventure.player(player).sendMessage(Component.text("チャットで /voting answer " + voteData.getNumericId() + " <番号> で投票", NamedTextColor.GRAY));
+        // ★★★ 修正箇所 ★★★
+        // 表示されるコマンドを /voting answer から /ans に変更
+        adventure.player(player).sendMessage(Component.text("チャットで /ans " + voteData.getNumericId() + " <番号> で投票", NamedTextColor.GRAY));
         if (voteData.isMultiChoice()) {
             adventure.player(player).sendMessage(Component.text("(複数選択可)", NamedTextColor.GRAY));
         }

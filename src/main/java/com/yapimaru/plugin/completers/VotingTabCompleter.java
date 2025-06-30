@@ -17,7 +17,10 @@ import java.util.stream.Collectors;
 public class VotingTabCompleter implements TabCompleter {
 
     private final VoteManager voteManager;
-    private static final List<String> SUBCOMMANDS = List.of("question", "evaluation", "answer", "end", "result", "average", "list");
+
+    // ★★★ 修正箇所 ★★★
+    // サブコマンドリストから "answer" を削除
+    private static final List<String> SUBCOMMANDS = List.of("question", "evaluation", "end", "result", "average", "list");
     private static final List<String> RESULT_MODES = List.of("open", "anonymity");
 
     public VotingTabCompleter(VoteManager voteManager) {
@@ -37,7 +40,8 @@ public class VotingTabCompleter implements TabCompleter {
         String subCommand = args[0].toLowerCase();
         if (args.length == 2) {
             switch (subCommand) {
-                case "answer", "end" -> voteManager.getActivePolls().values().stream()
+                // case "answer" は削除
+                case "end" -> voteManager.getActivePolls().values().stream()
                         .map(p -> String.valueOf(p.getNumericId()))
                         .forEach(completions::add);
                 case "result" -> getCompletedPollIds(completions);

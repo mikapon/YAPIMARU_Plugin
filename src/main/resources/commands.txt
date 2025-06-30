@@ -27,22 +27,24 @@ YAPIMARU_Plugin コマンドマニュアル (v3)
       一度設定すると、同じ企画名ではその最大評価が自動で適用されます。
     例: /voting evaluation 建築コンテスト "この建築は何点？" 5
 
-/voting answer <投票ID> <番号>
+/ans <投票ID> <番号>
     機能: 進行中の投票に回答します。
     - <投票ID>: 投票開始時に発行された数字のID。
     - <番号>: 投票したい選択肢の番号。
-    例: /voting answer 1 3
+    例: /ans 1 3
 
-/voting end <投票ID> [open]
-    機能: 進行中の投票を締め切ります。結果が表示され、データが保存されます。
-    - [open]: `open`と入力すると、投票者名付きで結果を表示します。
-    例: /voting end 1 open
+/voting end <投票ID>
+    機能: 進行中の投票を締め切ります。データが保存されます。
+    例: /voting end 1
 
-/voting result <投票ID> [open]
-    機能: 終了した投票の結果を、IDを指定して何度でも再表示できます。
-    例: /voting result 1
+/voting result <投票ID> [open|anonymity]
+    機能: 終了した投票の結果を、IDを指定して何度でも全員に表示できます。
+    - [open]: 投票者名付きで結果を表示します。
+    - [anonymity]: 匿名で結果を表示します。(デフォルト)
+    例: /voting result 1 open
 
-/voting average <投票ID | 企画名>
+/voting average <投票ID |
+企画名>
     機能: 採点投票の平均評価を表示します。
     - <投票ID>: 指定IDの投票の平均点を表示します。
     - <企画名>: 指定企画の全採点投票を、平均点が高い順にランキング表示します。
@@ -70,8 +72,10 @@ YAPIMARU_Plugin コマンドマニュアル (v3)
     (権限: yapimaru.admin)
 
 /c (または /creator)
-    機能: 撮影者向けの便利な機能（テレポート、エフェクト付与、ゲームモード変更など）をまとめたGUIを開きます。
-    (権限: yapimaru.admin)
+    機能:
+撮影者向けの便利な機能（テレポート、エフェクト付与、ゲームモード変更など）をまとめたGUIを開きます。
+    (権限: yapimaru.admin, yapimaru.creator)
+
 
 /server <off | restart>
     機能: 5分間のカウントダウンの後、サーバーを安全に停止または再起動します。撮影の終了時などに便利です。
@@ -84,11 +88,13 @@ YAPIMARU_Plugin コマンドマニュアル (v3)
     機能: 自分の「基本名」を設定します。TABリスト等で本来のMinecraft IDの代わりに表示される名前です。
     (権限: yapimaru.admin)
 
-/name link <名前 | remove>
+/name link <名前 |
+remove>
     機能: 自分の頭上に表示される名前（偽名）を設定します。`remove`と入力すると偽名を削除し、基本名が表示されるようになります。
     (権限: yapimaru.admin)
 
-/name color <色> <プレイヤー名 | @a | //sel>
+/name color <色> <プレイヤー名 | @a |
+//sel>
     機能: 指定したプレイヤーの名前の色を変更します。
     - <色>: white, orange, red など、羊毛の色名を英語で指定します。`reset`と入力するとリセットできます。
     - <対象>: プレイヤー名のほか、`@a` (全員) や、WorldEditで選択した範囲内のプレイヤー (`//sel`) も指定できます。
@@ -105,7 +111,8 @@ YAPIMARU_Plugin コマンドマニュアル (v3)
     機能: 設定ファイルで指定されたハブ（ロビー）地点にテレポートします。10秒間のクールダウンがあります。
     (権限: 全プレイヤー)
 
-/spectator <on | off>
+/spectator <on |
+off>
     機能: スペクテイターモードのプレイヤーを、他のプレイヤーから見えなくするか（on）、見えるようにするか（off）を設定します。
     (権限: yapimaru.admin)
 

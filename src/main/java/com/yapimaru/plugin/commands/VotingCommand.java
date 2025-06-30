@@ -35,21 +35,19 @@ public class VotingCommand implements CommandExecutor {
 
         String subCommand = args[0].toLowerCase();
 
-        if (!subCommand.equals("answer")) {
-            if (!sender.hasPermission("yapimaru.admin")) {
-                sender.sendMessage(ChatColor.RED + "このコマンドを使用する権限がありません。");
-                return true;
-            }
+        // ★★★ 修正箇所 ★★★
+        // answerは別コマンドになったため、ここでは権限チェックのみで良い
+        if (!sender.hasPermission("yapimaru.admin")) {
+            sender.sendMessage(ChatColor.RED + "このコマンドを使用する権限がありません。");
+            return true;
         }
 
         String[] subArgs = Arrays.copyOfRange(args, 1, args.length);
 
-        // ★★★ 修正箇所 ★★★
-        // switch文を拡張switch式に置換
         switch (subCommand) {
             case "question" -> handleQuestion(sender, subArgs);
             case "evaluation" -> handleEvaluation(sender, subArgs);
-            case "answer" -> handleAnswer(sender, subArgs);
+            // case "answer" は AnsCommand に移動したため削除
             case "end" -> handleEnd(sender, subArgs);
             case "result" -> handleResult(sender, subArgs);
             case "average" -> handleAverage(sender, subArgs);
@@ -150,46 +148,7 @@ public class VotingCommand implements CommandExecutor {
         }
     }
 
-    private void handleAnswer(CommandSender sender, String[] args) {
-        if (!(sender instanceof Player player)) {
-            sender.sendMessage("このコマンドはプレイヤーのみ実行できます。");
-            return;
-        }
-        if (args.length != 2) {
-            player.sendMessage(ChatColor.RED + "使い方: /voting answer <投票ID> <番号>");
-            return;
-        }
-
-        int numericId;
-        try {
-            numericId = Integer.parseInt(args[0]);
-        } catch (NumberFormatException e) {
-            player.sendMessage(ChatColor.RED + "投票IDは数字で指定してください。");
-            return;
-        }
-
-        VoteData voteData = voteManager.getPollByNumericId(numericId);
-
-        if (voteData == null) {
-            player.sendMessage(ChatColor.RED + "アクティブな投票ID「" + numericId + "」は見つかりません。");
-            return;
-        }
-
-        int choice;
-        try {
-            choice = Integer.parseInt(args[1]);
-        } catch (NumberFormatException e) {
-            player.sendMessage(ChatColor.RED + "選択肢は番号で指定してください。");
-            return;
-        }
-
-        if (voteData.vote(player.getUniqueId(), choice)) {
-            player.sendMessage(ChatColor.GREEN + "投票「" + voteData.getQuestion() + "」の選択肢 " + choice + " に投票しました。");
-            voteManager.updatePlayerVoteStatus(player);
-        } else {
-            player.sendMessage(ChatColor.RED + "無効な選択肢です。");
-        }
-    }
+    // handleAnswerメソッドはAnsCommand.javaに移動したため削除
 
     private void handleEnd(CommandSender sender, String[] args) {
         if (args.length < 1) {
@@ -308,8 +267,6 @@ public class VotingCommand implements CommandExecutor {
         }
     }
 
-    // ★★★ 修正箇所 ★★★
-    // 返り値が常にtrueだったため、voidに変更
     private void handleList(CommandSender sender, String[] args) {
         String projectName = (args.length > 0) ? String.join(" ", args) : null;
 
@@ -378,7 +335,9 @@ public class VotingCommand implements CommandExecutor {
         sender.sendMessage(ChatColor.GOLD + "--- Voting Command Help ---");
         sender.sendMessage(ChatColor.AQUA + "/voting question <企画名> <\"質問文\"> <選択肢...> [-duration 時間] [-multi]");
         sender.sendMessage(ChatColor.AQUA + "/voting evaluation <企画名> <\"質問文\"> [最大評価]");
-        sender.sendMessage(ChatColor.AQUA + "/voting answer <投票ID> <番号>");
+        // ★★★ 修正箇所 ★★★
+        // /voting answerを削除
+        sender.sendMessage(ChatColor.AQUA + "/ans <投票ID> <番号>");
         sender.sendMessage(ChatColor.AQUA + "/voting end <投票ID>");
         sender.sendMessage(ChatColor.AQUA + "/voting result <投票ID> [open|anonymity]");
         sender.sendMessage(ChatColor.AQUA + "/voting average <投票ID | 企画名>");
