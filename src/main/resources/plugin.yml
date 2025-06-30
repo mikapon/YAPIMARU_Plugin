@@ -41,7 +41,7 @@ commands:
     description: 便利な管理GUIを開きます。
     usage: /<command> [subcommand] [args]
     aliases: [c]
-    permission: yapimaru.admin
+    # permission行を削除し、コマンドクラスでyapimaru.adminとyapimaru.creatorのチェックを行う
     permission-message: このコマンドを使用する権限がありません。
   server:
     description: サーバーの停止・再起動を管理します。
@@ -58,6 +58,7 @@ commands:
     description: 投票関連のコマンドです。
     usage: /<command> [question|evaluation|answer|end|result|average|list] [args]
     aliases: [vote]
+    # permission行を削除し、コマンドクラスでanswerサブコマンドのみ権限チェックをしないように制御
 
 permissions:
   yapimaru.admin:
@@ -66,3 +67,6 @@ permissions:
   yapimaru.skinlist:
     description: /skinlist コマンドの使用を許可します。
     default: true
+  yapimaru.creator:
+    description: /c コマンドの使用を許可します。
+    default: op

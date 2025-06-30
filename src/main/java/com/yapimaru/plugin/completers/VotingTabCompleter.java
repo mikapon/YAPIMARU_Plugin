@@ -12,14 +12,13 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Objects;
 import java.util.stream.Collectors;
 
 public class VotingTabCompleter implements TabCompleter {
 
     private final VoteManager voteManager;
     private static final List<String> SUBCOMMANDS = List.of("question", "evaluation", "answer", "end", "result", "average", "list");
-    private static final List<String> RESULT_MODES = List.of("open");
+    private static final List<String> RESULT_MODES = List.of("open", "anonymity");
 
     public VotingTabCompleter(VoteManager voteManager) {
         this.voteManager = voteManager;
@@ -38,27 +37,15 @@ public class VotingTabCompleter implements TabCompleter {
         String subCommand = args[0].toLowerCase();
         if (args.length == 2) {
             switch (subCommand) {
-                case "answer":
-                case "end":
-                    voteManager.getActivePolls().values().stream()
-                            .map(p -> String.valueOf(p.getNumericId()))
-                            .forEach(completions::add);
-                    break;
-                case "result":
-                    getCompletedPollIds(completions);
-                    break;
-                case "average":
-                    // ★★★ 修正箇所 ★★★
-                    // 常に採点投票企画名のみを補完候補とする。
-                    // IDによる直接指定は可能だが、タブ補完には企画名のみを表示する。
-                    getEvaluationProjectNames(currentArg, completions);
-                    break;
-                case "list":
-                    getProjectNameCompletions(currentArg, completions);
-                    break;
+                case "answer", "end" -> voteManager.getActivePolls().values().stream()
+                        .map(p -> String.valueOf(p.getNumericId()))
+                        .forEach(completions::add);
+                case "result" -> getCompletedPollIds(completions);
+                case "average" -> getEvaluationProjectNames(currentArg, completions);
+                case "list" -> getProjectNameCompletions(currentArg, completions);
             }
         } else if (args.length == 3) {
-            if (subCommand.equals("end") || subCommand.equals("result")) {
+            if (subCommand.equals("result")) {
                 StringUtil.copyPartialMatches(currentArg, RESULT_MODES, completions);
             }
         }
@@ -75,8 +62,12 @@ public class VotingTabCompleter implements TabCompleter {
     }
 
     private void getEvaluationProjectNames(String input, List<String> completions) {
+        List<String> projectNames = new ArrayList<>();
         File[] directories = voteManager.getVotingFolder().listFiles(File::isDirectory);
-        if (directories == null) return;
+        if (directories == null) {
+            StringUtil.copyPartialMatches(input, projectNames, completions);
+            return;
+        }
 
         for (File dir : directories) {
             File[] resultFiles = dir.listFiles((d, name) -> name.endsWith(".yml"));
@@ -91,10 +82,10 @@ public class VotingTabCompleter implements TabCompleter {
                 }
             }
             if (isEvaluationProject) {
-                completions.add(dir.getName());
+                projectNames.add(dir.getName());
             }
         }
-        StringUtil.copyPartialMatches(input, completions, completions);
+        StringUtil.copyPartialMatches(input, projectNames, completions);
     }
 
 
@@ -113,16 +104,6 @@ public class VotingTabCompleter implements TabCompleter {
                     completions.add(String.valueOf(id));
                 }
             }
-        }
-    }
-
-    private boolean isNumeric(String str) {
-        if (str == null || str.isEmpty()) return false;
-        try {
-            Integer.parseInt(str);
-            return true;
-        } catch (NumberFormatException e) {
-            return false;
         }
     }
 }

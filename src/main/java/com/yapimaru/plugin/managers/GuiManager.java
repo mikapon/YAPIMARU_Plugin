@@ -1,6 +1,5 @@
 package com.yapimaru.plugin.managers;
 
-import com.yapimaru.plugin.YAPIMARU_Plugin;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Material;
@@ -14,20 +13,20 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 import java.util.stream.Collectors;
 
 public class GuiManager {
 
-    private final YAPIMARU_Plugin plugin;
     private final NameManager nameManager;
 
     // --- InventoryHolder Marker Interfaces ---
-    public static class MainMenuHolder implements InventoryHolder { @Override public Inventory getInventory() { return null; }}
-    public static class TeleportMenuHolder implements InventoryHolder { @Override public Inventory getInventory() { return null; }}
-    public static class EffectMenuHolder implements InventoryHolder { @Override public Inventory getInventory() { return null; }}
-    public static class GamemodeMenuHolder implements InventoryHolder { @Override public Inventory getInventory() { return null; }}
+    public static class MainMenuHolder implements InventoryHolder { @NotNull @Override public Inventory getInventory() { return Bukkit.createInventory(this, 9); }}
+    public static class TeleportMenuHolder implements InventoryHolder { @NotNull @Override public Inventory getInventory() { return Bukkit.createInventory(this, 9); }}
+    public static class EffectMenuHolder implements InventoryHolder { @NotNull @Override public Inventory getInventory() { return Bukkit.createInventory(this, 9); }}
+    public static class GamemodeMenuHolder implements InventoryHolder { @NotNull @Override public Inventory getInventory() { return Bukkit.createInventory(this, 9); }}
 
     public static final String MAIN_MENU_TITLE = "クリエイターメニュー";
     public static final String TP_MENU_TITLE = "クリエイターメニュー - テレポート";
@@ -37,13 +36,11 @@ public class GuiManager {
     private final Map<UUID, Set<PotionEffect>> stickyEffects = new HashMap<>();
     private final Map<UUID, GameMode> stickyGameModes = new HashMap<>();
 
-    // publicにしてCreatorCommandからアクセスできるようにする
     public enum TeleportMode {
         TELEPORT_TO, SUMMON
     }
     private final Map<UUID, Integer> playerTpGuiPages = new HashMap<>();
     private final Map<UUID, TeleportMode> playerTpModes = new HashMap<>();
-    // publicにしてCreatorCommandからアクセスできるようにする
     public Map<UUID, TeleportMode> getPlayerTpModes() {
         return playerTpModes;
     }
@@ -53,7 +50,7 @@ public class GuiManager {
 
     static {
         Map<Material, PotionEffect> effects = new HashMap<>();
-        int infiniteDuration = -1; // -1で効果時間が**:**と表示される無限効果になる
+        int infiniteDuration = -1;
         effects.put(Material.GLASS, new PotionEffect(PotionEffectType.INVISIBILITY, infiniteDuration, 0, false, false));
         effects.put(Material.GLOWSTONE_DUST, new PotionEffect(PotionEffectType.NIGHT_VISION, infiniteDuration, 0, false, false));
         effects.put(Material.GLOW_BERRIES, new PotionEffect(PotionEffectType.GLOWING, infiniteDuration, 0, false, false));
@@ -68,8 +65,9 @@ public class GuiManager {
         TOGGLEABLE_EFFECTS = Collections.unmodifiableMap(effects);
     }
 
-    public GuiManager(YAPIMARU_Plugin plugin, NameManager nameManager, WhitelistManager whitelistManager) {
-        this.plugin = plugin;
+    // ★★★ 修正箇所 ★★★
+    // 未使用の引数 plugin を削除
+    public GuiManager(NameManager nameManager) {
         this.nameManager = nameManager;
     }
 
@@ -81,17 +79,11 @@ public class GuiManager {
         p.openInventory(gui);
     }
 
-    // ★★★ 修正箇所 ★★★
-    // /c tp コマンドから呼び出される、モードをリセットする新しいメソッド
     public void openTeleportMenuAndResetMode(Player p) {
-        // モードを必ず初期状態「自分を相手にTP」にリセットする
         playerTpModes.put(p.getUniqueId(), TeleportMode.TELEPORT_TO);
-        // GUIを開く
         openTeleportMenu(p);
     }
 
-    // ★★★ 修正箇所 ★★★
-    // GUIの再描画時に呼ばれるメソッド。モードはリセットしない。
     public void openTeleportMenu(Player p) {
         playerTpGuiPages.putIfAbsent(p.getUniqueId(), 0);
         awaitingTpAllTarget.remove(p.getUniqueId());
@@ -127,8 +119,9 @@ public class GuiManager {
         });
 
         int totalPages = Math.max(1, (int) Math.ceil((double) guiItems.size() / 45.0));
+
         if (page >= totalPages) {
-            page = totalPages > 0 ? totalPages - 1 : 0;
+            page = totalPages - 1;
             playerTpGuiPages.put(p.getUniqueId(), page);
         }
 
@@ -154,7 +147,7 @@ public class GuiManager {
         TeleportMode currentMode = playerTpModes.getOrDefault(p.getUniqueId(), TeleportMode.TELEPORT_TO);
         if (currentMode == TeleportMode.TELEPORT_TO) {
             gui.setItem(48, createItem(Material.ENDER_PEARL, "§aモード: 自分をTP", "§7クリックで「相手をTP」に切替"));
-            gui.setItem(50, createItem(Material.BEACON, "§c全員を自分の場所にTP", "§7自分以外の全員を召喚します"));
+            gui.setItem(50, createItem(Material.BEACON, "§c自分以外の全員を自分の場所にTP", "§7自分以外の全員を召喚します"));
         } else {
             gui.setItem(48, createItem(Material.ENDER_EYE, "§bモード: 相手をTP", "§7クリックで「自分をTP」に切替"));
             gui.setItem(50, createItem(Material.NETHER_STAR, "§c全員を選択した人へTP", "§7これをクリック後、", "§7対象のプレイヤーをクリックしてください"));
@@ -207,31 +200,57 @@ public class GuiManager {
     public void handleMainMenuClick(Player p, ItemStack item) {
         if (item == null) return;
         switch (item.getType()) {
-            case ENDER_PEARL:
-                // モードをリセットしてGUIを開く
-                openTeleportMenuAndResetMode(p);
-                break;
-            case BEACON:
-                openEffectMenu(p);
-                break;
-            case DIAMOND_PICKAXE:
-                openGamemodeMenu(p);
-                break;
+            case ENDER_PEARL -> openTeleportMenuAndResetMode(p);
+            case BEACON -> openEffectMenu(p);
+            case DIAMOND_PICKAXE -> openGamemodeMenu(p);
         }
     }
 
-    @SuppressWarnings("deprecation")
     public void handleTeleportMenuClick(Player p, ItemStack item, Inventory inventory) {
         if (item == null) return;
+
+        String itemMaterialName = item.getType().name();
+        if (itemMaterialName.endsWith("_WOOL") || item.getType() == Material.LIGHT_GRAY_WOOL) {
+            String colorName = itemMaterialName.replace("_WOOL", "").toLowerCase();
+
+            ItemMeta itemMeta = item.getItemMeta();
+            if (itemMeta != null && itemMeta.getDisplayName().contains("チームなし")) {
+                colorName = "none";
+            }
+
+            final String finalColorName = colorName;
+            List<Player> teamPlayers = Bukkit.getOnlinePlayers().stream()
+                    .filter(pl -> {
+                        String playerColor = getPlayerColorName(pl);
+                        if ("none".equals(finalColorName)) {
+                            return playerColor == null;
+                        }
+                        return finalColorName.equalsIgnoreCase(playerColor);
+                    })
+                    .collect(Collectors.toList());
+
+            if (teamPlayers.isEmpty()) {
+                p.sendMessage("§cテレポート対象のプレイヤーがチーム '" + colorName + "' にいません。");
+                return;
+            }
+
+            Player target = teamPlayers.get(new Random().nextInt(teamPlayers.size()));
+            p.teleport(target.getLocation());
+            p.sendMessage("§aチーム '" + colorName + "' の " + target.getName() + " §aへランダムにテレポートしました。");
+            p.closeInventory();
+            return;
+        }
+
 
         if (awaitingTpAllTarget.contains(p.getUniqueId())) {
             if (item.getType() == Material.PLAYER_HEAD && item.getItemMeta() instanceof SkullMeta meta && meta.getOwningPlayer() != null) {
                 awaitingTpAllTarget.remove(p.getUniqueId());
                 Player destination = Bukkit.getPlayer(meta.getOwningPlayer().getUniqueId());
                 if (destination != null) {
-                    p.sendMessage("§c" + destination.getName() + " の元へ、自分以外の全プレイヤーをテレポートさせます...");
+                    p.sendMessage("§c" + destination.getName() + " の元へ、全プレイヤーをテレポートさせます...");
+
                     Bukkit.getOnlinePlayers().stream()
-                            .filter(target -> !target.equals(p) && !target.equals(destination))
+                            .filter(target -> !target.equals(destination))
                             .forEach(target -> target.teleport(destination));
                     p.closeInventory();
                 } else {
@@ -265,12 +284,12 @@ public class GuiManager {
                 break;
             case ARROW:
                 int currentPage = playerTpGuiPages.getOrDefault(p.getUniqueId(), 0);
-                if (item.hasItemMeta() && item.getItemMeta().getDisplayName().contains("前")) {
+                ItemMeta meta = item.getItemMeta();
+                if (meta != null && meta.hasDisplayName() && meta.getDisplayName().contains("前")) {
                     playerTpGuiPages.put(p.getUniqueId(), Math.max(0, currentPage - 1));
                 } else {
                     playerTpGuiPages.put(p.getUniqueId(), currentPage + 1);
                 }
-                // 再描画なのでモードをリセットしないopenTeleportMenuを呼ぶ
                 openTeleportMenu(p);
                 break;
             case OAK_DOOR:
@@ -279,7 +298,6 @@ public class GuiManager {
             case ENDER_PEARL, ENDER_EYE:
                 TeleportMode currentMode = playerTpModes.getOrDefault(p.getUniqueId(), TeleportMode.TELEPORT_TO);
                 playerTpModes.put(p.getUniqueId(), currentMode == TeleportMode.TELEPORT_TO ? TeleportMode.SUMMON : TeleportMode.TELEPORT_TO);
-                // 再描画なのでモードをリセットしないopenTeleportMenuを呼ぶ
                 openTeleportMenu(p);
                 break;
             case BEACON:
@@ -299,7 +317,7 @@ public class GuiManager {
     }
 
     public void handleEffectMenuClick(Player p, ItemStack item, Inventory inventory) {
-        if (item == null || item.getType() == Material.AIR) return;
+        if (item == null || item.getType().isAir()) return;
 
         if (TOGGLEABLE_EFFECTS.containsKey(item.getType())) {
             toggleEffect(p, TOGGLEABLE_EFFECTS.get(item.getType()));
@@ -308,20 +326,18 @@ public class GuiManager {
         }
 
         switch(item.getType()) {
-            case GLISTERING_MELON_SLICE:
+            case GLISTERING_MELON_SLICE -> {
                 p.addPotionEffect(new PotionEffect(PotionEffectType.INSTANT_HEALTH, 1, 10));
                 p.setSaturation(20);
                 p.setFoodLevel(20);
                 p.sendMessage("§d体力を回復し、お腹を満たしました。");
-                break;
-            case MILK_BUCKET:
+            }
+            case MILK_BUCKET -> {
                 stickyEffects.remove(p.getUniqueId());
                 new ArrayList<>(p.getActivePotionEffects()).forEach(eff -> p.removePotionEffect(eff.getType()));
                 openEffectMenu(p);
-                break;
-            case OAK_DOOR:
-                openMainMenu(p);
-                break;
+            }
+            case OAK_DOOR -> openMainMenu(p);
         }
     }
 
@@ -360,10 +376,10 @@ public class GuiManager {
         return item;
     }
 
-    @SuppressWarnings("deprecation")
     private ItemStack createPlayerHead(Player viewer, Player target) {
         ItemStack head = new ItemStack(Material.PLAYER_HEAD);
-        if (head.getItemMeta() instanceof SkullMeta meta) {
+        SkullMeta meta = (SkullMeta) head.getItemMeta();
+        if (meta != null) {
             meta.setOwningPlayer(target);
             meta.setDisplayName("§r" + nameManager.getDisplayName(target.getUniqueId()));
 
@@ -381,7 +397,7 @@ public class GuiManager {
 
     private ItemStack createTeamHeader(String colorName) {
         if ("none".equals(colorName)) {
-            return createItem(Material.LIGHT_GRAY_WOOL, "§lチームなし");
+            return createItem(Material.LIGHT_GRAY_WOOL, "§lチームなし", "§7クリックでこのチームの誰かへTP");
         }
         Material woolMaterial;
         try {
@@ -389,7 +405,7 @@ public class GuiManager {
         } catch (IllegalArgumentException e) {
             woolMaterial = Material.WHITE_WOOL;
         }
-        return createItem(woolMaterial, "§l" + colorName.toUpperCase() + " Team");
+        return createItem(woolMaterial, "§l" + colorName.toUpperCase() + " Team", "§7クリックでこのチームの誰かへTP");
     }
 
     private String getPlayerColorName(Player player) {

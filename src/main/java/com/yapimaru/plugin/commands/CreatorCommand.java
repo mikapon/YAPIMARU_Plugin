@@ -5,25 +5,29 @@ import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
+import org.jetbrains.annotations.NotNull;
 
 public class CreatorCommand implements CommandExecutor {
     private final GuiManager guiManager;
     public CreatorCommand(GuiManager guiManager) { this.guiManager = guiManager; }
 
     @Override
-    public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
+    public boolean onCommand(@NotNull CommandSender sender, @NotNull Command cmd, @NotNull String label, @NotNull String[] args) {
         if (!(sender instanceof Player p)) {
             sender.sendMessage("プレイヤーのみ実行できます。");
             return true;
         }
+
+        if (!p.hasPermission("yapimaru.admin") && !p.hasPermission("yapimaru.creator")) {
+            p.sendMessage(ChatColor.RED + "このコマンドを使用する権限がありません。");
+            return true;
+        }
+
         if (args.length == 0) {
             guiManager.openMainMenu(p);
             return true;
         }
         switch (args[0].toLowerCase()) {
-            // ★★★ 修正箇所 ★★★
-            // openTeleportMenuからopenTeleportMenuAndResetModeに変更し、
-            // GUIを開くたびに必ずモードが初期化されるようにする
             case "tp" -> guiManager.openTeleportMenuAndResetMode(p);
             case "effect" -> guiManager.openEffectMenu(p);
             case "gamemode", "gm" -> guiManager.openGamemodeMenu(p);

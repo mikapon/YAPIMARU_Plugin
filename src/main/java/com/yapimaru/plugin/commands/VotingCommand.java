@@ -2,7 +2,6 @@ package com.yapimaru.plugin.commands;
 
 import com.yapimaru.plugin.data.VoteData;
 import com.yapimaru.plugin.managers.VoteManager;
-import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -35,37 +34,35 @@ public class VotingCommand implements CommandExecutor {
         }
 
         String subCommand = args[0].toLowerCase();
+
+        if (!subCommand.equals("answer")) {
+            if (!sender.hasPermission("yapimaru.admin")) {
+                sender.sendMessage(ChatColor.RED + "このコマンドを使用する権限がありません。");
+                return true;
+            }
+        }
+
         String[] subArgs = Arrays.copyOfRange(args, 1, args.length);
 
+        // ★★★ 修正箇所 ★★★
+        // switch文を拡張switch式に置換
         switch (subCommand) {
-            case "question":
-                return handleQuestion(sender, subArgs);
-            case "evaluation":
-                return handleEvaluation(sender, subArgs);
-            case "answer":
-                return handleAnswer(sender, subArgs);
-            case "end":
-                return handleEnd(sender, subArgs);
-            case "result":
-                return handleResult(sender, subArgs);
-            case "average":
-                return handleAverage(sender, subArgs);
-            case "list":
-                return handleList(sender, subArgs);
-            default:
-                sendHelp(sender);
-                return true;
+            case "question" -> handleQuestion(sender, subArgs);
+            case "evaluation" -> handleEvaluation(sender, subArgs);
+            case "answer" -> handleAnswer(sender, subArgs);
+            case "end" -> handleEnd(sender, subArgs);
+            case "result" -> handleResult(sender, subArgs);
+            case "average" -> handleAverage(sender, subArgs);
+            case "list" -> handleList(sender, subArgs);
+            default -> sendHelp(sender);
         }
+        return true;
     }
 
-    private boolean handleQuestion(CommandSender sender, String[] args) {
-        if (!sender.hasPermission("yapimaru.admin")) {
-            sender.sendMessage(ChatColor.RED + "このコマンドを使用する権限がありません。");
-            return true;
-        }
+    private void handleQuestion(CommandSender sender, String[] args) {
         if (args.length < 3) {
             sender.sendMessage(ChatColor.RED + "使い方: /voting question <企画名> <\"質問文\"> <選択肢1> <選択肢2> ...");
-            return false;
+            return;
         }
 
         String directoryName = args[0];
@@ -82,12 +79,12 @@ public class VotingCommand implements CommandExecutor {
                     durationMillis = parseDuration(args[currentArgIndex + 1]);
                     if (durationMillis == -1) {
                         sender.sendMessage(ChatColor.RED + "無効な時間形式です。例: 1h, 30m, 2d");
-                        return false;
+                        return;
                     }
                     currentArgIndex += 2;
                 } else {
                     sender.sendMessage(ChatColor.RED + "-duration の後には時間を指定してください。");
-                    return false;
+                    return;
                 }
             } else if (arg.equalsIgnoreCase("-multi")) {
                 multiChoice = true;
@@ -100,7 +97,7 @@ public class VotingCommand implements CommandExecutor {
 
         if (options.isEmpty() || options.size() < 2) {
             sender.sendMessage(ChatColor.RED + "選択肢は少なくとも2つ必要です。");
-            return false;
+            return;
         }
 
         VoteData newVote = voteManager.createPoll(directoryName, question, options, multiChoice, false, durationMillis);
@@ -109,17 +106,12 @@ public class VotingCommand implements CommandExecutor {
         } else {
             sender.sendMessage(ChatColor.RED + "同じ企画・質問の投票「" + question + "」は既に存在します。");
         }
-        return true;
     }
 
-    private boolean handleEvaluation(CommandSender sender, String[] args) {
-        if (!sender.hasPermission("yapimaru.admin")) {
-            sender.sendMessage(ChatColor.RED + "このコマンドを使用する権限がありません。");
-            return true;
-        }
+    private void handleEvaluation(CommandSender sender, String[] args) {
         if (args.length < 2) {
             sender.sendMessage(ChatColor.RED + "使い方: /voting evaluation <企画名> <\"質問文\"> [最大評価]");
-            return false;
+            return;
         }
 
         String projectName = args[0];
@@ -130,19 +122,19 @@ public class VotingCommand implements CommandExecutor {
             if (args.length < 3) {
                 sender.sendMessage(ChatColor.RED + "エラー: この企画で最初の採点投票です。最大評価（星の数）を指定してください。");
                 sender.sendMessage(ChatColor.GRAY + "例: /voting evaluation " + projectName + " \"" + question + "\" 5");
-                return false;
+                return;
             }
             try {
                 maxStars = Integer.parseInt(args[2]);
                 if (maxStars <= 0 || maxStars > 10) {
                     sender.sendMessage(ChatColor.RED + "最大評価は1から10の間で指定してください。");
-                    return false;
+                    return;
                 }
                 voteManager.setMaxStarsForProject(projectName, maxStars);
                 sender.sendMessage(ChatColor.GREEN + "企画「" + projectName + "」の最大評価を星" + maxStars + "に設定しました。");
             } catch (NumberFormatException e) {
                 sender.sendMessage(ChatColor.RED + "最大評価には数字を指定してください。");
-                return false;
+                return;
             }
         }
 
@@ -156,17 +148,16 @@ public class VotingCommand implements CommandExecutor {
         } else {
             sender.sendMessage(ChatColor.RED + "同じ企画・質問の投票「" + question + "」は既に存在します。");
         }
-        return true;
     }
 
-    private boolean handleAnswer(CommandSender sender, String[] args) {
+    private void handleAnswer(CommandSender sender, String[] args) {
         if (!(sender instanceof Player player)) {
             sender.sendMessage("このコマンドはプレイヤーのみ実行できます。");
-            return true;
+            return;
         }
         if (args.length != 2) {
             player.sendMessage(ChatColor.RED + "使い方: /voting answer <投票ID> <番号>");
-            return false;
+            return;
         }
 
         int numericId;
@@ -174,14 +165,14 @@ public class VotingCommand implements CommandExecutor {
             numericId = Integer.parseInt(args[0]);
         } catch (NumberFormatException e) {
             player.sendMessage(ChatColor.RED + "投票IDは数字で指定してください。");
-            return true;
+            return;
         }
 
         VoteData voteData = voteManager.getPollByNumericId(numericId);
 
         if (voteData == null) {
             player.sendMessage(ChatColor.RED + "アクティブな投票ID「" + numericId + "」は見つかりません。");
-            return true;
+            return;
         }
 
         int choice;
@@ -189,7 +180,7 @@ public class VotingCommand implements CommandExecutor {
             choice = Integer.parseInt(args[1]);
         } catch (NumberFormatException e) {
             player.sendMessage(ChatColor.RED + "選択肢は番号で指定してください。");
-            return true;
+            return;
         }
 
         if (voteData.vote(player.getUniqueId(), choice)) {
@@ -198,17 +189,12 @@ public class VotingCommand implements CommandExecutor {
         } else {
             player.sendMessage(ChatColor.RED + "無効な選択肢です。");
         }
-        return true;
     }
 
-    private boolean handleEnd(CommandSender sender, String[] args) {
-        if (!sender.hasPermission("yapimaru.admin")) {
-            sender.sendMessage(ChatColor.RED + "このコマンドを使用する権限がありません。");
-            return true;
-        }
+    private void handleEnd(CommandSender sender, String[] args) {
         if (args.length < 1) {
-            sender.sendMessage(ChatColor.RED + "使い方: /voting end <投票ID> [open]");
-            return false;
+            sender.sendMessage(ChatColor.RED + "使い方: /voting end <投票ID>");
+            return;
         }
 
         int numericId;
@@ -216,13 +202,13 @@ public class VotingCommand implements CommandExecutor {
             numericId = Integer.parseInt(args[0]);
         } catch (NumberFormatException e) {
             sender.sendMessage(ChatColor.RED + "投票IDは数字で指定してください。");
-            return true;
+            return;
         }
 
         VoteData voteData = voteManager.getPollByNumericId(numericId);
         if (voteData == null) {
             sender.sendMessage(ChatColor.RED + "アクティブな投票ID「" + numericId + "」は見つかりません。");
-            return true;
+            return;
         }
 
         String fullPollId = voteData.getDirectoryName() + "::" + voteData.getQuestion();
@@ -231,38 +217,37 @@ public class VotingCommand implements CommandExecutor {
         if (endedVote != null) {
             sender.sendMessage(ChatColor.GREEN + "投票「" + endedVote.getQuestion() + "」(ID: " + endedVote.getNumericId() + ") を終了しました。");
         }
-        return true;
     }
 
-    private boolean handleResult(CommandSender sender, String[] args) {
+    private void handleResult(CommandSender sender, String[] args) {
         if (args.length < 1) {
-            sender.sendMessage(ChatColor.RED + "使い方: /voting result <投票ID> [open]");
-            return false;
+            sender.sendMessage(ChatColor.RED + "使い方: /voting result <投票ID> [open|anonymity]");
+            return;
         }
         int numericId;
         try {
             numericId = Integer.parseInt(args[0]);
         } catch (NumberFormatException e) {
             sender.sendMessage(ChatColor.RED + "投票IDは数字で指定してください。");
-            return true;
+            return;
         }
 
         File resultFile = findResultFile(numericId);
         if (resultFile == null) {
             sender.sendMessage(ChatColor.RED + "終了した投票ID「" + numericId + "」の結果ファイルが見つかりません。");
-            return true;
+            return;
         }
 
         YamlConfiguration resultConfig = YamlConfiguration.loadConfiguration(resultFile);
         VoteManager.ResultDisplayMode displayMode = (args.length > 1 && args[1].equalsIgnoreCase("open")) ? VoteManager.ResultDisplayMode.OPEN : VoteManager.ResultDisplayMode.ANONYMITY;
-        voteManager.displayResults(resultConfig, displayMode, sender);
-        return true;
+
+        voteManager.displayResults(resultConfig, displayMode);
     }
 
-    private boolean handleAverage(CommandSender sender, String[] args) {
+    private void handleAverage(CommandSender sender, String[] args) {
         if (args.length < 1) {
             sender.sendMessage(ChatColor.RED + "使い方: /voting average <投票ID | 企画名>");
-            return false;
+            return;
         }
 
         String input = String.join(" ", args);
@@ -272,7 +257,6 @@ public class VotingCommand implements CommandExecutor {
         } catch (NumberFormatException e) {
             handleProjectAverage(sender, input);
         }
-        return true;
     }
 
     private void handleSingleAverage(CommandSender sender, int numericId) {
@@ -324,7 +308,9 @@ public class VotingCommand implements CommandExecutor {
         }
     }
 
-    private boolean handleList(CommandSender sender, String[] args) {
+    // ★★★ 修正箇所 ★★★
+    // 返り値が常にtrueだったため、voidに変更
+    private void handleList(CommandSender sender, String[] args) {
         String projectName = (args.length > 0) ? String.join(" ", args) : null;
 
         sender.sendMessage(ChatColor.GOLD + "--- 投票一覧" + (projectName != null ? ": " + projectName : "") + " ---");
@@ -345,7 +331,7 @@ public class VotingCommand implements CommandExecutor {
         File searchDir = (projectName != null) ? new File(voteManager.getVotingFolder(), projectName) : voteManager.getVotingFolder();
         if (!searchDir.exists()) {
             sender.sendMessage(ChatColor.GRAY + "  (なし)");
-            return true;
+            return;
         }
 
         List<File> allFiles = new ArrayList<>();
@@ -373,7 +359,6 @@ public class VotingCommand implements CommandExecutor {
                 sender.sendMessage(ChatColor.GRAY + "  ID: " + config.getInt("numeric-id") + " - " + config.getString("question"));
             }
         }
-        return true;
     }
 
     private File findResultFile(int numericId) {
@@ -391,11 +376,11 @@ public class VotingCommand implements CommandExecutor {
 
     private void sendHelp(CommandSender sender) {
         sender.sendMessage(ChatColor.GOLD + "--- Voting Command Help ---");
-        sender.sendMessage(ChatColor.AQUA + "/voting question <企画名> <\"質問文\"> <選択肢...> [-duration] [-multi]");
+        sender.sendMessage(ChatColor.AQUA + "/voting question <企画名> <\"質問文\"> <選択肢...> [-duration 時間] [-multi]");
         sender.sendMessage(ChatColor.AQUA + "/voting evaluation <企画名> <\"質問文\"> [最大評価]");
         sender.sendMessage(ChatColor.AQUA + "/voting answer <投票ID> <番号>");
-        sender.sendMessage(ChatColor.AQUA + "/voting end <投票ID> [open]");
-        sender.sendMessage(ChatColor.AQUA + "/voting result <投票ID> [open]");
+        sender.sendMessage(ChatColor.AQUA + "/voting end <投票ID>");
+        sender.sendMessage(ChatColor.AQUA + "/voting result <投票ID> [open|anonymity]");
         sender.sendMessage(ChatColor.AQUA + "/voting average <投票ID | 企画名>");
         sender.sendMessage(ChatColor.AQUA + "/voting list [企画名]");
         sender.sendMessage(ChatColor.GRAY + "スペースを含む引数は \"\" で囲ってください。");

@@ -7,7 +7,6 @@ import net.kyori.adventure.platform.bukkit.BukkitAudiences;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
-import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
@@ -200,16 +199,12 @@ public class VoteManager {
         }
     }
 
-    // ★★★ 修正箇所 ★★★
-    // 結果表示ロジックを全面的に見直し、0票になる問題を解決。
-    // 期待されるフォーマットで正しく表示されるように修正。
-    public void displayResults(YamlConfiguration resultConfig, ResultDisplayMode displayMode, CommandSender sender) {
-        adventure.sender(sender).sendMessage(Component.text("------ 投票結果 (ID: " + resultConfig.getInt("numeric-id") + ") ------", NamedTextColor.GOLD));
-        adventure.sender(sender).sendMessage(Component.text("Q. " + resultConfig.getString("question"), NamedTextColor.AQUA));
+    public void displayResults(YamlConfiguration resultConfig, ResultDisplayMode displayMode) {
+        adventure.all().sendMessage(Component.text("------ 投票結果 (ID: " + resultConfig.getInt("numeric-id") + ") ------", NamedTextColor.GOLD));
+        adventure.all().sendMessage(Component.text("Q. " + resultConfig.getString("question"), NamedTextColor.AQUA));
 
         ConfigurationSection resultsSection = resultConfig.getConfigurationSection("results");
         if (resultsSection != null) {
-            // オプションの順番を維持するため、保存されているoptionsリストからキーを再構築する
             List<String> options = resultConfig.getStringList("options");
             if (options.isEmpty()) return;
 
@@ -217,24 +212,20 @@ public class VoteManager {
                 String optionText = options.get(i);
                 String key = (i + 1) + ". " + optionText;
 
-                // getStringListが機能しない場合も考慮し、より堅牢なgetListを使用する
                 List<String> voters = resultsSection.getStringList(key);
 
-                adventure.sender(sender).sendMessage(Component.text(key + " (" + voters.size() + "票)", NamedTextColor.YELLOW));
+                adventure.all().sendMessage(Component.text(key + " (" + voters.size() + "票)", NamedTextColor.YELLOW));
 
                 if (displayMode == ResultDisplayMode.OPEN && !voters.isEmpty()) {
                     for (String voterInfo : voters) {
                         try {
-                            // "displayName (uuid-string)" の形式からUUIDを抽出
                             String uuidString = voterInfo.substring(voterInfo.lastIndexOf('(') + 1, voterInfo.lastIndexOf(')'));
                             UUID uuid = UUID.fromString(uuidString);
-                            // NameManagerを使用して最新の表示名を取得
                             String displayName = (nameManager != null) ? nameManager.getDisplayName(uuid) : Bukkit.getOfflinePlayer(uuid).getName();
-                            adventure.sender(sender).sendMessage(Component.text("- " + displayName, NamedTextColor.GRAY));
+                            adventure.all().sendMessage(Component.text("- " + displayName, NamedTextColor.GRAY));
                         } catch (Exception e) {
-                            // 形式が不正な場合やUUIDのパースに失敗した場合は、保存されている名前をそのまま表示
                             String fallbackName = voterInfo.split(" \\(")[0];
-                            adventure.sender(sender).sendMessage(Component.text("- " + fallbackName, NamedTextColor.GRAY));
+                            adventure.all().sendMessage(Component.text("- " + fallbackName, NamedTextColor.GRAY));
                         }
                     }
                 }
@@ -242,10 +233,10 @@ public class VoteManager {
         }
 
         if (resultConfig.getBoolean("is-evaluation")) {
-            adventure.sender(sender).sendMessage(Component.text("--------------------", NamedTextColor.GOLD));
-            adventure.sender(sender).sendMessage(Component.text("平均評価: " + String.format("%.2f", resultConfig.getDouble("average-rating")), NamedTextColor.AQUA));
+            adventure.all().sendMessage(Component.text("--------------------", NamedTextColor.GOLD));
+            adventure.all().sendMessage(Component.text("平均評価: " + String.format("%.2f", resultConfig.getDouble("average-rating")), NamedTextColor.AQUA));
         }
-        adventure.sender(sender).sendMessage(Component.text("--------------------", NamedTextColor.GOLD));
+        adventure.all().sendMessage(Component.text("--------------------", NamedTextColor.GOLD));
     }
 
 

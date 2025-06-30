@@ -114,9 +114,12 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
     private void initializeManagers() {
         voteManager = new VoteManager(this);
         nameManager = new NameManager(this);
-
         whitelistManager = new WhitelistManager(this);
-        creatorGuiManager = new GuiManager(this, nameManager, whitelistManager);
+
+        // ★★★ 修正箇所 ★★★
+        // GuiManagerのコンストラクタから不要な引数 'this' を削除
+        creatorGuiManager = new GuiManager(nameManager);
+
         pvpManager = new PvpManager(this);
         timerManager = new TimerManager(this);
         restrictionManager = new PlayerRestrictionManager();
@@ -139,7 +142,7 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
 
     private void registerCommands() {
         setExecutor("yapimaru", ymCommand, new YmTabCompleter());
-        setExecutor("c", new CreatorCommand(creatorGuiManager), new CreatorTabCompleter());
+        setExecutor("creator", new CreatorCommand(creatorGuiManager), new CreatorTabCompleter());
         setExecutor("hub", new HubCommand(this));
         setExecutor("name", new NameCommand(this, nameManager), new NameTabCompleter());
         setExecutor("pvp", new PvpCommand(this, pvpManager), new PvpTabCompleter(pvpManager));
