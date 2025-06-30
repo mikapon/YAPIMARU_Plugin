@@ -76,7 +76,7 @@ public class ServerCommand implements CommandExecutor {
         timerManager.clearOnEndActions();
 
         if ("restart".equals(type)) {
-            timerManager.addOnEndAction(sender, "cmd", 1, "restart");
+            timerManager.addOnEndAction(sender, "cmd", 1, "stop");
         } else {
             timerManager.addOnEndAction(sender, "cmd", 1, "stop");
         }
