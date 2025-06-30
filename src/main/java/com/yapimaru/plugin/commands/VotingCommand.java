@@ -2,6 +2,7 @@ package com.yapimaru.plugin.commands;
 
 import com.yapimaru.plugin.data.VoteData;
 import com.yapimaru.plugin.managers.VoteManager;
+import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -36,19 +37,25 @@ public class VotingCommand implements CommandExecutor {
         String subCommand = args[0].toLowerCase();
         String[] subArgs = Arrays.copyOfRange(args, 1, args.length);
 
-        return switch (subCommand) {
-            case "question" -> handleQuestion(sender, subArgs);
-            case "evaluation" -> handleEvaluation(sender, subArgs);
-            case "answer" -> handleAnswer(sender, subArgs);
-            case "end" -> handleEnd(sender, subArgs);
-            case "result" -> handleResult(sender, subArgs);
-            case "average" -> handleAverage(sender, subArgs);
-            case "list" -> handleList(sender, subArgs);
-            default -> {
+        switch (subCommand) {
+            case "question":
+                return handleQuestion(sender, subArgs);
+            case "evaluation":
+                return handleEvaluation(sender, subArgs);
+            case "answer":
+                return handleAnswer(sender, subArgs);
+            case "end":
+                return handleEnd(sender, subArgs);
+            case "result":
+                return handleResult(sender, subArgs);
+            case "average":
+                return handleAverage(sender, subArgs);
+            case "list":
+                return handleList(sender, subArgs);
+            default:
                 sendHelp(sender);
-                yield true;
-            }
-        };
+                return true;
+        }
     }
 
     private boolean handleQuestion(CommandSender sender, String[] args) {
@@ -222,9 +229,10 @@ public class VotingCommand implements CommandExecutor {
         VoteData endedVote = voteManager.endPoll(fullPollId);
 
         if (endedVote != null) {
-            sender.sendMessage(ChatColor.GREEN + "投票「" + endedVote.getQuestion() + "」を終了しました。");
+            sender.sendMessage(ChatColor.GREEN + "投票「" + endedVote.getQuestion() + "」(ID: " + endedVote.getNumericId() + ") を終了しました。");
             VoteManager.ResultDisplayMode displayMode = (args.length > 1 && args[1].equalsIgnoreCase("open")) ? VoteManager.ResultDisplayMode.OPEN : VoteManager.ResultDisplayMode.ANONYMITY;
-            voteManager.displayResults(YamlConfiguration.loadConfiguration(findResultFile(numericId)), displayMode, sender);
+            // 終了時に結果をブロードキャストする
+            Bukkit.getOnlinePlayers().forEach(p -> voteManager.displayResults(YamlConfiguration.loadConfiguration(findResultFile(numericId)), displayMode, p));
         }
         return true;
     }
@@ -256,22 +264,16 @@ public class VotingCommand implements CommandExecutor {
 
     private boolean handleAverage(CommandSender sender, String[] args) {
         if (args.length < 1) {
-            sender.sendMessage(ChatColor.RED + "使い方: /voting average <投票ID | k:企画名>");
+            sender.sendMessage(ChatColor.RED + "使い方: /voting average <投票ID | 企画名>");
             return false;
         }
 
         String input = String.join(" ", args);
-        if (input.toLowerCase().startsWith("k:")) {
-            String projectName = input.substring(2);
-            handleProjectAverage(sender, projectName);
-        } else {
-            try {
-                int numericId = Integer.parseInt(input);
-                handleSingleAverage(sender, numericId);
-            } catch (NumberFormatException e) {
-                sender.sendMessage(ChatColor.RED + "無効な引数です。投票ID（数字）または `k:企画名` を指定してください。");
-                return false;
-            }
+        try {
+            int numericId = Integer.parseInt(input);
+            handleSingleAverage(sender, numericId);
+        } catch (NumberFormatException e) {
+            handleProjectAverage(sender, input);
         }
         return true;
     }
@@ -326,19 +328,10 @@ public class VotingCommand implements CommandExecutor {
     }
 
     private boolean handleList(CommandSender sender, String[] args) {
-        String projectName = null;
-        if (args.length > 0) {
-            String input = String.join(" ", args);
-            if (input.toLowerCase().startsWith("k:")) {
-                projectName = input.substring(2);
-            } else {
-                projectName = input;
-            }
-        }
+        String projectName = (args.length > 0) ? String.join(" ", args) : null;
 
         sender.sendMessage(ChatColor.GOLD + "--- 投票一覧" + (projectName != null ? ": " + projectName : "") + " ---");
 
-        // アクティブな投票
         sender.sendMessage(ChatColor.GREEN + "● 進行中の投票");
         boolean hasActive = false;
         for (VoteData vote : voteManager.getActivePolls().values()) {
@@ -351,7 +344,6 @@ public class VotingCommand implements CommandExecutor {
             sender.sendMessage(ChatColor.GRAY + "  (なし)");
         }
 
-        // 終了した投票
         sender.sendMessage(ChatColor.RED + "● 終了した投票");
         File searchDir = (projectName != null) ? new File(voteManager.getVotingFolder(), projectName) : voteManager.getVotingFolder();
         if (!searchDir.exists()) {
@@ -364,7 +356,7 @@ public class VotingCommand implements CommandExecutor {
             if (projectName != null) {
                 File[] files = searchDir.listFiles((d, n) -> n.endsWith(".yml"));
                 if (files != null) allFiles.addAll(Arrays.asList(files));
-            } else { // 全ての企画を検索
+            } else {
                 File[] projectDirs = searchDir.listFiles(File::isDirectory);
                 if (projectDirs != null) {
                     for (File pDir : projectDirs) {
@@ -378,6 +370,7 @@ public class VotingCommand implements CommandExecutor {
         if (allFiles.isEmpty()) {
             sender.sendMessage(ChatColor.GRAY + "  (なし)");
         } else {
+            allFiles.sort(Comparator.comparing(File::lastModified).reversed());
             for (File file : allFiles) {
                 YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
                 sender.sendMessage(ChatColor.GRAY + "  ID: " + config.getInt("numeric-id") + " - " + config.getString("question"));
@@ -406,8 +399,8 @@ public class VotingCommand implements CommandExecutor {
         sender.sendMessage(ChatColor.AQUA + "/voting answer <投票ID> <番号>");
         sender.sendMessage(ChatColor.AQUA + "/voting end <投票ID> [open]");
         sender.sendMessage(ChatColor.AQUA + "/voting result <投票ID> [open]");
-        sender.sendMessage(ChatColor.AQUA + "/voting average <投票ID | k:企画名>");
-        sender.sendMessage(ChatColor.AQUA + "/voting list [k:企画名]");
+        sender.sendMessage(ChatColor.AQUA + "/voting average <投票ID | 企画名>");
+        sender.sendMessage(ChatColor.AQUA + "/voting list [企画名]");
         sender.sendMessage(ChatColor.GRAY + "スペースを含む引数は \"\" で囲ってください。");
     }
 

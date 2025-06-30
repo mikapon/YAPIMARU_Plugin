@@ -41,17 +41,17 @@ public class GuiManager {
 
     static {
         Map<Material, PotionEffect> effects = new HashMap<>();
-        effects.put(Material.GLASS, new PotionEffect(PotionEffectType.INVISIBILITY, Integer.MAX_VALUE, 0, false, false));
-        effects.put(Material.GLOWSTONE_DUST, new PotionEffect(PotionEffectType.NIGHT_VISION, Integer.MAX_VALUE, 0, false, false));
-        effects.put(Material.GLOW_BERRIES, new PotionEffect(PotionEffectType.GLOWING, Integer.MAX_VALUE, 0, false, false));
-        effects.put(Material.SUGAR, new PotionEffect(PotionEffectType.SPEED, Integer.MAX_VALUE, 4, false, false));
-        effects.put(Material.FEATHER, new PotionEffect(PotionEffectType.JUMP_BOOST, Integer.MAX_VALUE, 4, false, false));
-        effects.put(Material.GOLDEN_PICKAXE, new PotionEffect(PotionEffectType.HASTE, Integer.MAX_VALUE, 254, false, false));
-        effects.put(Material.DIAMOND_SWORD, new PotionEffect(PotionEffectType.STRENGTH, Integer.MAX_VALUE, 254, false, false));
-        effects.put(Material.GHAST_TEAR, new PotionEffect(PotionEffectType.REGENERATION, Integer.MAX_VALUE, 254, false, false));
-        effects.put(Material.NETHERITE_CHESTPLATE, new PotionEffect(PotionEffectType.RESISTANCE, Integer.MAX_VALUE, 254, false, false));
-        effects.put(Material.MAGMA_CREAM, new PotionEffect(PotionEffectType.FIRE_RESISTANCE, Integer.MAX_VALUE, 254, false, false));
-        effects.put(Material.HEART_OF_THE_SEA, new PotionEffect(PotionEffectType.WATER_BREATHING, Integer.MAX_VALUE, 254, false, false));
+        effects.put(Material.GLASS, new PotionEffect(PotionEffectType.INVISIBILITY, -1, 0, false, false));
+        effects.put(Material.GLOWSTONE_DUST, new PotionEffect(PotionEffectType.NIGHT_VISION, -1, 0, false, false));
+        effects.put(Material.GLOW_BERRIES, new PotionEffect(PotionEffectType.GLOWING, -1, 0, false, false));
+        effects.put(Material.SUGAR, new PotionEffect(PotionEffectType.SPEED, -1, 4, false, false));
+        effects.put(Material.FEATHER, new PotionEffect(PotionEffectType.JUMP_BOOST, -1, 4, false, false));
+        effects.put(Material.GOLDEN_PICKAXE, new PotionEffect(PotionEffectType.HASTE, -1, 254, false, false));
+        effects.put(Material.DIAMOND_SWORD, new PotionEffect(PotionEffectType.STRENGTH, -1, 254, false, false));
+        effects.put(Material.GHAST_TEAR, new PotionEffect(PotionEffectType.REGENERATION, -1, 254, false, false));
+        effects.put(Material.NETHERITE_CHESTPLATE, new PotionEffect(PotionEffectType.RESISTANCE, -1, 254, false, false));
+        effects.put(Material.MAGMA_CREAM, new PotionEffect(PotionEffectType.FIRE_RESISTANCE, -1, 254, false, false));
+        effects.put(Material.HEART_OF_THE_SEA, new PotionEffect(PotionEffectType.WATER_BREATHING, -1, 254, false, false));
         TOGGLEABLE_EFFECTS = Collections.unmodifiableMap(effects);
     }
 
@@ -60,13 +60,15 @@ public class GuiManager {
         this.nameManager = nameManager;
     }
 
-    public void handleInventoryClick(Player player, String title, ItemStack clickedItem, Inventory inventory) {
-        String baseTitle = title.split(" §8\\(")[0];
-        switch (baseTitle) {
-            case MAIN_MENU_TITLE -> handleMainMenuClick(player, clickedItem);
-            case TP_MENU_TITLE -> handleTeleportMenuClick(player, clickedItem, inventory);
-            case EFFECT_MENU_TITLE -> handleEffectMenuClick(player, clickedItem, inventory);
-            case GAMEMODE_MENU_TITLE -> handleGamemodeMenuClick(player, clickedItem);
+    public void handleInventoryClick(Player player, String baseTitle, ItemStack clickedItem, Inventory inventory) {
+        if (baseTitle.equals(TP_MENU_TITLE)) {
+            handleTeleportMenuClick(player, clickedItem, inventory);
+        } else if (baseTitle.equals(EFFECT_MENU_TITLE)) {
+            handleEffectMenuClick(player, clickedItem, inventory);
+        } else if (baseTitle.equals(GAMEMODE_MENU_TITLE)) {
+            handleGamemodeMenuClick(player, clickedItem);
+        } else if (baseTitle.equals(MAIN_MENU_TITLE)) {
+            handleMainMenuClick(player, clickedItem);
         }
     }
 
@@ -212,6 +214,7 @@ public class GuiManager {
 
         if (awaitingTpAllTarget.contains(p.getUniqueId())) {
             if (item.getType() == Material.PLAYER_HEAD && item.getItemMeta() instanceof SkullMeta meta && meta.getOwningPlayer() != null) {
+                awaitingTpAllTarget.remove(p.getUniqueId());
                 Player destination = Bukkit.getPlayer(meta.getOwningPlayer().getUniqueId());
                 if (destination != null) {
                     p.sendMessage("§c" + destination.getName() + " の元へ、自分以外の全プレイヤーをテレポートさせます...");
@@ -224,8 +227,8 @@ public class GuiManager {
                 }
             } else {
                 p.sendMessage("§cキャンセルしました。プレイヤーの頭をクリックしてください。");
+                awaitingTpAllTarget.remove(p.getUniqueId());
             }
-            awaitingTpAllTarget.remove(p.getUniqueId());
             return;
         }
 

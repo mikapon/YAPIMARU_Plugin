@@ -55,7 +55,8 @@ public class GuiListener implements Listener {
 
         if (viewTitle.startsWith("クリエイターメニュー")) {
             event.setCancelled(true);
-            creatorGuiManager.handleInventoryClick(player, viewTitle, clickedItem, event.getInventory());
+            String baseTitle = viewTitle.split(" §8\\(")[0];
+            creatorGuiManager.handleInventoryClick(player, baseTitle, clickedItem, event.getInventory());
             return;
         }
 
@@ -66,27 +67,29 @@ public class GuiListener implements Listener {
     }
 
     private void handleYmGuiClick(Player player, String title, ItemStack item, ClickType clickType) {
-        if (title.equals(YmCommand.GUI_TITLE)) {
+        String baseTitle = title.split(" §8\\(")[0].split(" §7\\(")[0].trim();
+
+        if (baseTitle.equals(YmCommand.GUI_TITLE)) {
             handleMainGuiClick(player, item);
-        } else if (title.equals(YmCommand.TIMER_SETTINGS_GUI_TITLE)) {
+        } else if (baseTitle.equals(YmCommand.TIMER_SETTINGS_GUI_TITLE)) {
             handleTimerSettingsGuiClick(player, item);
-        } else if (title.equals(YmCommand.PVP_MODES_GUI_TITLE)) {
+        } else if (baseTitle.equals(YmCommand.PVP_MODES_GUI_TITLE)) {
             handlePvpModesGuiClick(player, item);
-        } else if (title.equals(YmCommand.PVP_DETAILED_SETTINGS_GUI_TITLE)) {
+        } else if (baseTitle.equals(YmCommand.PVP_DETAILED_SETTINGS_GUI_TITLE)) {
             handlePvpDetailedSettingsGuiClick(player, item);
-        } else if (title.equals(YmCommand.ADMIN_GUI_TITLE)) {
+        } else if (baseTitle.equals(YmCommand.ADMIN_GUI_TITLE)) {
             handleAdminGuiClick(player, item);
-        } else if (title.equals(YmCommand.PLAYER_SETTINGS_GUI_TITLE)) {
+        } else if (baseTitle.equals(YmCommand.PLAYER_SETTINGS_GUI_TITLE)) {
             handlePlayerSettingsGuiClick(player, item);
-        } else if (title.equals(YmCommand.WL_MAIN_GUI_TITLE)) {
+        } else if (baseTitle.equals(YmCommand.WL_MAIN_GUI_TITLE)) {
             handleWhitelistMainGuiClick(player, item);
-        } else if (title.equals(YmCommand.WL_PLAYER_SELECT_GUI_TITLE)) {
+        } else if (baseTitle.equals(YmCommand.WL_PLAYER_SELECT_GUI_TITLE)) {
             handlePlayerSelectGuiClick(player, item);
-        } else if (title.startsWith(YmCommand.WL_ALLOWED_GUI_TITLE)) {
+        } else if (baseTitle.equals(YmCommand.WL_ALLOWED_GUI_TITLE)) {
             handleWhitelistListClick(player, title, item, "allowed");
-        } else if (title.startsWith(YmCommand.WL_CANDIDATE_GUI_TITLE)) {
+        } else if (baseTitle.equals(YmCommand.WL_CANDIDATE_GUI_TITLE)) {
             handleWhitelistListClick(player, title, item, "candidate");
-        } else if (title.startsWith(YmCommand.WL_SOURCE_GUI_TITLE)) {
+        } else if (baseTitle.equals(YmCommand.WL_SOURCE_GUI_TITLE)) {
             handleWhitelistListClick(player, title, item, "source");
         } else if (title.startsWith(YmCommand.WL_FILTER_GUI_TITLE)) {
             handleFilterGuiClick(player, item, title);
@@ -327,9 +330,9 @@ public class GuiListener implements Listener {
         YmCommand.FilterState state = ymCommand.getPlayerFilterState(player.getUniqueId());
 
         if (item.getType() == Material.ARROW) {
-            if (title.contains(" - ")) { // Sub-filter menu
+            if (title.contains(" - ")) {
                 ymCommand.openFilterGui(player, getBaseTitle(previousGuiTitle), getPlayerListFromTitle(previousGuiTitle));
-            } else { // Main filter menu
+            } else {
                 refreshWhitelistGui(player, listType);
             }
             return;
@@ -338,7 +341,7 @@ public class GuiListener implements Listener {
         ymCommand.setPlayerGuiPage(player.getUniqueId(), 0);
         String subCategoryName = item.getItemMeta().getDisplayName().replace("§f", "");
 
-        if (title.equals(YmCommand.WL_FILTER_GUI_TITLE)) { // Main filter menu
+        if (title.equals(YmCommand.WL_FILTER_GUI_TITLE)) {
             YmCommand.FilterCategory category = YmCommand.FilterCategory.ALL;
             switch (item.getType()) {
                 case BOOK: category = YmCommand.FilterCategory.ALL; break;
@@ -355,7 +358,7 @@ public class GuiListener implements Listener {
             } else {
                 ymCommand.openSubFilterGui(player, getBaseTitle(previousGuiTitle), category, getPlayerListFromTitle(previousGuiTitle));
             }
-        } else { // Sub-filter menu
+        } else {
             String categoryName = title.substring(title.lastIndexOf(' ') + 1).trim();
             YmCommand.FilterCategory category = YmCommand.FilterCategory.valueOf(categoryName);
             state.setFilter(category, subCategoryName, ymCommand.getPredicateForCategory(category, subCategoryName));
