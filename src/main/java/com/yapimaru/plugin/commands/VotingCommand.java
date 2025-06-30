@@ -1,7 +1,9 @@
 package com.yapimaru.plugin.commands;
 
+import com.yapimaru.plugin.YAPIMARU_Plugin;
 import com.yapimaru.plugin.data.VoteData;
 import com.yapimaru.plugin.managers.VoteManager;
+import net.kyori.adventure.text.Component;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -20,9 +22,11 @@ import java.util.stream.IntStream;
 
 public class VotingCommand implements CommandExecutor {
 
+    private final YAPIMARU_Plugin plugin;
     private final VoteManager voteManager;
 
-    public VotingCommand(VoteManager voteManager) {
+    public VotingCommand(YAPIMARU_Plugin plugin, VoteManager voteManager) {
+        this.plugin = plugin;
         this.voteManager = voteManager;
     }
 
@@ -35,8 +39,6 @@ public class VotingCommand implements CommandExecutor {
 
         String subCommand = args[0].toLowerCase();
 
-        // ★★★ 修正箇所 ★★★
-        // answerは別コマンドになったため、ここでは権限チェックのみで良い
         if (!sender.hasPermission("yapimaru.admin")) {
             sender.sendMessage(ChatColor.RED + "このコマンドを使用する権限がありません。");
             return true;
@@ -47,7 +49,6 @@ public class VotingCommand implements CommandExecutor {
         switch (subCommand) {
             case "question" -> handleQuestion(sender, subArgs);
             case "evaluation" -> handleEvaluation(sender, subArgs);
-            // case "answer" は AnsCommand に移動したため削除
             case "end" -> handleEnd(sender, subArgs);
             case "result" -> handleResult(sender, subArgs);
             case "average" -> handleAverage(sender, subArgs);
@@ -148,8 +149,6 @@ public class VotingCommand implements CommandExecutor {
         }
     }
 
-    // handleAnswerメソッドはAnsCommand.javaに移動したため削除
-
     private void handleEnd(CommandSender sender, String[] args) {
         if (args.length < 1) {
             sender.sendMessage(ChatColor.RED + "使い方: /voting end <投票ID>");
@@ -229,8 +228,8 @@ public class VotingCommand implements CommandExecutor {
             sender.sendMessage(ChatColor.RED + "投票ID「" + numericId + "」は採点投票ではありません。");
             return;
         }
-        sender.sendMessage(ChatColor.GOLD + "--- 平均評価 (ID: " + numericId + ") ---");
-        sender.sendMessage(ChatColor.AQUA + config.getString("question") + ": " + ChatColor.YELLOW + String.format("%.2f", config.getDouble("average-rating")));
+        plugin.getAdventure().all().sendMessage(Component.text("§6--- 平均評価 (ID: " + numericId + ") ---"));
+        plugin.getAdventure().all().sendMessage(Component.text("§b" + config.getString("question") + ": §e" + String.format("%.2f", config.getDouble("average-rating"))));
     }
 
     private void handleProjectAverage(CommandSender sender, String projectName) {
@@ -249,7 +248,7 @@ public class VotingCommand implements CommandExecutor {
         for (File file : resultFiles) {
             YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
             if (config.getBoolean("is-evaluation")) {
-                averages.add(new AbstractMap.SimpleEntry<>(config.getString("question"), config.getDouble("average-rating")));
+                averages.add(new java.util.AbstractMap.SimpleEntry<>(config.getString("question"), config.getDouble("average-rating")));
             }
         }
 
@@ -260,10 +259,10 @@ public class VotingCommand implements CommandExecutor {
 
         averages.sort(Map.Entry.<String, Double>comparingByValue().reversed());
 
-        sender.sendMessage(ChatColor.GOLD + "--- 平均評価ランキング: " + projectName + " ---");
+        plugin.getAdventure().all().sendMessage(Component.text("§6--- 平均評価ランキング: " + projectName + " ---"));
         for (int i = 0; i < averages.size(); i++) {
             Map.Entry<String, Double> entry = averages.get(i);
-            sender.sendMessage(ChatColor.YELLOW + "" + (i+1) + ". " + String.format("%.2f", entry.getValue()) + " - " + ChatColor.AQUA + entry.getKey());
+            plugin.getAdventure().all().sendMessage(Component.text("§e" + (i+1) + ". " + String.format("%.2f", entry.getValue()) + " - §b" + entry.getKey()));
         }
     }
 
@@ -310,6 +309,8 @@ public class VotingCommand implements CommandExecutor {
         if (allFiles.isEmpty()) {
             sender.sendMessage(ChatColor.GRAY + "  (なし)");
         } else {
+            // ★★★ 修正箇所 ★★★
+            // 不足していたComparatorをimport
             allFiles.sort(Comparator.comparing(File::lastModified).reversed());
             for (File file : allFiles) {
                 YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
@@ -335,8 +336,6 @@ public class VotingCommand implements CommandExecutor {
         sender.sendMessage(ChatColor.GOLD + "--- Voting Command Help ---");
         sender.sendMessage(ChatColor.AQUA + "/voting question <企画名> <\"質問文\"> <選択肢...> [-duration 時間] [-multi]");
         sender.sendMessage(ChatColor.AQUA + "/voting evaluation <企画名> <\"質問文\"> [最大評価]");
-        // ★★★ 修正箇所 ★★★
-        // /voting answerを削除
         sender.sendMessage(ChatColor.AQUA + "/ans <投票ID> <番号>");
         sender.sendMessage(ChatColor.AQUA + "/voting end <投票ID>");
         sender.sendMessage(ChatColor.AQUA + "/voting result <投票ID> [open|anonymity]");

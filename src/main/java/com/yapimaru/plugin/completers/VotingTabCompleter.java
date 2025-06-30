@@ -11,15 +11,13 @@ import org.jetbrains.annotations.NotNull;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
 public class VotingTabCompleter implements TabCompleter {
 
     private final VoteManager voteManager;
-
-    // ★★★ 修正箇所 ★★★
-    // サブコマンドリストから "answer" を削除
     private static final List<String> SUBCOMMANDS = List.of("question", "evaluation", "end", "result", "average", "list");
     private static final List<String> RESULT_MODES = List.of("open", "anonymity");
 
@@ -29,6 +27,11 @@ public class VotingTabCompleter implements TabCompleter {
 
     @Override
     public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command, @NotNull String alias, @NotNull String[] args) {
+        // ★★★ 修正箇所 ★★★
+        if (!sender.hasPermission("yapimaru.admin")) {
+            return Collections.emptyList();
+        }
+
         List<String> completions = new ArrayList<>();
         String currentArg = args[args.length - 1];
 
@@ -40,7 +43,6 @@ public class VotingTabCompleter implements TabCompleter {
         String subCommand = args[0].toLowerCase();
         if (args.length == 2) {
             switch (subCommand) {
-                // case "answer" は削除
                 case "end" -> voteManager.getActivePolls().values().stream()
                         .map(p -> String.valueOf(p.getNumericId()))
                         .forEach(completions::add);

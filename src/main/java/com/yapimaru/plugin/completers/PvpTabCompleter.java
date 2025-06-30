@@ -7,8 +7,10 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 import org.bukkit.util.StringUtil;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -24,37 +26,47 @@ public class PvpTabCompleter implements TabCompleter {
     public PvpTabCompleter(PvpManager pvpManager) { this.pvpManager = pvpManager; }
 
     @Override
-    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+    public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command, @NotNull String alias, @NotNull String[] args) {
+        // ★★★ 修正箇所 ★★★
+        if (!sender.hasPermission("yapimaru.admin")) {
+            return Collections.emptyList();
+        }
+
         if (args.length == 1) {
             return StringUtil.copyPartialMatches(args[0], ROOT_COMMANDS, new ArrayList<>());
         }
         if (args.length > 1) {
             switch (args[0].toLowerCase()) {
-                case "set":
-                case "remove":
+                case "set", "remove" -> {
                     if (args.length == 2) return StringUtil.copyPartialMatches(args[1], pvpManager.getDefaultTeamColors(), new ArrayList<>());
-                    break;
-                case "ded":
+                }
+                case "ded" -> {
                     if (args.length == 2) return StringUtil.copyPartialMatches(args[1], DED_COMMANDS, new ArrayList<>());
-                    break;
-                case "lives":
+                }
+                case "lives" -> {
                     return handleLivesCompletion(args);
-                case "invincible":
-                case "grace":
+                }
+                case "invincible", "grace" -> {
                     if (args.length == 2) return StringUtil.copyPartialMatches(args[1], ON_OFF_TIME, new ArrayList<>());
-                    break;
+                }
             }
         }
-        return new ArrayList<>();
+        return Collections.emptyList();
     }
 
     private List<String> handleLivesCompletion(String[] args) {
         if (args.length == 2) return StringUtil.copyPartialMatches(args[1], LIVES_COMMANDS, new ArrayList<>());
         if (args.length == 3) {
             switch(args[1].toLowerCase()){
-                case "mode": return StringUtil.copyPartialMatches(args[2], LIVES_MODE_ARGS, new ArrayList<>());
-                case "set": return StringUtil.copyPartialMatches(args[2], LIVES_MODE_ARGS, new ArrayList<>());
-                case "onzero": return StringUtil.copyPartialMatches(args[2], LIVES_ONZERO_ARGS, new ArrayList<>());
+                case "mode" -> {
+                    return StringUtil.copyPartialMatches(args[2], LIVES_MODE_ARGS, new ArrayList<>());
+                }
+                case "set" -> {
+                    return StringUtil.copyPartialMatches(args[2], LIVES_MODE_ARGS, new ArrayList<>());
+                }
+                case "onzero" -> {
+                    return StringUtil.copyPartialMatches(args[2], LIVES_ONZERO_ARGS, new ArrayList<>());
+                }
             }
         }
         if (args.length == 4 && args[1].equalsIgnoreCase("set")) {
@@ -64,6 +76,6 @@ public class PvpTabCompleter implements TabCompleter {
                 return StringUtil.copyPartialMatches(args[3], playerNames, new ArrayList<>());
             }
         }
-        return new ArrayList<>();
+        return Collections.emptyList();
     }
 }

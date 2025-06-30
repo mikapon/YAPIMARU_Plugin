@@ -146,10 +146,11 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
         setExecutor("skinlist", new SkinListCommand(adventure));
         setExecutor("server", new ServerCommand(this, timerManager), new ServerTabCompleter());
         setExecutor("spectator", new SpectatorCommand(spectatorManager, adventure), new SpectatorTabCompleter());
-        setExecutor("voting", new VotingCommand(voteManager), new VotingTabCompleter(voteManager));
 
         // ★★★ 修正箇所 ★★★
-        // 新しい /ans コマンドを登録
+        // VotingCommandにプラグインインスタンス(this)を渡すように変更
+        setExecutor("voting", new VotingCommand(this, voteManager), new VotingTabCompleter(voteManager));
+
         setExecutor("ans", new AnsCommand(voteManager), new AnsTabCompleter(voteManager));
     }
 

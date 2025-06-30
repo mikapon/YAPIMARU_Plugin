@@ -4,8 +4,10 @@ import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.util.StringUtil;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 public class TimerTabCompleter implements TabCompleter {
@@ -16,29 +18,35 @@ public class TimerTabCompleter implements TabCompleter {
     private static final List<String> ONEND_TYPE_ARGS = List.of("msg", "cmd");
 
     @Override
-    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+    public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command, @NotNull String alias, @NotNull String[] args) {
+        // ★★★ 修正箇所 ★★★
+        if (!sender.hasPermission("yapimaru.admin")) {
+            return Collections.emptyList();
+        }
+
         if (args.length == 1) {
             return StringUtil.copyPartialMatches(args[0], COMMANDS, new ArrayList<>());
         }
         if (args.length == 2) {
             switch (args[0].toLowerCase()) {
-                case "mode":
+                case "mode" -> {
                     return StringUtil.copyPartialMatches(args[1], MODE_ARGS, new ArrayList<>());
-                case "display":
+                }
+                case "display" -> {
                     return StringUtil.copyPartialMatches(args[1], DISPLAY_ARGS, new ArrayList<>());
-                case "onend":
+                }
+                case "onend" -> {
                     return StringUtil.copyPartialMatches(args[1], ONEND_ARGS, new ArrayList<>());
+                }
             }
         }
         if (args.length == 3 && args[0].equalsIgnoreCase("onend")) {
             switch(args[1].toLowerCase()) {
-                case "add":
-                case "remove":
+                case "add", "remove", "list" -> {
                     return StringUtil.copyPartialMatches(args[2], ONEND_TYPE_ARGS, new ArrayList<>());
-                case "list":
-                    return StringUtil.copyPartialMatches(args[2], ONEND_TYPE_ARGS, new ArrayList<>());
+                }
             }
         }
-        return new ArrayList<>();
+        return Collections.emptyList();
     }
 }

@@ -12,8 +12,7 @@ import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 
-import java.io.File;
-import java.io.IOException;
+import java.io.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -28,9 +27,12 @@ public class VoteManager {
     private final Map<Integer, String> numericIdToFullIdMap = new ConcurrentHashMap<>();
     private final Map<String, BossBar> pollBossBars = new ConcurrentHashMap<>();
     private final File votingFolder;
+    private final File idCounterFile;
 
     private NameManager nameManager;
-    private static final AtomicInteger nextPollNumericId = new AtomicInteger(1);
+    // ★★★ 修正箇所 ★★★
+    // static final をやめ、コンストラクタで初期化するように変更
+    private final AtomicInteger nextPollNumericId;
 
     public enum ResultDisplayMode { OPEN, ANONYMITY }
 
@@ -43,7 +45,35 @@ public class VoteManager {
                 plugin.getLogger().warning("Failed to create voting directory.");
             }
         }
+        // ★★★ 修正箇所 ★★★
+        // IDカウンターのファイルを定義し、読み込み処理を呼び出す
+        this.idCounterFile = new File(this.votingFolder, "id_counter.dat");
+        this.nextPollNumericId = new AtomicInteger(loadNextPollId());
     }
+
+    // ★★★ 新規追加メソッド ★★★
+    // ファイルから次に使用すべきIDを読み込む
+    private int loadNextPollId() {
+        if (idCounterFile.exists()) {
+            try (DataInputStream dis = new DataInputStream(new FileInputStream(idCounterFile))) {
+                return dis.readInt() + 1; // 保存されている最後のIDの次の番号から開始
+            } catch (IOException e) {
+                plugin.getLogger().log(Level.WARNING, "Could not read poll ID counter file. Starting from 1.", e);
+            }
+        }
+        return 1; // ファイルがなければ1から開始
+    }
+
+    // ★★★ 新規追加メソッド ★★★
+    // 使用した最新のIDをファイルに保存する
+    private void saveCurrentPollId(int id) {
+        try (DataOutputStream dos = new DataOutputStream(new FileOutputStream(idCounterFile))) {
+            dos.writeInt(id);
+        } catch (IOException e) {
+            plugin.getLogger().log(Level.SEVERE, "Could not save poll ID counter file.", e);
+        }
+    }
+
 
     public void setNameManager(NameManager nameManager) {
         this.nameManager = nameManager;
@@ -69,7 +99,11 @@ public class VoteManager {
             return null;
         }
 
+        // ★★★ 修正箇所 ★★★
+        // IDを発行し、ファイルに保存する
         int numericId = nextPollNumericId.getAndIncrement();
+        saveCurrentPollId(numericId);
+
         VoteData voteData = new VoteData(numericId, directoryName, question, options, multiChoice, isEvaluation, durationMillis);
         activePolls.put(fullPollId, voteData);
         numericIdToFullIdMap.put(numericId, fullPollId);
@@ -140,8 +174,6 @@ public class VoteManager {
         for (int i = 0; i < voteData.getOptions().size(); i++) {
             adventure.player(player).sendMessage(Component.text((i + 1) + ". " + voteData.getOptions().get(i), NamedTextColor.YELLOW));
         }
-        // ★★★ 修正箇所 ★★★
-        // 表示されるコマンドを /voting answer から /ans に変更
         adventure.player(player).sendMessage(Component.text("チャットで /ans " + voteData.getNumericId() + " <番号> で投票", NamedTextColor.GRAY));
         if (voteData.isMultiChoice()) {
             adventure.player(player).sendMessage(Component.text("(複数選択可)", NamedTextColor.GRAY));
