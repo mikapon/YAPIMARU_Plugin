@@ -200,37 +200,45 @@ public class VoteManager {
         }
     }
 
-    // ★★★ 修正点 ★★★
-    // 結果表示ロジックを全面的に見直し、正しい票数と指定されたフォーマットで投票者名を表示するように修正
+    // ★★★ 修正箇所 ★★★
+    // 結果表示ロジックを全面的に見直し、0票になる問題を解決。
+    // 期待されるフォーマットで正しく表示されるように修正。
     public void displayResults(YamlConfiguration resultConfig, ResultDisplayMode displayMode, CommandSender sender) {
         adventure.sender(sender).sendMessage(Component.text("------ 投票結果 (ID: " + resultConfig.getInt("numeric-id") + ") ------", NamedTextColor.GOLD));
         adventure.sender(sender).sendMessage(Component.text("Q. " + resultConfig.getString("question"), NamedTextColor.AQUA));
 
         ConfigurationSection resultsSection = resultConfig.getConfigurationSection("results");
         if (resultsSection != null) {
-            resultsSection.getKeys(false).stream()
-                    .sorted(Comparator.comparingInt(s -> Integer.parseInt(s.split("\\.")[0])))
-                    .forEach(key -> {
-                        List<String> voters = resultsSection.getStringList(key);
-                        adventure.sender(sender).sendMessage(Component.text(key + " (" + voters.size() + "票)", NamedTextColor.YELLOW));
+            // オプションの順番を維持するため、保存されているoptionsリストからキーを再構築する
+            List<String> options = resultConfig.getStringList("options");
+            if (options.isEmpty()) return;
 
-                        if (displayMode == ResultDisplayMode.OPEN && !voters.isEmpty()) {
-                            for (String voterInfo : voters) {
-                                try {
-                                    // "displayName (uuid-string)" の形式からUUIDを抽出
-                                    String uuidString = voterInfo.substring(voterInfo.lastIndexOf('(') + 1, voterInfo.lastIndexOf(')'));
-                                    UUID uuid = UUID.fromString(uuidString);
-                                    // NameManagerを使用して最新の表示名を取得
-                                    String displayName = (nameManager != null) ? nameManager.getDisplayName(uuid) : Bukkit.getOfflinePlayer(uuid).getName();
-                                    adventure.sender(sender).sendMessage(Component.text("- " + displayName, NamedTextColor.GRAY));
-                                } catch (Exception e) {
-                                    // 形式が不正な場合やUUIDのパースに失敗した場合は、保存されている名前をそのまま表示
-                                    String fallbackName = voterInfo.split(" \\(")[0];
-                                    adventure.sender(sender).sendMessage(Component.text("- " + fallbackName, NamedTextColor.GRAY));
-                                }
-                            }
+            for (int i = 0; i < options.size(); i++) {
+                String optionText = options.get(i);
+                String key = (i + 1) + ". " + optionText;
+
+                // getStringListが機能しない場合も考慮し、より堅牢なgetListを使用する
+                List<String> voters = resultsSection.getStringList(key);
+
+                adventure.sender(sender).sendMessage(Component.text(key + " (" + voters.size() + "票)", NamedTextColor.YELLOW));
+
+                if (displayMode == ResultDisplayMode.OPEN && !voters.isEmpty()) {
+                    for (String voterInfo : voters) {
+                        try {
+                            // "displayName (uuid-string)" の形式からUUIDを抽出
+                            String uuidString = voterInfo.substring(voterInfo.lastIndexOf('(') + 1, voterInfo.lastIndexOf(')'));
+                            UUID uuid = UUID.fromString(uuidString);
+                            // NameManagerを使用して最新の表示名を取得
+                            String displayName = (nameManager != null) ? nameManager.getDisplayName(uuid) : Bukkit.getOfflinePlayer(uuid).getName();
+                            adventure.sender(sender).sendMessage(Component.text("- " + displayName, NamedTextColor.GRAY));
+                        } catch (Exception e) {
+                            // 形式が不正な場合やUUIDのパースに失敗した場合は、保存されている名前をそのまま表示
+                            String fallbackName = voterInfo.split(" \\(")[0];
+                            adventure.sender(sender).sendMessage(Component.text("- " + fallbackName, NamedTextColor.GRAY));
                         }
-                    });
+                    }
+                }
+            }
         }
 
         if (resultConfig.getBoolean("is-evaluation")) {

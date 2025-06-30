@@ -21,7 +21,10 @@ public class CreatorCommand implements CommandExecutor {
             return true;
         }
         switch (args[0].toLowerCase()) {
-            case "tp" -> guiManager.openTeleportMenu(p);
+            // ★★★ 修正箇所 ★★★
+            // openTeleportMenuからopenTeleportMenuAndResetModeに変更し、
+            // GUIを開くたびに必ずモードが初期化されるようにする
+            case "tp" -> guiManager.openTeleportMenuAndResetMode(p);
             case "effect" -> guiManager.openEffectMenu(p);
             case "gamemode", "gm" -> guiManager.openGamemodeMenu(p);
             default -> p.sendMessage(ChatColor.RED + "不明なサブコマンドです。/c <tp|effect|gamemode>");

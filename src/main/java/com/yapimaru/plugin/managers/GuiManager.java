@@ -37,11 +37,16 @@ public class GuiManager {
     private final Map<UUID, Set<PotionEffect>> stickyEffects = new HashMap<>();
     private final Map<UUID, GameMode> stickyGameModes = new HashMap<>();
 
-    private enum TeleportMode {
+    // publicにしてCreatorCommandからアクセスできるようにする
+    public enum TeleportMode {
         TELEPORT_TO, SUMMON
     }
     private final Map<UUID, Integer> playerTpGuiPages = new HashMap<>();
     private final Map<UUID, TeleportMode> playerTpModes = new HashMap<>();
+    // publicにしてCreatorCommandからアクセスできるようにする
+    public Map<UUID, TeleportMode> getPlayerTpModes() {
+        return playerTpModes;
+    }
     private final Set<UUID> awaitingTpAllTarget = new HashSet<>();
 
     private static final Map<Material, PotionEffect> TOGGLEABLE_EFFECTS;
@@ -76,14 +81,21 @@ public class GuiManager {
         p.openInventory(gui);
     }
 
+    // ★★★ 修正箇所 ★★★
+    // /c tp コマンドから呼び出される、モードをリセットする新しいメソッド
+    public void openTeleportMenuAndResetMode(Player p) {
+        // モードを必ず初期状態「自分を相手にTP」にリセットする
+        playerTpModes.put(p.getUniqueId(), TeleportMode.TELEPORT_TO);
+        // GUIを開く
+        openTeleportMenu(p);
+    }
+
+    // ★★★ 修正箇所 ★★★
+    // GUIの再描画時に呼ばれるメソッド。モードはリセットしない。
     public void openTeleportMenu(Player p) {
-        // ★★★ 修正点 ★★★
-        // putをputIfAbsentに変更し、GUIを開き直してもモードがリセットされないようにする
-        // 初回表示時のみデフォルトのTELEPORT_TOモードに設定
-        playerTpModes.putIfAbsent(p.getUniqueId(), TeleportMode.TELEPORT_TO);
+        playerTpGuiPages.putIfAbsent(p.getUniqueId(), 0);
         awaitingTpAllTarget.remove(p.getUniqueId());
 
-        playerTpGuiPages.putIfAbsent(p.getUniqueId(), 0);
         int page = playerTpGuiPages.get(p.getUniqueId());
 
         Map<String, List<Player>> playersByColor = new LinkedHashMap<>();
@@ -196,7 +208,8 @@ public class GuiManager {
         if (item == null) return;
         switch (item.getType()) {
             case ENDER_PEARL:
-                openTeleportMenu(p);
+                // モードをリセットしてGUIを開く
+                openTeleportMenuAndResetMode(p);
                 break;
             case BEACON:
                 openEffectMenu(p);
@@ -257,6 +270,7 @@ public class GuiManager {
                 } else {
                     playerTpGuiPages.put(p.getUniqueId(), currentPage + 1);
                 }
+                // 再描画なのでモードをリセットしないopenTeleportMenuを呼ぶ
                 openTeleportMenu(p);
                 break;
             case OAK_DOOR:
@@ -265,6 +279,7 @@ public class GuiManager {
             case ENDER_PEARL, ENDER_EYE:
                 TeleportMode currentMode = playerTpModes.getOrDefault(p.getUniqueId(), TeleportMode.TELEPORT_TO);
                 playerTpModes.put(p.getUniqueId(), currentMode == TeleportMode.TELEPORT_TO ? TeleportMode.SUMMON : TeleportMode.TELEPORT_TO);
+                // 再描画なのでモードをリセットしないopenTeleportMenuを呼ぶ
                 openTeleportMenu(p);
                 break;
             case BEACON:
