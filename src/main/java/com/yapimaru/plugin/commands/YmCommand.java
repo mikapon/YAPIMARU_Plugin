@@ -16,6 +16,7 @@ import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
+import org.jetbrains.annotations.NotNull;
 
 import java.text.Collator;
 import java.util.*;
@@ -75,13 +76,14 @@ public class YmCommand implements CommandExecutor {
     }
 
     @Override
-    public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
+    public boolean onCommand(@NotNull CommandSender sender, @NotNull Command cmd, @NotNull String label, @NotNull String[] args) {
         if (args.length > 0) {
             String subCommand = args[0].toLowerCase();
             switch(subCommand) {
                 case "reload":
                     plugin.loadConfigAndManual();
-                    sender.sendMessage("§aYAPIMARU_Pluginの設定ファイルをリロードしました。");
+                    // ★★★ 修正箇所 ★★★
+                    sender.sendMessage("§a/plugins/YAPIMARU_Plugin を再読込する");
                     return true;
                 case "list":
                     List<String> manual = plugin.getCommandManual();
@@ -107,6 +109,7 @@ public class YmCommand implements CommandExecutor {
                     sender.sendMessage("§e/pvp invincible §7- リスポーン時無敵時間");
                     sender.sendMessage("§e/pvp grace §7- 準備時間");
                     sender.sendMessage("§e/voting [vote] §7- 投票機能");
+                    sender.sendMessage("§e/ans §7- 投票に回答");
                     return true;
             }
         }
@@ -472,7 +475,7 @@ public class YmCommand implements CommandExecutor {
             case NUMERIC -> switch (subCategory) {
                 case "0-4" -> c -> c >= '0' && c <= '4';
                 case "5-9" -> c -> c >= '5' && c <= '9';
-                default -> c -> Character.isDigit(c);
+                default -> Character::isDigit;
             };
             case ALPHABET -> switch (subCategory) {
                 case "A-F" -> c -> c >= 'A' && c <= 'F';
@@ -480,16 +483,14 @@ public class YmCommand implements CommandExecutor {
                 case "P-Z" -> c -> c >= 'P' && c <= 'Z';
                 default -> c -> c >= 'A' && c <= 'Z';
             };
-            case KANA -> {
-                yield switch (subCategory) {
-                    case "あ行・か行" -> c -> "あいうえおかきくけこがぎぐげごアイウエオカキクケコガギグゲゴｱｲｳｴｵｶｷｸｹｺｶﾞｷﾞｸﾞｹﾞｺﾞ".indexOf(c) != -1;
-                    case "さ行・た行" -> c -> "さしすせそざじずぜぞたちつてとだぢづでどサシスセソザジズゼゾタチツテトダヂヅデドｻｼｽｾｿｻﾞｼﾞｽﾞｾﾞｿﾞﾀﾁﾂﾃﾄﾀﾞﾁﾞﾂﾞﾃﾞﾄﾞ".indexOf(c) != -1;
-                    case "な行・は行" -> c -> "なにぬねのはひふへほばびぶべぼぱぴぷぺぽナニヌネノハヒフヘホバビブベボパピプペポﾏﾐﾑﾒﾓﾊﾋﾌﾍﾎﾊﾞﾋﾞﾌﾞﾍﾞﾎﾞﾊﾟﾋﾟﾌﾟﾍﾟﾎﾟ".indexOf(c) != -1;
-                    case "ま行・や行" -> c -> "まみむめもやゆよマミムメモヤユヨﾏﾐﾑﾒﾓﾔﾕﾖ".indexOf(c) != -1;
-                    case "ら行・わ行" -> c -> "らりるれろわをんラリルレロワヲンﾗﾘﾙﾚﾛﾜｦﾝ".indexOf(c) != -1;
-                    default -> c -> Pattern.matches("^[\\u3040-\\u309F\\u30A0-\\u30FF\\uFF65-\\uFF9F]", String.valueOf(c));
-                };
-            }
+            case KANA -> c -> switch (subCategory) {
+                case "あ行・か行" -> "あいうえおかきくけこがぎぐげごアイウエオカキクケコガギグゲゴｱｲｳｴｵｶｷｸｹｺｶﾞｷﾞｸﾞｹﾞｺﾞ".indexOf(c) != -1;
+                case "さ行・た行" -> "さしすせそざじずぜぞたちつてとだぢづでどサシスセソザジズゼゾタチツテトダヂヅデドｻｼｽｾｿｻﾞｼﾞｽﾞｾﾞｿﾞﾀﾁﾂﾃﾄﾀﾞﾁﾞﾂﾞﾃﾞﾄﾞ".indexOf(c) != -1;
+                case "な行・は行" -> "なにぬねのはひふへほばびぶべぼぱぴぷぺぽナニヌネノハヒフヘホバビブベボパピプペポﾏﾐﾑﾒﾓﾊﾋﾌﾍﾎﾊﾞﾋﾞﾌﾞﾍﾞﾎﾞﾊﾟﾋﾟﾌﾟﾍﾟﾎﾟ".indexOf(c) != -1;
+                case "ま行・や行" -> "まみむめもやゆよマミムメモヤユヨﾏﾐﾑﾒﾓﾔﾕﾖ".indexOf(c) != -1;
+                case "ら行・わ行" -> "らりるれろわをんラリルレロワヲンﾗﾘﾙﾚﾛﾜｦﾝ".indexOf(c) != -1;
+                default -> Pattern.matches("^[\\u3040-\\u309F\\u30A0-\\u30FF\\uFF65-\\uFF9F]", String.valueOf(c));
+            };
             case OTHER -> c -> getSortCategory(String.valueOf(c)) == 3;
         };
     }
