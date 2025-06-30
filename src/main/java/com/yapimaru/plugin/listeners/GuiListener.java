@@ -12,6 +12,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.SkullMeta;
 
@@ -48,21 +49,36 @@ public class GuiListener implements Listener {
 
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
-        String viewTitle = event.getView().getTitle();
         if (!(event.getWhoClicked() instanceof Player player)) return;
-        ItemStack clickedItem = event.getCurrentItem();
-        if (clickedItem == null || clickedItem.getType().isAir() || !clickedItem.hasItemMeta()) return;
 
-        if (viewTitle.startsWith("クリエイターメニュー")) {
+        Inventory clickedInventory = event.getInventory();
+        if (clickedInventory == null) return;
+
+        InventoryHolder holder = clickedInventory.getHolder();
+        ItemStack clickedItem = event.getCurrentItem();
+
+        if (clickedItem == null || clickedItem.getType().isAir()) return;
+
+        // Creator GUI (handled by InventoryHolder)
+        if (holder instanceof GuiManager.MainMenuHolder) {
             event.setCancelled(true);
-            String baseTitle = viewTitle.split(" §8\\(")[0];
-            creatorGuiManager.handleInventoryClick(player, baseTitle, clickedItem, event.getInventory());
-            return;
+            creatorGuiManager.handleMainMenuClick(player, clickedItem);
+        } else if (holder instanceof GuiManager.TeleportMenuHolder) {
+            event.setCancelled(true);
+            creatorGuiManager.handleTeleportMenuClick(player, clickedItem, clickedInventory);
+        } else if (holder instanceof GuiManager.EffectMenuHolder) {
+            event.setCancelled(true);
+            creatorGuiManager.handleEffectMenuClick(player, clickedItem, clickedInventory);
+        } else if (holder instanceof GuiManager.GamemodeMenuHolder) {
+            event.setCancelled(true);
+            creatorGuiManager.handleGamemodeMenuClick(player, clickedItem);
         }
 
-        if (viewTitle.startsWith(YmCommand.GUI_PREFIX)) {
+        // YmCommand GUI (handled by title prefix)
+        else if (event.getView().getTitle().startsWith(YmCommand.GUI_PREFIX)) {
             event.setCancelled(true);
-            handleYmGuiClick(player, viewTitle, clickedItem, event.getClick());
+            if (!clickedItem.hasItemMeta()) return;
+            handleYmGuiClick(player, event.getView().getTitle(), clickedItem, event.getClick());
         }
     }
 

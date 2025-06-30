@@ -7,6 +7,7 @@ import org.bukkit.Material;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -21,6 +22,12 @@ public class GuiManager {
 
     private final YAPIMARU_Plugin plugin;
     private final NameManager nameManager;
+
+    // --- InventoryHolder Marker Interfaces ---
+    public static class MainMenuHolder implements InventoryHolder { @Override public Inventory getInventory() { return null; }}
+    public static class TeleportMenuHolder implements InventoryHolder { @Override public Inventory getInventory() { return null; }}
+    public static class EffectMenuHolder implements InventoryHolder { @Override public Inventory getInventory() { return null; }}
+    public static class GamemodeMenuHolder implements InventoryHolder { @Override public Inventory getInventory() { return null; }}
 
     public static final String MAIN_MENU_TITLE = "クリエイターメニュー";
     public static final String TP_MENU_TITLE = "クリエイターメニュー - テレポート";
@@ -41,7 +48,7 @@ public class GuiManager {
 
     static {
         Map<Material, PotionEffect> effects = new HashMap<>();
-        int infiniteDuration = 999999;
+        int infiniteDuration = -1; // -1で効果時間が**:**と表示される無限効果になる
         effects.put(Material.GLASS, new PotionEffect(PotionEffectType.INVISIBILITY, infiniteDuration, 0, false, false));
         effects.put(Material.GLOWSTONE_DUST, new PotionEffect(PotionEffectType.NIGHT_VISION, infiniteDuration, 0, false, false));
         effects.put(Material.GLOW_BERRIES, new PotionEffect(PotionEffectType.GLOWING, infiniteDuration, 0, false, false));
@@ -61,20 +68,8 @@ public class GuiManager {
         this.nameManager = nameManager;
     }
 
-    public void handleInventoryClick(Player player, String baseTitle, ItemStack clickedItem, Inventory inventory) {
-        if (baseTitle.equals(TP_MENU_TITLE)) {
-            handleTeleportMenuClick(player, clickedItem, inventory);
-        } else if (baseTitle.equals(EFFECT_MENU_TITLE)) {
-            handleEffectMenuClick(player, clickedItem, inventory);
-        } else if (baseTitle.equals(GAMEMODE_MENU_TITLE)) {
-            handleGamemodeMenuClick(player, clickedItem);
-        } else if (baseTitle.equals(MAIN_MENU_TITLE)) {
-            handleMainMenuClick(player, clickedItem);
-        }
-    }
-
     public void openMainMenu(Player p) {
-        Inventory gui = Bukkit.createInventory(null, 27, MAIN_MENU_TITLE);
+        Inventory gui = Bukkit.createInventory(new MainMenuHolder(), 27, MAIN_MENU_TITLE);
         gui.setItem(11, createItem(Material.ENDER_PEARL, "§aテレポート"));
         gui.setItem(13, createItem(Material.BEACON, "§bエフェクト"));
         gui.setItem(15, createItem(Material.DIAMOND_PICKAXE, "§eゲームモード"));
@@ -123,7 +118,7 @@ public class GuiManager {
         }
 
         String titleWithPage = TP_MENU_TITLE + " §8(" + (page + 1) + "/" + totalPages + ")";
-        Inventory gui = Bukkit.createInventory(null, 54, titleWithPage);
+        Inventory gui = Bukkit.createInventory(new TeleportMenuHolder(), 54, titleWithPage);
 
         int startIndex = page * 45;
         for (int i = 0; i < 45; i++) {
@@ -154,7 +149,7 @@ public class GuiManager {
     }
 
     public void openEffectMenu(Player p) {
-        Inventory gui = Bukkit.createInventory(null, 54, EFFECT_MENU_TITLE);
+        Inventory gui = Bukkit.createInventory(new EffectMenuHolder(), 54, EFFECT_MENU_TITLE);
 
         addEffectButton(gui, 10, Material.GLASS, "透明化");
         addEffectButton(gui, 11, Material.GLOWSTONE_DUST, "暗視");
@@ -181,7 +176,7 @@ public class GuiManager {
     }
 
     public void openGamemodeMenu(Player p) {
-        Inventory gui = Bukkit.createInventory(null, 27, GAMEMODE_MENU_TITLE);
+        Inventory gui = Bukkit.createInventory(new GamemodeMenuHolder(), 27, GAMEMODE_MENU_TITLE);
         GameMode sticky = getStickyGameMode(p.getUniqueId());
 
         addGamemodeButton(gui, 11, GameMode.CREATIVE, Material.GRASS_BLOCK, "クリエイティブ", sticky);
@@ -194,7 +189,7 @@ public class GuiManager {
         p.openInventory(gui);
     }
 
-    private void handleMainMenuClick(Player p, ItemStack item) {
+    public void handleMainMenuClick(Player p, ItemStack item) {
         if (item == null) return;
         switch (item.getType()) {
             case ENDER_PEARL:
@@ -210,7 +205,7 @@ public class GuiManager {
     }
 
     @SuppressWarnings("deprecation")
-    private void handleTeleportMenuClick(Player p, ItemStack item, Inventory inventory) {
+    public void handleTeleportMenuClick(Player p, ItemStack item, Inventory inventory) {
         if (item == null) return;
 
         if (awaitingTpAllTarget.contains(p.getUniqueId())) {
@@ -285,7 +280,7 @@ public class GuiManager {
         }
     }
 
-    private void handleEffectMenuClick(Player p, ItemStack item, Inventory inventory) {
+    public void handleEffectMenuClick(Player p, ItemStack item, Inventory inventory) {
         if (item == null || item.getType() == Material.AIR) return;
 
         if (TOGGLEABLE_EFFECTS.containsKey(item.getType())) {
@@ -312,7 +307,7 @@ public class GuiManager {
         }
     }
 
-    private void handleGamemodeMenuClick(Player p, ItemStack item) {
+    public void handleGamemodeMenuClick(Player p, ItemStack item) {
         if (item == null) return;
         GameMode targetMode = null;
         switch (item.getType()) {

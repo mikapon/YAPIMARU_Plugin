@@ -230,9 +230,6 @@ public class VotingCommand implements CommandExecutor {
 
         if (endedVote != null) {
             sender.sendMessage(ChatColor.GREEN + "投票「" + endedVote.getQuestion() + "」(ID: " + endedVote.getNumericId() + ") を終了しました。");
-            VoteManager.ResultDisplayMode displayMode = (args.length > 1 && args[1].equalsIgnoreCase("open")) ? VoteManager.ResultDisplayMode.OPEN : VoteManager.ResultDisplayMode.ANONYMITY;
-            // 終了時に結果をブロードキャストする
-            Bukkit.getOnlinePlayers().forEach(p -> voteManager.displayResults(YamlConfiguration.loadConfiguration(findResultFile(numericId)), displayMode, p));
         }
         return true;
     }

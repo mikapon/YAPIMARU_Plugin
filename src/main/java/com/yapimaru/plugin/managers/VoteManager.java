@@ -200,6 +200,7 @@ public class VoteManager {
         }
     }
 
+    @SuppressWarnings("deprecation")
     public void displayResults(YamlConfiguration resultConfig, ResultDisplayMode displayMode, CommandSender sender) {
         adventure.sender(sender).sendMessage(Component.text("------ 投票結果 (ID: " + resultConfig.getInt("numeric-id") + ") ------", NamedTextColor.GOLD));
         adventure.sender(sender).sendMessage(Component.text("Q. " + resultConfig.getString("question"), NamedTextColor.AQUA));

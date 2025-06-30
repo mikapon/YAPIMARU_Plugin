@@ -47,7 +47,9 @@ public class VotingTabCompleter implements TabCompleter {
                 case "result":
                 case "average":
                     getCompletedPollIds(completions);
-                    getProjectNameCompletions(currentArg, completions);
+                    if (!isNumeric(currentArg)) {
+                        getProjectNameCompletions(currentArg, completions);
+                    }
                     break;
                 case "list":
                     getProjectNameCompletions(currentArg, completions);
@@ -85,6 +87,16 @@ public class VotingTabCompleter implements TabCompleter {
                     completions.add(String.valueOf(id));
                 }
             }
+        }
+    }
+
+    private boolean isNumeric(String str) {
+        if (str == null) return false;
+        try {
+            Integer.parseInt(str);
+            return true;
+        } catch (NumberFormatException e) {
+            return false;
         }
     }
 }
