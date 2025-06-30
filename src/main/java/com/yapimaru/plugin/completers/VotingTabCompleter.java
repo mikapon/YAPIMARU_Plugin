@@ -18,8 +18,7 @@ public class VotingTabCompleter implements TabCompleter {
     private final VoteManager voteManager;
     private static final List<String> SUBCOMMANDS = List.of("question", "evaluation", "answer", "end", "result", "average", "list");
     private static final List<String> RESULT_MODES = List.of("open", "anonymity");
-    private static final List<String> AVG_PREFIX = List.of("k:");
-    private static final List<String> LIST_PREFIX = List.of("k:");
+    private static final List<String> K_PREFIX = List.of("k:");
 
     public VotingTabCompleter(VoteManager voteManager) {
         this.voteManager = voteManager;
@@ -38,33 +37,25 @@ public class VotingTabCompleter implements TabCompleter {
         switch(subCommand) {
             case "answer":
             case "end":
-            case "result":
                 if (args.length == 2) {
                     List<String> activePollIds = voteManager.getActivePolls().values().stream()
                             .map(p -> String.valueOf(p.getNumericId()))
                             .collect(Collectors.toList());
                     StringUtil.copyPartialMatches(args[1], activePollIds, completions);
-                } else if (args.length == 3 && (subCommand.equals("end") || subCommand.equals("result"))) {
+                }
+                break;
+            case "result":
+                if (args.length == 3) {
                     StringUtil.copyPartialMatches(args[2], RESULT_MODES, completions);
                 }
                 break;
             case "average":
-                if (args.length == 2) {
-                    if (args[1].startsWith("k:")) {
-                        getProjectNameCompletions(args[1].substring(2), completions);
-                    } else {
-                        StringUtil.copyPartialMatches(args[1], AVG_PREFIX, completions);
-                    }
-                }
-                break;
             case "list":
                 if (args.length == 2) {
-                    if (args[1].startsWith("k:")) {
-                        getProjectNameCompletions(args[1].substring(2), completions);
-                    } else {
-                        StringUtil.copyPartialMatches(args[1], LIST_PREFIX, completions);
-                        getProjectNameCompletions(args[1], completions);
-                    }
+                    StringUtil.copyPartialMatches(args[1], K_PREFIX, completions);
+                    getProjectNameCompletions(args[1], completions);
+                } else if (args.length == 2 && args[1].startsWith("k:")) {
+                    getProjectNameCompletions(args[1].substring(2), completions);
                 }
                 break;
         }

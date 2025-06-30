@@ -224,24 +224,179 @@ public class VotingCommand implements CommandExecutor {
         if (endedVote != null) {
             sender.sendMessage(ChatColor.GREEN + "投票「" + endedVote.getQuestion() + "」を終了しました。");
             VoteManager.ResultDisplayMode displayMode = (args.length > 1 && args[1].equalsIgnoreCase("open")) ? VoteManager.ResultDisplayMode.OPEN : VoteManager.ResultDisplayMode.ANONYMITY;
-            // 結果表示はブロードキャストされるのでここでは不要
+            voteManager.displayResults(YamlConfiguration.loadConfiguration(findResultFile(numericId)), displayMode, sender);
         }
         return true;
     }
 
     private boolean handleResult(CommandSender sender, String[] args) {
-        // ... (実装)
+        if (args.length < 1) {
+            sender.sendMessage(ChatColor.RED + "使い方: /voting result <投票ID> [open]");
+            return false;
+        }
+        int numericId;
+        try {
+            numericId = Integer.parseInt(args[0]);
+        } catch (NumberFormatException e) {
+            sender.sendMessage(ChatColor.RED + "投票IDは数字で指定してください。");
+            return true;
+        }
+
+        File resultFile = findResultFile(numericId);
+        if (resultFile == null) {
+            sender.sendMessage(ChatColor.RED + "終了した投票ID「" + numericId + "」の結果ファイルが見つかりません。");
+            return true;
+        }
+
+        YamlConfiguration resultConfig = YamlConfiguration.loadConfiguration(resultFile);
+        VoteManager.ResultDisplayMode displayMode = (args.length > 1 && args[1].equalsIgnoreCase("open")) ? VoteManager.ResultDisplayMode.OPEN : VoteManager.ResultDisplayMode.ANONYMITY;
+        voteManager.displayResults(resultConfig, displayMode, sender);
         return true;
     }
 
     private boolean handleAverage(CommandSender sender, String[] args) {
-        // ... (実装)
+        if (args.length < 1) {
+            sender.sendMessage(ChatColor.RED + "使い方: /voting average <投票ID | k:企画名>");
+            return false;
+        }
+
+        String input = String.join(" ", args);
+        if (input.toLowerCase().startsWith("k:")) {
+            String projectName = input.substring(2);
+            handleProjectAverage(sender, projectName);
+        } else {
+            try {
+                int numericId = Integer.parseInt(input);
+                handleSingleAverage(sender, numericId);
+            } catch (NumberFormatException e) {
+                sender.sendMessage(ChatColor.RED + "無効な引数です。投票ID（数字）または `k:企画名` を指定してください。");
+                return false;
+            }
+        }
         return true;
     }
 
+    private void handleSingleAverage(CommandSender sender, int numericId) {
+        File resultFile = findResultFile(numericId);
+        if (resultFile == null) {
+            sender.sendMessage(ChatColor.RED + "終了した投票ID「" + numericId + "」の結果ファイルが見つかりません。");
+            return;
+        }
+        YamlConfiguration config = YamlConfiguration.loadConfiguration(resultFile);
+        if (!config.getBoolean("is-evaluation")) {
+            sender.sendMessage(ChatColor.RED + "投票ID「" + numericId + "」は採点投票ではありません。");
+            return;
+        }
+        sender.sendMessage(ChatColor.GOLD + "--- 平均評価 (ID: " + numericId + ") ---");
+        sender.sendMessage(ChatColor.AQUA + config.getString("question") + ": " + ChatColor.YELLOW + String.format("%.2f", config.getDouble("average-rating")));
+    }
+
+    private void handleProjectAverage(CommandSender sender, String projectName) {
+        File projectDir = new File(voteManager.getVotingFolder(), projectName);
+        if (!projectDir.exists() || !projectDir.isDirectory()) {
+            sender.sendMessage(ChatColor.RED + "企画名「" + projectName + "」の投票結果が見つかりません。");
+            return;
+        }
+        File[] resultFiles = projectDir.listFiles((dir, name) -> name.endsWith(".yml"));
+        if (resultFiles == null || resultFiles.length == 0) {
+            sender.sendMessage(ChatColor.RED + "企画名「" + projectName + "」の投票結果が見つかりません。");
+            return;
+        }
+
+        List<Map.Entry<String, Double>> averages = new ArrayList<>();
+        for (File file : resultFiles) {
+            YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
+            if (config.getBoolean("is-evaluation")) {
+                averages.add(new AbstractMap.SimpleEntry<>(config.getString("question"), config.getDouble("average-rating")));
+            }
+        }
+
+        if (averages.isEmpty()) {
+            sender.sendMessage(ChatColor.YELLOW + "企画名「" + projectName + "」には採点投票の結果がありません。");
+            return;
+        }
+
+        averages.sort(Map.Entry.<String, Double>comparingByValue().reversed());
+
+        sender.sendMessage(ChatColor.GOLD + "--- 平均評価ランキング: " + projectName + " ---");
+        for (int i = 0; i < averages.size(); i++) {
+            Map.Entry<String, Double> entry = averages.get(i);
+            sender.sendMessage(ChatColor.YELLOW + "" + (i+1) + ". " + String.format("%.2f", entry.getValue()) + " - " + ChatColor.AQUA + entry.getKey());
+        }
+    }
+
     private boolean handleList(CommandSender sender, String[] args) {
-        // ... (実装)
+        String projectName = null;
+        if (args.length > 0) {
+            String input = String.join(" ", args);
+            if (input.toLowerCase().startsWith("k:")) {
+                projectName = input.substring(2);
+            } else {
+                projectName = input;
+            }
+        }
+
+        sender.sendMessage(ChatColor.GOLD + "--- 投票一覧" + (projectName != null ? ": " + projectName : "") + " ---");
+
+        // アクティブな投票
+        sender.sendMessage(ChatColor.GREEN + "● 進行中の投票");
+        boolean hasActive = false;
+        for (VoteData vote : voteManager.getActivePolls().values()) {
+            if (projectName == null || vote.getDirectoryName().equalsIgnoreCase(projectName)) {
+                sender.sendMessage(ChatColor.WHITE + "  ID: " + vote.getNumericId() + " - " + vote.getQuestion());
+                hasActive = true;
+            }
+        }
+        if (!hasActive) {
+            sender.sendMessage(ChatColor.GRAY + "  (なし)");
+        }
+
+        // 終了した投票
+        sender.sendMessage(ChatColor.RED + "● 終了した投票");
+        File searchDir = (projectName != null) ? new File(voteManager.getVotingFolder(), projectName) : voteManager.getVotingFolder();
+        if (!searchDir.exists()) {
+            sender.sendMessage(ChatColor.GRAY + "  (なし)");
+            return true;
+        }
+
+        List<File> allFiles = new ArrayList<>();
+        if (searchDir.isDirectory()) {
+            if (projectName != null) {
+                File[] files = searchDir.listFiles((d, n) -> n.endsWith(".yml"));
+                if (files != null) allFiles.addAll(Arrays.asList(files));
+            } else { // 全ての企画を検索
+                File[] projectDirs = searchDir.listFiles(File::isDirectory);
+                if (projectDirs != null) {
+                    for (File pDir : projectDirs) {
+                        File[] files = pDir.listFiles((d, n) -> n.endsWith(".yml"));
+                        if (files != null) allFiles.addAll(Arrays.asList(files));
+                    }
+                }
+            }
+        }
+
+        if (allFiles.isEmpty()) {
+            sender.sendMessage(ChatColor.GRAY + "  (なし)");
+        } else {
+            for (File file : allFiles) {
+                YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
+                sender.sendMessage(ChatColor.GRAY + "  ID: " + config.getInt("numeric-id") + " - " + config.getString("question"));
+            }
+        }
         return true;
+    }
+
+    private File findResultFile(int numericId) {
+        File[] projectDirs = voteManager.getVotingFolder().listFiles(File::isDirectory);
+        if (projectDirs == null) return null;
+
+        for (File dir : projectDirs) {
+            File[] resultFiles = dir.listFiles((d, name) -> name.contains("_" + numericId + "_") && name.endsWith(".yml"));
+            if (resultFiles != null && resultFiles.length > 0) {
+                return resultFiles[0];
+            }
+        }
+        return null;
     }
 
     private void sendHelp(CommandSender sender) {
@@ -252,7 +407,7 @@ public class VotingCommand implements CommandExecutor {
         sender.sendMessage(ChatColor.AQUA + "/voting end <投票ID> [open]");
         sender.sendMessage(ChatColor.AQUA + "/voting result <投票ID> [open]");
         sender.sendMessage(ChatColor.AQUA + "/voting average <投票ID | k:企画名>");
-        sender.sendMessage(ChatColor.AQUA + "/voting list [企画名]");
+        sender.sendMessage(ChatColor.AQUA + "/voting list [k:企画名]");
         sender.sendMessage(ChatColor.GRAY + "スペースを含む引数は \"\" で囲ってください。");
     }
 

@@ -94,6 +94,7 @@ public class GuiListener implements Listener {
     }
 
     private void handleMainGuiClick(Player player, ItemStack item) {
+        if (item == null) return;
         switch (item.getType()) {
             case CLOCK:
                 timerManager.setFeatureEnabled(!timerManager.isFeatureEnabled(), player);
@@ -122,6 +123,7 @@ public class GuiListener implements Listener {
     }
 
     private void handleTimerSettingsGuiClick(Player player, ItemStack item) {
+        if (item == null) return;
         if (item.getType() == Material.ARROW) {
             ymCommand.openMainGui(player);
             return;
@@ -154,6 +156,7 @@ public class GuiListener implements Listener {
     }
 
     private void handlePvpModesGuiClick(Player player, ItemStack item) {
+        if (item == null) return;
         switch(item.getType()){
             case TOTEM_OF_UNDYING: pvpManager.setLivesFeatureEnabled(!pvpManager.isLivesFeatureEnabled(), player); break;
             case SKELETON_SKULL: pvpManager.setDedFeatureEnabled(!pvpManager.isDedFeatureEnabled(), player); break;
@@ -166,6 +169,7 @@ public class GuiListener implements Listener {
     }
 
     private void handlePvpDetailedSettingsGuiClick(Player player, ItemStack item) {
+        if (item == null) return;
         if (item.getType() == Material.ARROW) {
             ymCommand.openMainGui(player);
             return;
@@ -196,6 +200,7 @@ public class GuiListener implements Listener {
     }
 
     private void handleAdminGuiClick(Player player, ItemStack item) {
+        if (item == null) return;
         switch (item.getType()) {
             case PLAYER_HEAD: ymCommand.openWhitelistMainGui(player); break;
             case COMMAND_BLOCK: ymCommand.openPlayerSettingsGui(player); break;
@@ -206,6 +211,7 @@ public class GuiListener implements Listener {
     }
 
     private void handlePlayerSettingsGuiClick(Player player, ItemStack item) {
+        if (item == null) return;
         PlayerRestrictionManager.RestrictionMode current = restrictionManager.getCurrentMode();
         PlayerRestrictionManager.RestrictionMode clicked = null;
 
@@ -229,6 +235,7 @@ public class GuiListener implements Listener {
     }
 
     private void handleWhitelistMainGuiClick(Player player, ItemStack item) {
+        if (item == null) return;
         switch(item.getType()) {
             case IRON_DOOR: whitelistManager.setMode(WhitelistManager.Mode.OFF, player); break;
             case DIAMOND: whitelistManager.setMode(WhitelistManager.Mode.OWNER_ONLY, player); break;
@@ -250,6 +257,7 @@ public class GuiListener implements Listener {
     }
 
     private void handlePlayerSelectGuiClick(Player player, ItemStack item) {
+        if (item == null) return;
         ymCommand.setPlayerGuiPage(player.getUniqueId(), 0);
         ymCommand.getPlayerFilterState(player.getUniqueId()).setFilter(YmCommand.FilterCategory.ALL, "全て", c -> true);
 
@@ -262,6 +270,7 @@ public class GuiListener implements Listener {
     }
 
     private void handleWhitelistListClick(Player player, String viewTitle, ItemStack item, String listType) {
+        if (item == null) return;
         if (item.getType() == Material.ARROW && item.getItemMeta().getDisplayName().contains("戻る")) {
             ymCommand.openPlayerSelectGui(player);
             return;
@@ -310,6 +319,7 @@ public class GuiListener implements Listener {
     }
 
     private void handleFilterGuiClick(Player player, ItemStack item, String title) {
+        if (item == null) return;
         String previousGuiTitle = playerLastWlGui.get(player.getUniqueId());
         if (previousGuiTitle == null) return;
 

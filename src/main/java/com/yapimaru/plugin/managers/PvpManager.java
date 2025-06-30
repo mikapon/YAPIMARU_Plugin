@@ -87,7 +87,6 @@ public class PvpManager {
         return this.adventure;
     }
 
-    // --- Getters ---
     public GameState getGameState() { return gameState; }
     public Map<UUID, Long> getInvinciblePlayers() { return invinciblePlayers; }
     public Set<UUID> getZeroLivesWaitRespawnPlayers() { return zeroLivesWaitRespawn; }
@@ -734,7 +733,7 @@ public class PvpManager {
         }
 
         invinciblePlayers.put(playerUUID, System.currentTimeMillis() + ((long) seconds * 1000L));
-        player.addPotionEffect(new PotionEffect(PotionEffectType.RESISTANCE, seconds * 20 + 10, 255, true, false));
+        player.addPotionEffect(new PotionEffect(PotionEffectType.RESISTANCE, seconds * 20 + 10, 254, true, false));
         adventure.player(player).sendMessage(Component.text(seconds + "秒間、無敵です。", NamedTextColor.YELLOW));
 
         BukkitRunnable task = new BukkitRunnable() {
