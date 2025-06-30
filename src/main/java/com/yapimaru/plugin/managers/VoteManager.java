@@ -200,7 +200,8 @@ public class VoteManager {
         }
     }
 
-    @SuppressWarnings("deprecation")
+    // ★★★ 修正点 ★★★
+    // 結果表示ロジックを全面的に見直し、正しい票数と指定されたフォーマットで投票者名を表示するように修正
     public void displayResults(YamlConfiguration resultConfig, ResultDisplayMode displayMode, CommandSender sender) {
         adventure.sender(sender).sendMessage(Component.text("------ 投票結果 (ID: " + resultConfig.getInt("numeric-id") + ") ------", NamedTextColor.GOLD));
         adventure.sender(sender).sendMessage(Component.text("Q. " + resultConfig.getString("question"), NamedTextColor.AQUA));
@@ -214,9 +215,19 @@ public class VoteManager {
                         adventure.sender(sender).sendMessage(Component.text(key + " (" + voters.size() + "票)", NamedTextColor.YELLOW));
 
                         if (displayMode == ResultDisplayMode.OPEN && !voters.isEmpty()) {
-                            for(String voterInfo : voters) {
-                                String name = voterInfo.split(" \\(")[0];
-                                adventure.sender(sender).sendMessage(Component.text("- " + name, NamedTextColor.GRAY));
+                            for (String voterInfo : voters) {
+                                try {
+                                    // "displayName (uuid-string)" の形式からUUIDを抽出
+                                    String uuidString = voterInfo.substring(voterInfo.lastIndexOf('(') + 1, voterInfo.lastIndexOf(')'));
+                                    UUID uuid = UUID.fromString(uuidString);
+                                    // NameManagerを使用して最新の表示名を取得
+                                    String displayName = (nameManager != null) ? nameManager.getDisplayName(uuid) : Bukkit.getOfflinePlayer(uuid).getName();
+                                    adventure.sender(sender).sendMessage(Component.text("- " + displayName, NamedTextColor.GRAY));
+                                } catch (Exception e) {
+                                    // 形式が不正な場合やUUIDのパースに失敗した場合は、保存されている名前をそのまま表示
+                                    String fallbackName = voterInfo.split(" \\(")[0];
+                                    adventure.sender(sender).sendMessage(Component.text("- " + fallbackName, NamedTextColor.GRAY));
+                                }
                             }
                         }
                     });
@@ -228,6 +239,7 @@ public class VoteManager {
         }
         adventure.sender(sender).sendMessage(Component.text("--------------------", NamedTextColor.GOLD));
     }
+
 
     public Integer getMaxStarsForProject(String projectName) {
         return plugin.getConfig().getInt("voting-settings.project-max-stars." + projectName, 0);

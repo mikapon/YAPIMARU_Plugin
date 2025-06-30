@@ -19,7 +19,7 @@ public class VotingTabCompleter implements TabCompleter {
 
     private final VoteManager voteManager;
     private static final List<String> SUBCOMMANDS = List.of("question", "evaluation", "answer", "end", "result", "average", "list");
-    private static final List<String> RESULT_MODES = List.of("open", "anonymity");
+    private static final List<String> RESULT_MODES = List.of("open"); // "anonymity" はデフォルトなので候補から除外
 
     public VotingTabCompleter(VoteManager voteManager) {
         this.voteManager = voteManager;
@@ -44,11 +44,18 @@ public class VotingTabCompleter implements TabCompleter {
                             .map(p -> String.valueOf(p.getNumericId()))
                             .forEach(completions::add);
                     break;
+                // ★★★ 修正点 ★★★
+                // resultではIDのみを補完するようにする
                 case "result":
-                case "average":
                     getCompletedPollIds(completions);
-                    if (!isNumeric(currentArg)) {
-                        getProjectNameCompletions(currentArg, completions);
+                    break;
+                // ★★★ 修正点 ★★★
+                // averageではIDまたは採点企画名のみを補完するようにする
+                case "average":
+                    if (isNumeric(currentArg)) {
+                        getCompletedPollIds(completions);
+                    } else {
+                        getEvaluationProjectNames(currentArg, completions);
                     }
                     break;
                 case "list":
@@ -72,6 +79,30 @@ public class VotingTabCompleter implements TabCompleter {
         }
     }
 
+    // ★★★ 新規追加メソッド ★★★
+    // 採点投票が行われた企画名のみをリストアップする
+    private void getEvaluationProjectNames(String input, List<String> completions) {
+        File[] directories = voteManager.getVotingFolder().listFiles(File::isDirectory);
+        if (directories == null) return;
+
+        for (File dir : directories) {
+            File[] resultFiles = dir.listFiles((d, name) -> name.endsWith(".yml"));
+            if (resultFiles == null) continue;
+
+            boolean isEvaluationProject = false;
+            for (File file : resultFiles) {
+                YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
+                if (config.getBoolean("is-evaluation")) {
+                    isEvaluationProject = true;
+                    break;
+                }
+            }
+            if (isEvaluationProject) {
+                completions.add(dir.getName());
+            }
+        }
+    }
+
     private void getCompletedPollIds(List<String> completions) {
         File[] projectDirs = voteManager.getVotingFolder().listFiles(File::isDirectory);
         if (projectDirs == null) return;
@@ -91,7 +122,7 @@ public class VotingTabCompleter implements TabCompleter {
     }
 
     private boolean isNumeric(String str) {
-        if (str == null) return false;
+        if (str == null || str.isEmpty()) return false;
         try {
             Integer.parseInt(str);
             return true;

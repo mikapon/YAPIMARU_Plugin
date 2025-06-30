@@ -77,7 +77,10 @@ public class GuiManager {
     }
 
     public void openTeleportMenu(Player p) {
-        playerTpModes.put(p.getUniqueId(), TeleportMode.TELEPORT_TO);
+        // ★★★ 修正点 ★★★
+        // putをputIfAbsentに変更し、GUIを開き直してもモードがリセットされないようにする
+        // 初回表示時のみデフォルトのTELEPORT_TOモードに設定
+        playerTpModes.putIfAbsent(p.getUniqueId(), TeleportMode.TELEPORT_TO);
         awaitingTpAllTarget.remove(p.getUniqueId());
 
         playerTpGuiPages.putIfAbsent(p.getUniqueId(), 0);
