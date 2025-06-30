@@ -147,27 +147,6 @@ public class VoteManager {
         }
     }
 
-    private void updateBossBar(String fullPollId) {
-        VoteData voteData = activePolls.get(fullPollId);
-        BossBar bossBar = pollBossBars.get(fullPollId);
-        if (voteData == null || bossBar == null) return;
-
-        int totalVotes = (int) voteData.getPlayerVotes().keySet().stream().distinct().count();
-        Component title = Component.text("Q. " + voteData.getQuestion() + " (" + totalVotes + "票)", NamedTextColor.WHITE);
-
-        if (voteData.getOptions().size() == 2 && !voteData.isEvaluation()) {
-            int votes1 = voteData.getVotes().get(1).size();
-            int votes2 = voteData.getVotes().get(2).size();
-            int total = votes1 + votes2;
-            float progress = (total == 0) ? 0.5f : (float) votes1 / total;
-
-            title = Component.text(voteData.getOptions().get(0) + " " + votes1 + " - " + votes2 + " " + voteData.getOptions().get(1));
-            bossBar.progress(progress);
-        }
-
-        bossBar.name(title);
-    }
-
     private void saveResultFile(VoteData voteData) {
         File dir = new File(this.votingFolder, voteData.getDirectoryName());
         if (!dir.exists() && !dir.mkdirs()) {
@@ -221,25 +200,25 @@ public class VoteManager {
         }
     }
 
-    @SuppressWarnings("deprecation")
     public void displayResults(YamlConfiguration resultConfig, ResultDisplayMode displayMode, CommandSender sender) {
         adventure.sender(sender).sendMessage(Component.text("------ 投票結果 (ID: " + resultConfig.getInt("numeric-id") + ") ------", NamedTextColor.GOLD));
         adventure.sender(sender).sendMessage(Component.text("Q. " + resultConfig.getString("question"), NamedTextColor.AQUA));
 
         ConfigurationSection resultsSection = resultConfig.getConfigurationSection("results");
         if (resultsSection != null) {
-            for (String key : resultsSection.getKeys(false)) {
-                List<String> voters = resultsSection.getStringList(key);
-                adventure.sender(sender).sendMessage(Component.text(key + " (" + voters.size() + "票)", NamedTextColor.YELLOW));
+            resultsSection.getKeys(false).stream()
+                    .sorted(Comparator.comparingInt(s -> Integer.parseInt(s.split("\\.")[0])))
+                    .forEach(key -> {
+                        List<String> voters = resultsSection.getStringList(key);
+                        adventure.sender(sender).sendMessage(Component.text(key + " (" + voters.size() + "票)", NamedTextColor.YELLOW));
 
-                if (displayMode == ResultDisplayMode.OPEN && !voters.isEmpty()) {
-                    List<String> voterNames = new ArrayList<>();
-                    for(String voterInfo : voters) {
-                        voterNames.add(voterInfo.split(" \\(")[0]);
-                    }
-                    adventure.sender(sender).sendMessage(Component.text("    " + String.join(", ", voterNames), NamedTextColor.GRAY));
-                }
-            }
+                        if (displayMode == ResultDisplayMode.OPEN && !voters.isEmpty()) {
+                            for(String voterInfo : voters) {
+                                String name = voterInfo.split(" \\(")[0];
+                                adventure.sender(sender).sendMessage(Component.text("- " + name, NamedTextColor.GRAY));
+                            }
+                        }
+                    });
         }
 
         if (resultConfig.getBoolean("is-evaluation")) {
@@ -260,5 +239,26 @@ public class VoteManager {
 
     public File getVotingFolder() {
         return votingFolder;
+    }
+
+    private void updateBossBar(String fullPollId) {
+        VoteData voteData = activePolls.get(fullPollId);
+        BossBar bossBar = pollBossBars.get(fullPollId);
+        if (voteData == null || bossBar == null) return;
+
+        int totalVotes = (int) voteData.getPlayerVotes().keySet().stream().distinct().count();
+        Component title = Component.text("Q. " + voteData.getQuestion() + " (" + totalVotes + "票)", NamedTextColor.WHITE);
+
+        if (voteData.getOptions().size() == 2 && !voteData.isEvaluation()) {
+            int votes1 = voteData.getVotes().get(1).size();
+            int votes2 = voteData.getVotes().get(2).size();
+            int total = votes1 + votes2;
+            float progress = (total == 0) ? 0.5f : (float) votes1 / total;
+
+            title = Component.text(voteData.getOptions().get(0) + " " + votes1 + " - " + votes2 + " " + voteData.getOptions().get(1));
+            bossBar.progress(progress);
+        }
+
+        bossBar.name(title);
     }
 }

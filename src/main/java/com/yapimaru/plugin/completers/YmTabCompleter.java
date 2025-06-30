@@ -9,7 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class YmTabCompleter implements TabCompleter {
-    private static final List<String> SUBCOMMANDS = List.of("reload", "cmlist");
+    private static final List<String> SUBCOMMANDS = List.of("reload", "list", "cmlist");
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {

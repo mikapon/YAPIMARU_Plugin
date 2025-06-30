@@ -78,18 +78,36 @@ public class YmCommand implements CommandExecutor {
     public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
         if (args.length > 0) {
             String subCommand = args[0].toLowerCase();
-            if (subCommand.equals("reload")) {
-                plugin.loadConfigAndManual();
-                sender.sendMessage("§aYAPIMARU_Pluginの設定ファイルをリロードしました。");
-                return true;
-            } else if (subCommand.equals("cmlist")) {
-                List<String> manual = plugin.getCommandManual();
-                if (manual.isEmpty()) {
-                    sender.sendMessage("§cマニュアルファイル(commands.txt)が読み込めませんでした。");
-                } else {
-                    manual.forEach(sender::sendMessage);
-                }
-                return true;
+            switch(subCommand) {
+                case "reload":
+                    plugin.loadConfigAndManual();
+                    sender.sendMessage("§aYAPIMARU_Pluginの設定ファイルをリロードしました。");
+                    return true;
+                case "list":
+                    List<String> manual = plugin.getCommandManual();
+                    if (manual.isEmpty()) {
+                        sender.sendMessage("§cマニュアルファイル(commands.txt)が読み込めませんでした。");
+                    } else {
+                        manual.forEach(sender::sendMessage);
+                    }
+                    return true;
+                case "cmlist":
+                    sender.sendMessage("§6--- Command List ---");
+                    sender.sendMessage("§e/hub §7- hubにテレポート");
+                    sender.sendMessage("§e/skinlist §7- スキンリストを表示");
+                    sender.sendMessage("§e/name §7- 名前変更");
+                    sender.sendMessage("§e/creator [c] §7- クリエイターGUI");
+                    sender.sendMessage("§e/yapimaru [ym] §7- 管理者GUI");
+                    sender.sendMessage("§e/server §7- サーバー再起動関連");
+                    sender.sendMessage("§e/spectator §7- スペクテイター設定");
+                    sender.sendMessage("§e/timer [tm] §7- timer設定");
+                    sender.sendMessage("§e/pvp §7- pvp設定");
+                    sender.sendMessage("§e/pvp ded §7- ded地点設定");
+                    sender.sendMessage("§e/pvp lives §7- 残機設定");
+                    sender.sendMessage("§e/pvp invincible §7- リスポーン時無敵時間");
+                    sender.sendMessage("§e/pvp grace §7- 準備時間");
+                    sender.sendMessage("§e/voting [vote] §7- 投票機能");
+                    return true;
             }
         }
 
@@ -435,20 +453,19 @@ public class YmCommand implements CommandExecutor {
     }
 
     private int getSortCategory(String name) {
-        if (name == null || name.isEmpty()) return 3; // Other
+        if (name == null || name.isEmpty()) return 3;
 
         char firstChar = name.toUpperCase().charAt(0);
 
-        if (Character.isDigit(firstChar)) return 0; // Numeric
-        if (firstChar >= 'A' && firstChar <= 'Z') return 1; // Alphabet
+        if (Character.isDigit(firstChar)) return 0;
+        if (firstChar >= 'A' && firstChar <= 'Z') return 1;
 
         String firstCharStr = String.valueOf(name.charAt(0));
-        if (Pattern.matches("^[\\u3040-\\u309F\\u30A0-\\u30FF\\uFF65-\\uFF9F]", firstCharStr)) return 2; // Kana (Hiragana, Katakana, Half-width Katakana)
+        if (Pattern.matches("^[\\u3040-\\u309F\\u30A0-\\u30FF\\uFF65-\\uFF9F]", firstCharStr)) return 2;
 
-        return 3; // Other
+        return 3;
     }
 
-    // ★★★ 濁点・半濁点を含むように判定ロジックを修正 ★★★
     public Predicate<Character> getPredicateForCategory(FilterCategory category, String subCategory) {
         return switch (category) {
             case ALL -> c -> true;
@@ -464,18 +481,6 @@ public class YmCommand implements CommandExecutor {
                 default -> c -> c >= 'A' && c <= 'Z';
             };
             case KANA -> {
-                final String akasata = "あいうえおかきくけこがぎぐげごさしすせそざじずぜぞたちつてとだぢづでど";
-                final String AKASATA = "アイウエオカキクケコガギグゲゴサシスセソザジズゼゾタチツテトダヂヅデド";
-                final String AKASATA_HALF = "ｱｲｳｴｵｶｷｸｹｺｶﾞｷﾞｸﾞｹﾞｺﾞｻｼｽｾｿｻﾞｼﾞｽﾞｾﾞｿﾞﾀﾁﾂﾃﾄﾀﾞﾁﾞﾂﾞﾃﾞﾄﾞ";
-
-                final String nahama = "なにぬねのはひふへほばびぶべぼぱぴぷぺぽまみむめも";
-                final String NAHAMA = "ナニヌネノハヒフヘホバビブベボパピプペポマミムメモ";
-                final String NAHAMA_HALF = "ﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾊﾞﾋﾞﾌﾞﾍﾞﾎﾞﾊﾟﾋﾟﾌﾟﾍﾟﾎﾟﾏﾐﾑﾒﾓ";
-
-                final String yarawa = "やゆよらりるれろわをん";
-                final String YARAWA = "ヤユヨラリルレロワヲン";
-                final String YARAWA_HALF = "ﾔﾕﾖﾗﾘﾙﾚﾛﾜｦﾝ";
-
                 yield switch (subCategory) {
                     case "あ行・か行" -> c -> "あいうえおかきくけこがぎぐげごアイウエオカキクケコガギグゲゴｱｲｳｴｵｶｷｸｹｺｶﾞｷﾞｸﾞｹﾞｺﾞ".indexOf(c) != -1;
                     case "さ行・た行" -> c -> "さしすせそざじずぜぞたちつてとだぢづでどサシスセソザジズゼゾタチツテトダヂヅデドｻｼｽｾｿｻﾞｼﾞｽﾞｾﾞｿﾞﾀﾁﾂﾃﾄﾀﾞﾁﾞﾂﾞﾃﾞﾄﾞ".indexOf(c) != -1;

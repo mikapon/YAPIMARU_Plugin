@@ -10,7 +10,7 @@ depend: [WorldEdit]
 commands:
   yapimaru:
     description: YAPIMARUプラグインの管理コマンドです。
-    usage: /<command> [reload|cmlist]
+    usage: /<command> [reload|list|cmlist]
     aliases: [ym]
     permission: yapimaru.admin
     permission-message: このコマンドを使用する権限がありません。
@@ -54,11 +54,9 @@ commands:
     permission: yapimaru.admin
     permission-message: このコマンドを使用する権限がありません。
 
-  # ★★★ 変更点 ★★★
-  # 投票コマンドを /voting に統一
   voting:
     description: 投票関連のコマンドです。
-    usage: /<command> <question|answer|end_poll> [args]
+    usage: /<command> [question|evaluation|answer|end|result|average|list] [args]
     aliases: [vote]
 
 permissions:

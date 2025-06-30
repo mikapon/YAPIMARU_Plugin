@@ -4,6 +4,7 @@ import com.yapimaru.plugin.managers.VoteManager;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.util.StringUtil;
 import org.jetbrains.annotations.NotNull;
 
@@ -11,6 +12,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 public class VotingTabCompleter implements TabCompleter {
@@ -38,13 +40,16 @@ public class VotingTabCompleter implements TabCompleter {
             switch (subCommand) {
                 case "answer":
                 case "end":
-                    List<String> activePollIds = voteManager.getActivePolls().values().stream()
+                    voteManager.getActivePolls().values().stream()
                             .map(p -> String.valueOf(p.getNumericId()))
-                            .collect(Collectors.toList());
-                    StringUtil.copyPartialMatches(currentArg, activePollIds, completions);
+                            .forEach(completions::add);
+                    break;
+                case "result":
+                case "average":
+                    getCompletedPollIds(completions);
+                    getProjectNameCompletions(currentArg, completions);
                     break;
                 case "list":
-                case "average":
                     getProjectNameCompletions(currentArg, completions);
                     break;
             }
@@ -54,7 +59,7 @@ public class VotingTabCompleter implements TabCompleter {
             }
         }
 
-        return completions;
+        return StringUtil.copyPartialMatches(currentArg, completions, new ArrayList<>());
     }
 
     private void getProjectNameCompletions(String input, List<String> completions) {
@@ -62,6 +67,24 @@ public class VotingTabCompleter implements TabCompleter {
         if (directories != null) {
             List<String> projectNames = Arrays.stream(directories).map(File::getName).collect(Collectors.toList());
             StringUtil.copyPartialMatches(input, projectNames, completions);
+        }
+    }
+
+    private void getCompletedPollIds(List<String> completions) {
+        File[] projectDirs = voteManager.getVotingFolder().listFiles(File::isDirectory);
+        if (projectDirs == null) return;
+
+        for (File dir : projectDirs) {
+            File[] resultFiles = dir.listFiles((d, name) -> name.endsWith(".yml"));
+            if (resultFiles == null) continue;
+
+            for (File file : resultFiles) {
+                YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
+                int id = config.getInt("numeric-id", 0);
+                if (id != 0) {
+                    completions.add(String.valueOf(id));
+                }
+            }
         }
     }
 }

@@ -41,17 +41,18 @@ public class GuiManager {
 
     static {
         Map<Material, PotionEffect> effects = new HashMap<>();
-        effects.put(Material.GLASS, new PotionEffect(PotionEffectType.INVISIBILITY, -1, 0, false, false));
-        effects.put(Material.GLOWSTONE_DUST, new PotionEffect(PotionEffectType.NIGHT_VISION, -1, 0, false, false));
-        effects.put(Material.GLOW_BERRIES, new PotionEffect(PotionEffectType.GLOWING, -1, 0, false, false));
-        effects.put(Material.SUGAR, new PotionEffect(PotionEffectType.SPEED, -1, 4, false, false));
-        effects.put(Material.FEATHER, new PotionEffect(PotionEffectType.JUMP_BOOST, -1, 4, false, false));
-        effects.put(Material.GOLDEN_PICKAXE, new PotionEffect(PotionEffectType.HASTE, -1, 254, false, false));
-        effects.put(Material.DIAMOND_SWORD, new PotionEffect(PotionEffectType.STRENGTH, -1, 254, false, false));
-        effects.put(Material.GHAST_TEAR, new PotionEffect(PotionEffectType.REGENERATION, -1, 254, false, false));
-        effects.put(Material.NETHERITE_CHESTPLATE, new PotionEffect(PotionEffectType.RESISTANCE, -1, 254, false, false));
-        effects.put(Material.MAGMA_CREAM, new PotionEffect(PotionEffectType.FIRE_RESISTANCE, -1, 254, false, false));
-        effects.put(Material.HEART_OF_THE_SEA, new PotionEffect(PotionEffectType.WATER_BREATHING, -1, 254, false, false));
+        int infiniteDuration = 999999;
+        effects.put(Material.GLASS, new PotionEffect(PotionEffectType.INVISIBILITY, infiniteDuration, 0, false, false));
+        effects.put(Material.GLOWSTONE_DUST, new PotionEffect(PotionEffectType.NIGHT_VISION, infiniteDuration, 0, false, false));
+        effects.put(Material.GLOW_BERRIES, new PotionEffect(PotionEffectType.GLOWING, infiniteDuration, 0, false, false));
+        effects.put(Material.SUGAR, new PotionEffect(PotionEffectType.SPEED, infiniteDuration, 4, false, false));
+        effects.put(Material.FEATHER, new PotionEffect(PotionEffectType.JUMP_BOOST, infiniteDuration, 4, false, false));
+        effects.put(Material.GOLDEN_PICKAXE, new PotionEffect(PotionEffectType.HASTE, infiniteDuration, 254, false, false));
+        effects.put(Material.DIAMOND_SWORD, new PotionEffect(PotionEffectType.STRENGTH, infiniteDuration, 254, false, false));
+        effects.put(Material.GHAST_TEAR, new PotionEffect(PotionEffectType.REGENERATION, infiniteDuration, 254, false, false));
+        effects.put(Material.NETHERITE_CHESTPLATE, new PotionEffect(PotionEffectType.RESISTANCE, infiniteDuration, 254, false, false));
+        effects.put(Material.MAGMA_CREAM, new PotionEffect(PotionEffectType.FIRE_RESISTANCE, infiniteDuration, 254, false, false));
+        effects.put(Material.HEART_OF_THE_SEA, new PotionEffect(PotionEffectType.WATER_BREATHING, infiniteDuration, 254, false, false));
         TOGGLEABLE_EFFECTS = Collections.unmodifiableMap(effects);
     }
 
