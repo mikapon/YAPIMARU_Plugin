@@ -53,7 +53,6 @@ commands:
     usage: /<command> [on|off]
     permission: yapimaru.admin
     permission-message: このコマンドを使用する権限がありません。
-
   voting:
     description: 投票関連のコマンドです。
     usage: /<command> [question|evaluation|end|result|average|list] [args]
@@ -73,6 +72,12 @@ commands:
     usage: /<command> <player|list> [args]
     permission: yapimaru.admin
     permission-message: このコマンドを使用する権限がありません。
+  # ★★★ 新しいコマンド定義を追加 ★★★
+  ppparticipant:
+    description: config.ymlからプレイヤーデータを個別のファイルに手動で移行します。
+    usage: /<command>
+    permission: yapimaru.admin
+    permission-message: このコマンドを使用する権限がありません。
 
 
 permissions:
@@ -83,5 +88,5 @@ permissions:
     description: /skinlist コマンドの使用を許可します。
     default: true
   yapimaru.creator:
-    description: /c コマンドの使用を許可します。
+    description: /creator コマンドの使用を許可します。
     default: op

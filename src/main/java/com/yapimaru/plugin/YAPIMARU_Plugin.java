@@ -58,10 +58,9 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
 
         initializeManagers();
 
-        // プラグイン起動時に、他のマネージャーがデータを完全に読み込む前に移行ロジックを実行
-        new MigrationManager().migrate(this, participantManager);
+        // ★★★ サーバー起動時の自動移行処理を削除 ★★★
 
-        // 新しく移行されたファイルを含むすべてのデータを読み込む
+        // データを読み込む
         loadConfigAndManual();
         linkManagers();
 
@@ -112,7 +111,6 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
 
         if (whitelistManager != null) whitelistManager.load();
 
-        // 移行後、ファイルからすべての参加者データを再読み込み
         if (participantManager != null) participantManager.reloadAllParticipants();
         if (nameManager != null) nameManager.reloadData();
     }
@@ -162,6 +160,8 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
         setExecutor("ans", new AnsCommand(voteManager), new AnsTabCompleter(voteManager));
         setExecutor("photographing", new PhotographingCommand(this, participantManager));
         setExecutor("stats", new StatsCommand(this, participantManager, nameManager), new StatsTabCompleter(participantManager));
+        // ★★★ 新しいコマンドを登録 ★★★
+        setExecutor("ppparticipant", new PpparticipantCommand(this, participantManager, nameManager));
     }
 
     private void setExecutor(String commandName, CommandExecutor executor) {
