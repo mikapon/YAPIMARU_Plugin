@@ -30,6 +30,7 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
     private BukkitAudiences adventure;
     private WorldEdit worldEditHook;
 
+    private ParticipantManager participantManager;
     private NameManager nameManager;
     private GuiManager creatorGuiManager;
     private TimerManager timerManager;
@@ -52,6 +53,8 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
             getLogger().warning("WorldEdit not found. Some features will be disabled.");
         }
 
+        getDataFolder().mkdirs();
+
         saveDefaultConfig();
         loadConfigAndManual();
 
@@ -61,8 +64,10 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
         registerListeners();
         registerCommands();
 
+        participantManager.migrateFromConfig();
+
         for (Player player : Bukkit.getOnlinePlayers()) {
-            nameManager.updatePlayerName(player, false);
+            nameManager.updatePlayerName(player);
         }
 
         getLogger().info("YAPIMARU Plugin has been enabled!");
@@ -72,7 +77,7 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
     public void onDisable() {
         if (nameManager != null) {
             for (Player player : Bukkit.getOnlinePlayers()) {
-                nameManager.updatePlayerName(player, true);
+                nameManager.resetPlayerName(player);
             }
         }
         if (timerManager != null) timerManager.forceStop(true);
@@ -103,7 +108,6 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
             getLogger().log(Level.SEVERE, "Could not read commands.txt!", e);
         }
 
-        if (nameManager != null) nameManager.reloadData();
         if (whitelistManager != null) whitelistManager.load();
     }
 
@@ -112,9 +116,11 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
     }
 
     private void initializeManagers() {
+        participantManager = new ParticipantManager(this);
+        nameManager = new NameManager(participantManager);
         voteManager = new VoteManager(this);
-        nameManager = new NameManager(this);
-        whitelistManager = new WhitelistManager(this);
+        // ★★★ 修正箇所 ★★★
+        whitelistManager = new WhitelistManager(this, participantManager);
         creatorGuiManager = new GuiManager(nameManager);
         pvpManager = new PvpManager(this);
         timerManager = new TimerManager(this);
@@ -146,12 +152,11 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
         setExecutor("skinlist", new SkinListCommand(adventure));
         setExecutor("server", new ServerCommand(this, timerManager), new ServerTabCompleter());
         setExecutor("spectator", new SpectatorCommand(spectatorManager, adventure), new SpectatorTabCompleter());
-
-        // ★★★ 修正箇所 ★★★
-        // VotingCommandにプラグインインスタンス(this)を渡すように変更
         setExecutor("voting", new VotingCommand(this, voteManager), new VotingTabCompleter(voteManager));
-
         setExecutor("ans", new AnsCommand(voteManager), new AnsTabCompleter(voteManager));
+        setExecutor("photographing", new PhotographingCommand(participantManager));
+        // ★★★ 修正箇所 ★★★
+        setExecutor("stats", new StatsCommand(this, participantManager), new StatsTabCompleter(participantManager));
     }
 
     private void setExecutor(String commandName, CommandExecutor executor) {
@@ -169,6 +174,8 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
         }
     }
 
+    // Getters
+    public ParticipantManager getParticipantManager() { return participantManager; }
     public WorldEdit getWorldEditHook() { return this.worldEditHook; }
     public BukkitAudiences getAdventure() { return this.adventure; }
     public NameManager getNameManager() { return nameManager; }

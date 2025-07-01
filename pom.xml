@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.yapimaru</groupId>
     <artifactId>YAPIMARU_Plugin</artifactId>
-    <version>2.1.</version>
+    <version>2.2.</version>
     <packaging>jar</packaging>
     <name>YAPIMARU_Plugin</name>
     <properties>
@@ -37,6 +37,10 @@
                                 <relocation>
                                     <pattern>net.kyori</pattern>
                                     <shadedPattern>com.yapimaru.plugin.libs.kyori</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>org.apache.commons.lang3</pattern>
+                                    <shadedPattern>com.yapimaru.plugin.libs.lang3</shadedPattern>
                                 </relocation>
                             </relocations>
                         </configuration>
@@ -85,6 +89,12 @@
             <artifactId>worldedit-bukkit</artifactId>
             <version>7.3.0</version>
             <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>3.14.0</version>
+            <scope>compile</scope>
         </dependency>
     </dependencies>
 </project>

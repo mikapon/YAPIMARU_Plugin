@@ -9,11 +9,14 @@ import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.YamlConfiguration;
-import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -37,13 +40,11 @@ public class VotingCommand implements CommandExecutor {
             return true;
         }
 
+        // ★★★ 修正箇所 ★★★
+        // plugin.ymlで権限を設定したため、ここでの権限チェックは不要
+        // if (!sender.hasPermission("yapimaru.admin")) { ... } を削除
+
         String subCommand = args[0].toLowerCase();
-
-        if (!sender.hasPermission("yapimaru.admin")) {
-            sender.sendMessage(ChatColor.RED + "このコマンドを使用する権限がありません。");
-            return true;
-        }
-
         String[] subArgs = Arrays.copyOfRange(args, 1, args.length);
 
         switch (subCommand) {
@@ -309,8 +310,6 @@ public class VotingCommand implements CommandExecutor {
         if (allFiles.isEmpty()) {
             sender.sendMessage(ChatColor.GRAY + "  (なし)");
         } else {
-            // ★★★ 修正箇所 ★★★
-            // 不足していたComparatorをimport
             allFiles.sort(Comparator.comparing(File::lastModified).reversed());
             for (File file : allFiles) {
                 YamlConfiguration config = YamlConfiguration.loadConfiguration(file);

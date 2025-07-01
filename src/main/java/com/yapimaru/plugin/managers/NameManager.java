@@ -1,144 +1,82 @@
 package com.yapimaru.plugin.managers;
 
-import com.yapimaru.plugin.YAPIMARU_Plugin;
+import com.yapimaru.plugin.data.ParticipantData;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.OfflinePlayer;
-import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Player;
 import org.bukkit.scoreboard.Scoreboard;
 import org.bukkit.scoreboard.ScoreboardManager;
 import org.bukkit.scoreboard.Team;
 
-import java.util.*;
+import java.util.Set;
+import java.util.UUID;
 
 public class NameManager {
-    private final YAPIMARU_Plugin plugin;
-    private final Map<UUID, String> baseNames = new HashMap<>();
-    private final Map<UUID, String> linkedNames = new HashMap<>();
-    private final Map<UUID, String> frozenDisplayNames = new HashMap<>();
-    private org.bukkit.configuration.file.FileConfiguration config;
+    private final ParticipantManager participantManager;
     private VoteManager voteManager;
+
     public static final Set<String> WOOL_COLOR_NAMES = Set.of(
             "white", "orange", "magenta", "light_blue", "yellow", "lime", "pink", "gray", "light_gray",
             "cyan", "purple", "blue", "brown", "green", "red", "black"
     );
 
-    public NameManager(YAPIMARU_Plugin plugin) {
-        this.plugin = plugin;
-        this.config = plugin.getConfig();
-        loadNames();
+    // ★★★ 修正箇所 ★★★
+    public NameManager(ParticipantManager participantManager) {
+        this.participantManager = participantManager;
     }
 
     public void setVoteManager(VoteManager voteManager) {
         this.voteManager = voteManager;
     }
 
-    private void loadNames() {
-        baseNames.clear();
-        linkedNames.clear();
-        frozenDisplayNames.clear();
-        ConfigurationSection playersSection = config.getConfigurationSection("players");
-        if (playersSection != null) {
-            for (String uuidStr : playersSection.getKeys(false)) {
-                UUID uuid = UUID.fromString(uuidStr);
-                if (config.contains("players." + uuidStr + ".base_name")) {
-                    baseNames.put(uuid, config.getString("players." + uuidStr + ".base_name"));
-                }
-                if (config.contains("players." + uuidStr + ".linked_name")) {
-                    linkedNames.put(uuid, config.getString("players." + uuidStr + ".linked_name"));
-                }
-                if (config.contains("players." + uuidStr + ".frozen_display_name")) {
-                    frozenDisplayNames.put(uuid, config.getString("players." + uuidStr + ".frozen_display_name"));
-                }
-            }
-        }
-    }
-
     public void reloadData() {
-        plugin.reloadConfig();
-        this.config = plugin.getConfig();
-        loadNames();
         for (Player player : Bukkit.getOnlinePlayers()) {
-            updatePlayerName(player, false);
+            updatePlayerName(player);
         }
-    }
-
-    public void cacheFrozenData(OfflinePlayer player) {
-        if (player == null) return;
-        UUID uuid = player.getUniqueId();
-        String currentDisplayName = getDisplayName(uuid);
-        frozenDisplayNames.put(uuid, currentDisplayName);
-        config.set("players." + uuid + ".frozen_display_name", currentDisplayName);
-        plugin.saveConfig();
-    }
-
-    public void removeFrozenData(UUID uuid) {
-        config.set("players." + uuid + ".frozen_display_name", null);
-        frozenDisplayNames.remove(uuid);
-        plugin.saveConfig();
-    }
-
-    public void setBaseName(UUID uuid, String name) {
-        baseNames.put(uuid, name);
-        config.set("players." + uuid + ".base_name", name);
-        plugin.saveConfig();
-        Player onlinePlayer = Bukkit.getPlayer(uuid);
-        if (onlinePlayer != null) {
-            updatePlayerName(onlinePlayer, false);
-        }
-    }
-
-    public String getBaseName(UUID uuid) {
-        return baseNames.getOrDefault(uuid, Bukkit.getOfflinePlayer(uuid).getName());
-    }
-
-    public void setLinkedName(UUID uuid, String name) {
-        if (name == null || name.isEmpty()) {
-            linkedNames.remove(uuid);
-            config.set("players." + uuid + ".linked_name", null);
-        } else {
-            linkedNames.put(uuid, name);
-            config.set("players." + uuid + ".linked_name", name);
-        }
-        plugin.saveConfig();
-        Player onlinePlayer = Bukkit.getPlayer(uuid);
-        if (onlinePlayer != null) {
-            updatePlayerName(onlinePlayer, false);
-        }
-    }
-
-    public String getLinkedName(UUID uuid) {
-        return linkedNames.get(uuid);
     }
 
     public String getDisplayName(UUID uuid) {
-        String linked = getLinkedName(uuid);
-        String base = getBaseName(uuid);
-        if (linked != null && !linked.isEmpty()) {
-            return linked + "(" + base + ")";
-        } else {
-            return base;
+        ParticipantData data = participantManager.getParticipant(uuid);
+        if (data != null) {
+            return data.getDisplayName();
         }
+        OfflinePlayer player = Bukkit.getOfflinePlayer(uuid);
+        return player.getName() != null ? player.getName() : uuid.toString();
     }
 
-    public void updatePlayerName(Player targetPlayer, boolean isReset) {
+    // ★★★ 修正箇所 ★★★
+    // 他のクラスから呼び出されるため、新しい仕様で再実装
+    public String getLinkedName(UUID uuid) {
+        ParticipantData data = participantManager.getParticipant(uuid);
+        return (data != null) ? data.getLinkedName() : "";
+    }
+
+    public void setBaseName(UUID uuid, String name) {
+        Player player = Bukkit.getPlayer(uuid);
+        if (player == null) return;
+        ParticipantData data = participantManager.findOrCreateParticipant(player);
+        participantManager.changePlayerName(uuid, name, data.getLinkedName());
+        updatePlayerName(player);
+    }
+
+    public void setLinkedName(UUID uuid, String name) {
+        Player player = Bukkit.getPlayer(uuid);
+        if (player == null) return;
+        ParticipantData data = participantManager.findOrCreateParticipant(player);
+        participantManager.changePlayerName(uuid, data.getBaseName(), name == null || name.equalsIgnoreCase("remove") ? "" : name);
+        updatePlayerName(player);
+    }
+
+
+    public void updatePlayerName(Player targetPlayer) {
         if (targetPlayer == null) return;
 
         Team team = getPlayerTeam(targetPlayer.getUniqueId());
-        if (team == null) return; // Could not get or create team
+        if (team == null) return;
 
         if (!team.hasEntry(targetPlayer.getName())) {
             team.addEntry(targetPlayer.getName());
-        }
-
-        if (isReset) {
-            targetPlayer.setDisplayName(targetPlayer.getName());
-            targetPlayer.setPlayerListName(targetPlayer.getName());
-            team.setPrefix("");
-            team.setSuffix("");
-            team.setColor(ChatColor.WHITE);
-            return;
         }
 
         String votePrefix = "";
@@ -152,8 +90,11 @@ public class NameManager {
             teamColor = ChatColor.WHITE;
         }
 
-        String linkedName = getLinkedName(targetPlayer.getUniqueId());
-        String baseName = getBaseName(targetPlayer.getUniqueId());
+        ParticipantData data = participantManager.findOrCreateParticipant(targetPlayer);
+
+        String linkedName = data.getLinkedName();
+        String baseName = data.getBaseName();
+        String displayName = data.getDisplayName();
 
         String listName;
         if (linkedName != null && !linkedName.isEmpty()) {
@@ -162,15 +103,24 @@ public class NameManager {
             team.setSuffix(ChatColor.GRAY + ")");
         } else {
             listName = teamColor + baseName + ChatColor.RESET;
-            team.setPrefix(votePrefix + teamColor.toString());
+            team.setPrefix(votePrefix + teamColor);
             team.setSuffix("");
         }
 
-        targetPlayer.setDisplayName(listName);
+        targetPlayer.setDisplayName(displayName);
         targetPlayer.setPlayerListName(votePrefix + listName);
     }
 
-    @SuppressWarnings("deprecation")
+    public void resetPlayerName(Player player) {
+        if (player == null) return;
+        Team team = getPlayerTeam(player.getUniqueId());
+        if (team != null) {
+            team.removeEntry(player.getName());
+        }
+        player.setDisplayName(player.getName());
+        player.setPlayerListName(player.getName());
+    }
+
     public boolean setPlayerColor(String playerName, String colorName) {
         OfflinePlayer player = Bukkit.getOfflinePlayer(playerName);
         if (!player.hasPlayedBefore() && !player.isOnline()) return false;
@@ -192,7 +142,7 @@ public class NameManager {
             if (!colorName.equalsIgnoreCase("reset")) {
                 onlinePlayer.addScoreboardTag(colorName.toLowerCase());
             }
-            updatePlayerName(onlinePlayer, false);
+            updatePlayerName(onlinePlayer);
         }
         return true;
     }

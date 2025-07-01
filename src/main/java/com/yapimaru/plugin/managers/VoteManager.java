@@ -30,8 +30,6 @@ public class VoteManager {
     private final File idCounterFile;
 
     private NameManager nameManager;
-    // ★★★ 修正箇所 ★★★
-    // static final をやめ、コンストラクタで初期化するように変更
     private final AtomicInteger nextPollNumericId;
 
     public enum ResultDisplayMode { OPEN, ANONYMITY }
@@ -41,31 +39,23 @@ public class VoteManager {
         this.adventure = plugin.getAdventure();
         this.votingFolder = new File(plugin.getDataFolder(), "voting");
         if (!votingFolder.exists()) {
-            if (!votingFolder.mkdirs()) {
-                plugin.getLogger().warning("Failed to create voting directory.");
-            }
+            votingFolder.mkdirs();
         }
-        // ★★★ 修正箇所 ★★★
-        // IDカウンターのファイルを定義し、読み込み処理を呼び出す
         this.idCounterFile = new File(this.votingFolder, "id_counter.dat");
         this.nextPollNumericId = new AtomicInteger(loadNextPollId());
     }
 
-    // ★★★ 新規追加メソッド ★★★
-    // ファイルから次に使用すべきIDを読み込む
     private int loadNextPollId() {
         if (idCounterFile.exists()) {
             try (DataInputStream dis = new DataInputStream(new FileInputStream(idCounterFile))) {
-                return dis.readInt() + 1; // 保存されている最後のIDの次の番号から開始
+                return dis.readInt() + 1;
             } catch (IOException e) {
                 plugin.getLogger().log(Level.WARNING, "Could not read poll ID counter file. Starting from 1.", e);
             }
         }
-        return 1; // ファイルがなければ1から開始
+        return 1;
     }
 
-    // ★★★ 新規追加メソッド ★★★
-    // 使用した最新のIDをファイルに保存する
     private void saveCurrentPollId(int id) {
         try (DataOutputStream dos = new DataOutputStream(new FileOutputStream(idCounterFile))) {
             dos.writeInt(id);
@@ -89,7 +79,9 @@ public class VoteManager {
 
     public void updatePlayerVoteStatus(Player player) {
         if (nameManager != null) {
-            nameManager.updatePlayerName(player, false);
+            // ★★★ 修正箇所 ★★★
+            // updatePlayerNameの引数を修正
+            nameManager.updatePlayerName(player);
         }
     }
 
@@ -99,8 +91,6 @@ public class VoteManager {
             return null;
         }
 
-        // ★★★ 修正箇所 ★★★
-        // IDを発行し、ファイルに保存する
         int numericId = nextPollNumericId.getAndIncrement();
         saveCurrentPollId(numericId);
 
@@ -133,7 +123,8 @@ public class VoteManager {
         }.runTaskTimer(plugin, 20L, 20L);
 
         if (nameManager != null) {
-            Bukkit.getOnlinePlayers().forEach(p -> nameManager.updatePlayerName(p, false));
+            // ★★★ 修正箇所 ★★★
+            Bukkit.getOnlinePlayers().forEach(nameManager::updatePlayerName);
         }
 
         return voteData;
@@ -154,7 +145,8 @@ public class VoteManager {
         saveResultFile(voteData);
 
         if (nameManager != null && activePolls.isEmpty()) {
-            Bukkit.getOnlinePlayers().forEach(p -> nameManager.updatePlayerName(p, false));
+            // ★★★ 修正箇所 ★★★
+            Bukkit.getOnlinePlayers().forEach(nameManager::updatePlayerName);
         }
         return voteData;
     }
@@ -182,8 +174,8 @@ public class VoteManager {
 
     private void saveResultFile(VoteData voteData) {
         File dir = new File(this.votingFolder, voteData.getDirectoryName());
-        if (!dir.exists() && !dir.mkdirs()) {
-            plugin.getLogger().warning("Failed to create directory for poll results: " + dir.getPath());
+        if (!dir.exists()) {
+            dir.mkdirs();
         }
 
         String date = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss").format(new Date());

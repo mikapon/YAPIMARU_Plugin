@@ -5,9 +5,11 @@ import com.yapimaru.plugin.managers.*;
 import net.kyori.adventure.platform.bukkit.BukkitAudiences;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import org.apache.commons.lang3.StringUtils;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
+import org.bukkit.block.BlockFace;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -34,6 +36,7 @@ public class PlayerEventListener implements Listener {
     private final PvpManager pvpManager;
     private final WhitelistManager whitelistManager;
     private final PlayerRestrictionManager restrictionManager;
+    private final ParticipantManager participantManager;
     private final BukkitAudiences adventure;
     private final Map<UUID, Long> joinInvinciblePlayers = new ConcurrentHashMap<>();
     private final Map<UUID, BukkitRunnable> joinInvincibilityTasks = new ConcurrentHashMap<>();
@@ -45,6 +48,7 @@ public class PlayerEventListener implements Listener {
         this.pvpManager = plugin.getPvpManager();
         this.whitelistManager = plugin.getWhitelistManager();
         this.restrictionManager = plugin.getRestrictionManager();
+        this.participantManager = plugin.getParticipantManager();
         this.adventure = plugin.getAdventure();
     }
 
@@ -57,11 +61,13 @@ public class PlayerEventListener implements Listener {
     }
 
     @EventHandler
-    @SuppressWarnings("deprecation")
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
-        Bukkit.getScheduler().runTaskLater(plugin, () -> nameManager.updatePlayerName(player, false), 5L);
+        Bukkit.getScheduler().runTaskLater(plugin, () -> nameManager.updatePlayerName(player), 5L);
         restrictionManager.applyModeToPlayer(player);
+
+        participantManager.incrementJoins(player.getUniqueId());
+        participantManager.recordLoginTime(player);
 
         joinInvinciblePlayers.put(player.getUniqueId(), System.currentTimeMillis() + 60000);
 
@@ -72,10 +78,13 @@ public class PlayerEventListener implements Listener {
                     this.cancel();
                     return;
                 }
-                boolean isOnGround = player.isOnGround();
+
+                // ★★★ 修正箇所 ★★★
+                // 非推奨のisOnGround()を修正
+                boolean isGrounded = player.getLocation().getBlock().getRelative(BlockFace.DOWN).getType().isSolid();
                 boolean isInLiquid = player.getLocation().getBlock().isLiquid();
 
-                if (isOnGround || isInLiquid) {
+                if (isGrounded || isInLiquid) {
                     adventure.player(player).sendMessage(Component.text("サーバーへようこそ！3秒間の無敵時間があります。", NamedTextColor.GOLD));
                     joinInvinciblePlayers.put(player.getUniqueId(), System.currentTimeMillis() + 3000);
                     new BukkitRunnable() {
@@ -96,6 +105,9 @@ public class PlayerEventListener implements Listener {
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
+
+        participantManager.recordQuitTime(player);
+
         joinInvinciblePlayers.remove(player.getUniqueId());
         if(joinInvincibilityTasks.containsKey(player.getUniqueId())) {
             joinInvincibilityTasks.get(player.getUniqueId()).cancel();
@@ -104,6 +116,32 @@ public class PlayerEventListener implements Listener {
         pvpManager.handlePlayerQuit(player);
         guiManager.handlePlayerQuit(player);
     }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPlayerChat(AsyncPlayerChatEvent event) {
+        Player player = event.getPlayer();
+        String message = event.getMessage();
+
+        if (message.startsWith("/")) {
+            return;
+        }
+
+        participantManager.incrementChats(player.getUniqueId());
+
+        int wCount = StringUtils.countMatches(message.toLowerCase(), "w");
+        wCount += StringUtils.countMatches(message, "草");
+        wCount += StringUtils.countMatches(message.toLowerCase(), "kusa");
+
+        if (wCount > 0) {
+            participantManager.incrementWCount(player.getUniqueId(), wCount);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPlayerCommand(PlayerCommandPreprocessEvent event) {
+        participantManager.incrementChats(event.getPlayer().getUniqueId());
+    }
+
 
     @EventHandler
     public void onEntityDamage(EntityDamageEvent event) {
@@ -139,6 +177,7 @@ public class PlayerEventListener implements Listener {
 
     @EventHandler
     public void onPlayerDeath(PlayerDeathEvent event) {
+        participantManager.incrementDeaths(event.getEntity().getUniqueId());
         pvpManager.handlePlayerDeath(event.getEntity());
     }
 

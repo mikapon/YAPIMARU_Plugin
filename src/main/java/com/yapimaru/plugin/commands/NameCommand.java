@@ -16,9 +16,9 @@ import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 public class NameCommand implements CommandExecutor {
     private final YAPIMARU_Plugin plugin;
@@ -30,7 +30,12 @@ public class NameCommand implements CommandExecutor {
     }
 
     @Override
-    public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
+    public boolean onCommand(@NotNull CommandSender sender, @NotNull Command cmd, @NotNull String label, @NotNull String[] args) {
+        if (!sender.hasPermission("yapimaru.admin")) {
+            sender.sendMessage(ChatColor.RED + "このコマンドを使用する権限がありません。");
+            return true;
+        }
+
         if (args.length == 0) {
             sendHelp(sender);
             return true;
@@ -44,7 +49,7 @@ public class NameCommand implements CommandExecutor {
                     sender.sendMessage("このコマンドはプレイヤーのみが実行できます。");
                     return true;
                 }
-                if (args.length < 2 && !(args.length == 1 && sub.equals("link"))) {
+                if (args.length < 2) {
                     p.sendMessage(ChatColor.RED + "使い方: /name " + sub + " <名前>");
                     return true;
                 }
@@ -53,19 +58,14 @@ public class NameCommand implements CommandExecutor {
                     nameManager.setBaseName(p.getUniqueId(), text);
                     p.sendMessage(ChatColor.GREEN + "基本の名前を「" + text + "」に設定しました。");
                 } else { // link
-                    if (text.isEmpty() || text.equalsIgnoreCase("remove")) {
-                        nameManager.setLinkedName(p.getUniqueId(), null);
-                        p.sendMessage(ChatColor.GREEN + "頭上の名前を削除しました。");
-                    } else {
-                        nameManager.setLinkedName(p.getUniqueId(), text);
-                        p.sendMessage(ChatColor.GREEN + "頭上の名前を「" + text + "」に設定しました。");
-                    }
+                    nameManager.setLinkedName(p.getUniqueId(), text);
+                    p.sendMessage(ChatColor.GREEN + "頭上の名前を「" + text + "」に設定しました。");
                 }
                 return true;
             }
             case "color" -> {
                 if (args.length < 3) {
-                    sendSubHelp(sender, "color");
+                    sendColorSubHelp(sender); // ★★★ 修正箇所 ★★★
                     return true;
                 }
                 String colorName = args[1];
@@ -110,7 +110,7 @@ public class NameCommand implements CommandExecutor {
             }
             case "reload" -> {
                 nameManager.reloadData();
-                sender.sendMessage(ChatColor.GREEN + "偽名設定をリロードしました。");
+                sender.sendMessage(ChatColor.GREEN + "参加者情報をリロードしました。");
                 return true;
             }
             default -> {
@@ -123,16 +123,16 @@ public class NameCommand implements CommandExecutor {
     private void sendHelp(CommandSender s) {
         s.sendMessage("§6--- Name Command Help ---");
         s.sendMessage("§e/name set <name> §7- チャット等での表示名を設定");
-        s.sendMessage("§e/name link <name|remove> §7- 頭上の表示名を設定");
+        s.sendMessage("§e/name link <name|remove> §7- 頭上の表示名を設定（removeで削除）");
         s.sendMessage("§e/name color <color> <target> §7- 名前の色を変更");
         s.sendMessage("§e/name reload §7- 設定ファイルをリロード");
     }
 
-    private void sendSubHelp(CommandSender s, String sub) {
+    // ★★★ 修正箇所 ★★★
+    // sendSubHelpをsendColorSubHelpにリファクタリング
+    private void sendColorSubHelp(CommandSender s) {
         s.sendMessage("§c引数が不足しています。");
-        if ("color".equals(sub)) {
-            s.sendMessage("§e使い方: /name color <色> <プレイヤー名|@a|//sel...>");
-            s.sendMessage("§7利用可能な色: " + String.join(", ", NameManager.WOOL_COLOR_NAMES));
-        }
+        s.sendMessage("§e使い方: /name color <色> <プレイヤー名|@a|//sel...>");
+        s.sendMessage("§7利用可能な色: " + String.join(", ", NameManager.WOOL_COLOR_NAMES));
     }
 }

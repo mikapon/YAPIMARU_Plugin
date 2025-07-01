@@ -18,7 +18,7 @@ public class WhitelistManager {
 
     private final YAPIMARU_Plugin plugin;
     private final BukkitAudiences adventure;
-    private final NameManager nameManager;
+    private final ParticipantManager participantManager; // ★★★ 修正箇所 ★★★
     private Mode currentMode = Mode.OFF;
 
     private final Set<UUID> candidatePlayers = new HashSet<>();
@@ -33,10 +33,11 @@ public class WhitelistManager {
         LOCKDOWN
     }
 
-    public WhitelistManager(YAPIMARU_Plugin plugin) {
+    // ★★★ 修正箇所 ★★★
+    public WhitelistManager(YAPIMARU_Plugin plugin, ParticipantManager participantManager) {
         this.plugin = plugin;
         this.adventure = plugin.getAdventure();
-        this.nameManager = plugin.getNameManager();
+        this.participantManager = participantManager;
         load();
     }
 
@@ -90,7 +91,9 @@ public class WhitelistManager {
     public void addCandidate(OfflinePlayer player) {
         if (player != null && !isAllowed(player.getUniqueId()) && !isCandidate(player.getUniqueId())) {
             candidatePlayers.add(player.getUniqueId());
-            nameManager.cacheFrozenData(player);
+            // ★★★ 修正箇所 ★★★
+            // 古いcacheFrozenDataの代わりに、ParticipantManagerでデータを作成・確保する
+            participantManager.findOrCreateParticipant(player);
             save();
         }
     }
@@ -103,8 +106,9 @@ public class WhitelistManager {
     }
 
     public void demoteCandidateToSource(UUID uuid) {
+        // ★★★ 修正箇所 ★★★
+        // removeFrozenDataは不要になったため削除。Participantデータは削除しない。
         if (candidatePlayers.remove(uuid)) {
-            nameManager.removeFrozenData(uuid);
             save();
         }
     }

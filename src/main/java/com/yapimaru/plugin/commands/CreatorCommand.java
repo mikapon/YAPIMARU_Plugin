@@ -18,10 +18,9 @@ public class CreatorCommand implements CommandExecutor {
             return true;
         }
 
-        if (!p.hasPermission("yapimaru.admin") && !p.hasPermission("yapimaru.creator")) {
-            p.sendMessage(ChatColor.RED + "このコマンドを使用する権限がありません。");
-            return true;
-        }
+        // ★★★ 修正箇所 ★★★
+        // plugin.ymlで権限を設定したため、ここでの権限チェックは不要
+        // if (!p.hasPermission("yapimaru.admin") && !p.hasPermission("yapimaru.creator")) { ... } を削除
 
         if (args.length == 0) {
             guiManager.openMainMenu(p);
