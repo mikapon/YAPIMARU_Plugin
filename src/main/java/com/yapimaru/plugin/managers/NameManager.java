@@ -1,28 +1,39 @@
 package com.yapimaru.plugin.managers;
 
+import com.yapimaru.plugin.YAPIMARU_Plugin;
 import com.yapimaru.plugin.data.ParticipantData;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
+import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.scoreboard.Scoreboard;
 import org.bukkit.scoreboard.ScoreboardManager;
 import org.bukkit.scoreboard.Team;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
 public class NameManager {
+    private final YAPIMARU_Plugin plugin;
     private final ParticipantManager participantManager;
     private VoteManager voteManager;
+
+    // ★★★ 新規追加 ★★★
+    // どのプレイヤーがどの統計情報をTABに表示中か管理する
+    private final Map<UUID, String> playerViewingStat = new HashMap<>();
+    private final Map<UUID, BukkitTask> statViewTimeoutTasks = new HashMap<>();
+
 
     public static final Set<String> WOOL_COLOR_NAMES = Set.of(
             "white", "orange", "magenta", "light_blue", "yellow", "lime", "pink", "gray", "light_gray",
             "cyan", "purple", "blue", "brown", "green", "red", "black"
     );
 
-    // ★★★ 修正箇所 ★★★
-    public NameManager(ParticipantManager participantManager) {
+    public NameManager(YAPIMARU_Plugin plugin, ParticipantManager participantManager) {
+        this.plugin = plugin;
         this.participantManager = participantManager;
     }
 
@@ -45,18 +56,12 @@ public class NameManager {
         return player.getName() != null ? player.getName() : uuid.toString();
     }
 
-    // ★★★ 修正箇所 ★★★
-    // 他のクラスから呼び出されるため、新しい仕様で再実装
-    public String getLinkedName(UUID uuid) {
-        ParticipantData data = participantManager.getParticipant(uuid);
-        return (data != null) ? data.getLinkedName() : "";
-    }
-
     public void setBaseName(UUID uuid, String name) {
         Player player = Bukkit.getPlayer(uuid);
         if (player == null) return;
         ParticipantData data = participantManager.findOrCreateParticipant(player);
         participantManager.changePlayerName(uuid, name, data.getLinkedName());
+        setPlayerViewingStat(player, null); // TABの統計表示をリセット
         updatePlayerName(player);
     }
 
@@ -65,9 +70,32 @@ public class NameManager {
         if (player == null) return;
         ParticipantData data = participantManager.findOrCreateParticipant(player);
         participantManager.changePlayerName(uuid, data.getBaseName(), name == null || name.equalsIgnoreCase("remove") ? "" : name);
+        setPlayerViewingStat(player, null); // TABの統計表示をリセット
         updatePlayerName(player);
     }
 
+    // ★★★ 新規追加メソッド ★★★
+    public void setPlayerViewingStat(Player player, String statName) {
+        // 既存のタイムアウトタスクがあればキャンセル
+        if (statViewTimeoutTasks.containsKey(player.getUniqueId())) {
+            statViewTimeoutTasks.remove(player.getUniqueId()).cancel();
+        }
+
+        if (statName == null) {
+            // 表示をクリアする場合
+            playerViewingStat.remove(player.getUniqueId());
+        } else {
+            // 新しい表示を設定する場合
+            playerViewingStat.put(player.getUniqueId(), statName);
+            // 60秒後に自動で表示をクリアするタスクを設定
+            BukkitTask task = Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                setPlayerViewingStat(player, null); // 自分自身を呼び出してクリア
+            }, 20L * 60); // 60秒
+            statViewTimeoutTasks.put(player.getUniqueId(), task);
+        }
+        // 即座に名前表示を更新
+        updatePlayerName(player);
+    }
 
     public void updatePlayerName(Player targetPlayer) {
         if (targetPlayer == null) return;
@@ -79,36 +107,54 @@ public class NameManager {
             team.addEntry(targetPlayer.getName());
         }
 
+        // --- プレフィックス(名前の前につく文字)の組み立て ---
+
+        // 1. 投票ステータス
         String votePrefix = "";
         if (this.voteManager != null && voteManager.isAnyPollActive()) {
             boolean hasVoted = voteManager.hasPlayerVoted(targetPlayer.getUniqueId());
-            votePrefix = hasVoted ? "§f[§a✓§f] " : "§f[§c✗§f] ";
+            votePrefix = hasVoted ? "§f[§a✓§f]" : "§f[§c✗§f]";
         }
 
+        // 2. 統計情報表示 (★新規追加★)
+        String statPrefix = "";
+        String viewingStatName = playerViewingStat.get(targetPlayer.getUniqueId());
+        ParticipantData data = participantManager.findOrCreateParticipant(targetPlayer);
+
+        if (viewingStatName != null && data != null) {
+            Number statValue = data.getStatistics().get(viewingStatName);
+            if (statValue != null) {
+                statPrefix = "§e[" + statValue + "§e] ";
+            }
+        }
+
+        // 3. 名前の色
         ChatColor teamColor = team.getColor();
         if (teamColor == ChatColor.RESET) {
             teamColor = ChatColor.WHITE;
         }
 
-        ParticipantData data = participantManager.findOrCreateParticipant(targetPlayer);
-
+        // 4. 名前本体
         String linkedName = data.getLinkedName();
         String baseName = data.getBaseName();
         String displayName = data.getDisplayName();
 
+        // --- 組み立てたプレフィックスを適用 ---
+        String finalPrefix = (votePrefix.isEmpty() ? "" : votePrefix + " ") + statPrefix;
+
         String listName;
         if (linkedName != null && !linkedName.isEmpty()) {
-            listName = teamColor + linkedName + ChatColor.GRAY + "(" + baseName + ")" + ChatColor.RESET;
-            team.setPrefix(votePrefix + teamColor + linkedName + ChatColor.GRAY + "(");
+            listName = finalPrefix + teamColor + linkedName + ChatColor.GRAY + "(" + baseName + ")" + ChatColor.RESET;
+            team.setPrefix(finalPrefix + teamColor + linkedName + ChatColor.GRAY + "(");
             team.setSuffix(ChatColor.GRAY + ")");
         } else {
-            listName = teamColor + baseName + ChatColor.RESET;
-            team.setPrefix(votePrefix + teamColor);
+            listName = finalPrefix + teamColor + baseName + ChatColor.RESET;
+            team.setPrefix(finalPrefix + teamColor);
             team.setSuffix("");
         }
 
-        targetPlayer.setDisplayName(displayName);
-        targetPlayer.setPlayerListName(votePrefix + listName);
+        targetPlayer.setDisplayName(displayName); // 頭上表示名は変えない
+        targetPlayer.setPlayerListName(listName); // TABリストの表示を更新
     }
 
     public void resetPlayerName(Player player) {
@@ -121,6 +167,7 @@ public class NameManager {
         player.setPlayerListName(player.getName());
     }
 
+    @SuppressWarnings("deprecation")
     public boolean setPlayerColor(String playerName, String colorName) {
         OfflinePlayer player = Bukkit.getOfflinePlayer(playerName);
         if (!player.hasPlayedBefore() && !player.isOnline()) return false;
@@ -132,7 +179,7 @@ public class NameManager {
             team.setColor(ChatColor.WHITE);
         } else {
             ChatColor chatColor = mapWoolColorToChatColor(colorName);
-            if(chatColor == null) return false;
+            if (chatColor == null) return false;
             team.setColor(chatColor);
         }
 

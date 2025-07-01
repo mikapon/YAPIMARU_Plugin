@@ -29,7 +29,9 @@ public class ParticipantManager {
         this.plugin = plugin;
         this.participantDir = new File(plugin.getDataFolder(), "Participant_Information");
         if (!participantDir.exists()) {
-            participantDir.mkdirs();
+            if(!participantDir.mkdirs()) {
+                plugin.getLogger().warning("Failed to create Participant_Information directory.");
+            }
         }
         loadAllParticipants();
     }
@@ -64,8 +66,6 @@ public class ParticipantManager {
         return findOrCreateParticipant((OfflinePlayer) player);
     }
 
-    // ★★★ 修正箇所 ★★★
-    // OfflinePlayerでもParticipantデータを作成できるようにオーバーロード
     public ParticipantData findOrCreateParticipant(OfflinePlayer player) {
         if (uuidToParticipantMap.containsKey(player.getUniqueId())) {
             return uuidToParticipantMap.get(player.getUniqueId());
@@ -83,16 +83,29 @@ public class ParticipantManager {
         return data;
     }
 
+    // ★★★ 修正箇所 ★★★
+    // ファイル保存時にコメントを付与するロジックを追加
     public void saveParticipant(ParticipantData data) {
         File file = new File(participantDir, data.getParticipantId() + ".yml");
         YamlConfiguration config = new YamlConfiguration();
 
+        // データの設定
         config.set("base_name", data.getBaseName());
         config.set("linked_name", data.getLinkedName());
         config.set("associated-uuids", data.getAssociatedUuids().stream().map(UUID::toString).collect(Collectors.toList()));
+        data.getStatistics().forEach((key, value) -> config.set("statistics." + key, value));
 
-        ConfigurationSection statsSection = config.createSection("statistics");
-        data.getStatistics().forEach(statsSection::set);
+        // コメントの設定
+        config.setComments("base_name", List.of("プレイヤー名"));
+        config.setComments("linked_name", List.of("キャラクター名"));
+        config.setComments("associated-uuids", List.of("UUID"));
+        config.setComments("statistics", List.of("統計情報"));
+        config.setComments("statistics.total_deaths", List.of("デス合計"));
+        config.setComments("statistics.total_playtime_seconds", List.of("サーバー参加合計時間"));
+        config.setComments("statistics.total_joins", List.of("サーバー入室合計回数"));
+        config.setComments("statistics.photoshoot_participations", List.of("撮影参加合計回数"));
+        config.setComments("statistics.total_chats", List.of("チャット合計回数"));
+        config.setComments("statistics.w_count", List.of("w合計数"));
 
         try {
             config.save(file);
@@ -200,8 +213,8 @@ public class ParticipantManager {
         if (oldData.getAssociatedUuids().isEmpty()) {
             participants.remove(oldData.getParticipantId());
             File oldFile = new File(participantDir, oldData.getParticipantId() + ".yml");
-            if (oldFile.exists()) {
-                oldFile.delete();
+            if (!oldFile.delete()) {
+                plugin.getLogger().warning("Failed to delete empty participant file: " + oldFile.getName());
             }
         } else {
             saveParticipant(oldData);

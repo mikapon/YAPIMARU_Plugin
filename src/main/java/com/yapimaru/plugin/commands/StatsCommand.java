@@ -2,6 +2,7 @@ package com.yapimaru.plugin.commands;
 
 import com.yapimaru.plugin.YAPIMARU_Plugin;
 import com.yapimaru.plugin.data.ParticipantData;
+import com.yapimaru.plugin.managers.NameManager;
 import com.yapimaru.plugin.managers.ParticipantManager;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.TextComponent;
@@ -12,6 +13,7 @@ import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -24,10 +26,13 @@ public class StatsCommand implements CommandExecutor {
 
     private final YAPIMARU_Plugin plugin;
     private final ParticipantManager participantManager;
+    private final NameManager nameManager; // ★★★ 追加
 
-    public StatsCommand(YAPIMARU_Plugin plugin, ParticipantManager participantManager) {
+    // ★★★ 修正箇所 ★★★
+    public StatsCommand(YAPIMARU_Plugin plugin, ParticipantManager participantManager, NameManager nameManager) {
         this.plugin = plugin;
         this.participantManager = participantManager;
+        this.nameManager = nameManager;
     }
 
     @Override
@@ -38,7 +43,12 @@ public class StatsCommand implements CommandExecutor {
         }
 
         if (args.length == 0) {
-            sendHelp(sender);
+            if (sender instanceof Player p) {
+                ParticipantData data = participantManager.findOrCreateParticipant(p);
+                displayPlayerStats(sender, data.getParticipantId());
+            } else {
+                sendHelp(sender);
+            }
             return true;
         }
 
@@ -64,7 +74,8 @@ public class StatsCommand implements CommandExecutor {
                 String pageArg = worst ? (args.length > 3 ? args[3] : "1") : (args.length > 2 ? args[2] : "1");
                 try {
                     page = Integer.parseInt(pageArg) - 1;
-                } catch (NumberFormatException ignored) {}
+                } catch (NumberFormatException ignored) {
+                }
                 if (page < 0) page = 0;
 
                 displayLeaderboard(sender, statName, worst, page);
@@ -131,7 +142,7 @@ public class StatsCommand implements CommandExecutor {
         int rankOffset = 0;
 
         if (start > 0) {
-            for(int i = 0; i < start; i++) {
+            for (int i = 0; i < start; i++) {
                 Number currentValue = allData.get(i).getStatistics().get(statName);
                 if (lastValue == null || currentValue.doubleValue() != lastValue.doubleValue()) {
                     currentRank += (1 + rankOffset);
@@ -180,9 +191,13 @@ public class StatsCommand implements CommandExecutor {
         }
         footerBuilder.append(Component.text("＞ーーーーーーーー", NamedTextColor.GOLD));
 
-        // ★★★ 修正箇所 ★★★
-        // sender.sendMessageではなく、AdventureのAPIを使用する
         plugin.getAdventure().sender(sender).sendMessage(footerBuilder.build());
+
+        // ★★★ 新規追加 ★★★
+        // コマンド実行者のTABリスト表示を更新する
+        if (sender instanceof Player p) {
+            nameManager.setPlayerViewingStat(p, statName);
+        }
     }
 
     private String getStatDisplayName(String statName) {

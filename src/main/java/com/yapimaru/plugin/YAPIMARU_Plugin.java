@@ -117,9 +117,8 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
 
     private void initializeManagers() {
         participantManager = new ParticipantManager(this);
-        nameManager = new NameManager(participantManager);
+        nameManager = new NameManager(this, participantManager);
         voteManager = new VoteManager(this);
-        // ★★★ 修正箇所 ★★★
         whitelistManager = new WhitelistManager(this, participantManager);
         creatorGuiManager = new GuiManager(nameManager);
         pvpManager = new PvpManager(this);
@@ -156,7 +155,7 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
         setExecutor("ans", new AnsCommand(voteManager), new AnsTabCompleter(voteManager));
         setExecutor("photographing", new PhotographingCommand(participantManager));
         // ★★★ 修正箇所 ★★★
-        setExecutor("stats", new StatsCommand(this, participantManager), new StatsTabCompleter(participantManager));
+        setExecutor("stats", new StatsCommand(this, participantManager, nameManager), new StatsTabCompleter(participantManager));
     }
 
     private void setExecutor(String commandName, CommandExecutor executor) {

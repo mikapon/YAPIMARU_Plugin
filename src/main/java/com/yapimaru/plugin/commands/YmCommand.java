@@ -1,6 +1,7 @@
 package com.yapimaru.plugin.commands;
 
 import com.yapimaru.plugin.YAPIMARU_Plugin;
+import com.yapimaru.plugin.data.ParticipantData;
 import com.yapimaru.plugin.listeners.GuiListener;
 import com.yapimaru.plugin.managers.*;
 import org.bukkit.Bukkit;
@@ -46,6 +47,7 @@ public class YmCommand implements CommandExecutor {
     private final WhitelistManager whitelistManager;
     private final NameManager nameManager;
     private final PlayerRestrictionManager restrictionManager;
+    private final ParticipantManager participantManager;
 
     private final Map<UUID, FilterState> playerFilterStates = new HashMap<>();
     private final Map<UUID, Integer> playerGuiPages = new HashMap<>();
@@ -73,19 +75,25 @@ public class YmCommand implements CommandExecutor {
         this.whitelistManager = plugin.getWhitelistManager();
         this.nameManager = plugin.getNameManager();
         this.restrictionManager = plugin.getRestrictionManager();
+        this.participantManager = plugin.getParticipantManager();
     }
 
     @Override
     public boolean onCommand(@NotNull CommandSender sender, @NotNull Command cmd, @NotNull String label, @NotNull String[] args) {
+        if (!sender.hasPermission("yapimaru.admin")) {
+            sender.sendMessage("§cこのコマンドを使用する権限がありません。");
+            return true;
+        }
+
         if (args.length > 0) {
             String subCommand = args[0].toLowerCase();
             switch(subCommand) {
-                case "reload":
+                case "reload" -> {
                     plugin.loadConfigAndManual();
-                    // ★★★ 修正箇所 ★★★
                     sender.sendMessage("§a/plugins/YAPIMARU_Plugin を再読込する");
                     return true;
-                case "list":
+                }
+                case "list" -> {
                     List<String> manual = plugin.getCommandManual();
                     if (manual.isEmpty()) {
                         sender.sendMessage("§cマニュアルファイル(commands.txt)が読み込めませんでした。");
@@ -93,7 +101,8 @@ public class YmCommand implements CommandExecutor {
                         manual.forEach(sender::sendMessage);
                     }
                     return true;
-                case "cmlist":
+                }
+                case "cmlist" -> {
                     sender.sendMessage("§6--- Command List ---");
                     sender.sendMessage("§e/hub §7- hubにテレポート");
                     sender.sendMessage("§e/skinlist §7- スキンリストを表示");
@@ -111,6 +120,7 @@ public class YmCommand implements CommandExecutor {
                     sender.sendMessage("§e/voting [vote] §7- 投票機能");
                     sender.sendMessage("§e/ans §7- 投票に回答");
                     return true;
+                }
             }
         }
 
@@ -342,21 +352,21 @@ public class YmCommand implements CommandExecutor {
         gui.setItem(4, createItem(Material.PAPER, "§f§l" + previousTitle, false, "§7のフィルターを設定します"));
 
         switch (category) {
-            case NUMERIC:
+            case NUMERIC -> {
                 if (sourceList.stream().anyMatch(p -> getPredicateForCategory(category, "0-4").test(getSortableName(p).charAt(0))))
                     gui.setItem(11, createItem(Material.OAK_SIGN, "0-4"));
                 if (sourceList.stream().anyMatch(p -> getPredicateForCategory(category, "5-9").test(getSortableName(p).charAt(0))))
                     gui.setItem(15, createItem(Material.OAK_SIGN, "5-9"));
-                break;
-            case ALPHABET:
+            }
+            case ALPHABET -> {
                 if (sourceList.stream().anyMatch(p -> getPredicateForCategory(category, "A-F").test(getSortableName(p).charAt(0))))
                     gui.setItem(11, createItem(Material.NAME_TAG, "A-F"));
                 if (sourceList.stream().anyMatch(p -> getPredicateForCategory(category, "G-O").test(getSortableName(p).charAt(0))))
                     gui.setItem(13, createItem(Material.NAME_TAG, "G-O"));
                 if (sourceList.stream().anyMatch(p -> getPredicateForCategory(category, "P-Z").test(getSortableName(p).charAt(0))))
                     gui.setItem(15, createItem(Material.NAME_TAG, "P-Z"));
-                break;
-            case KANA:
+            }
+            case KANA -> {
                 if (sourceList.stream().anyMatch(p -> getPredicateForCategory(category, "あ行・か行").test(getSortableName(p).charAt(0))))
                     gui.setItem(10, createItem(Material.CHERRY_SAPLING, "あ行・か行"));
                 if (sourceList.stream().anyMatch(p -> getPredicateForCategory(category, "さ行・た行").test(getSortableName(p).charAt(0))))
@@ -367,7 +377,7 @@ public class YmCommand implements CommandExecutor {
                     gui.setItem(14, createItem(Material.CHERRY_SAPLING, "ま行・や行"));
                 if (sourceList.stream().anyMatch(p -> getPredicateForCategory(category, "ら行・わ行").test(getSortableName(p).charAt(0))))
                     gui.setItem(15, createItem(Material.CHERRY_SAPLING, "ら行・わ行"));
-                break;
+            }
         }
 
         gui.setItem(22, createItem(Material.ARROW, "§eカテゴリー選択に戻る"));
@@ -450,8 +460,17 @@ public class YmCommand implements CommandExecutor {
     }
 
     public String getSortableName(OfflinePlayer p) {
-        String name = nameManager.getLinkedName(p.getUniqueId());
-        if (name == null || name.isEmpty()) name = p.getName();
+        // ★★★ 修正箇所 ★★★
+        // 新しいParticipantManagerを利用するように修正
+        ParticipantData data = participantManager.getParticipant(p.getUniqueId());
+        String name;
+        if (data != null && data.getLinkedName() != null && !data.getLinkedName().isEmpty()) {
+            name = data.getLinkedName();
+        } else if (data != null) {
+            name = data.getBaseName();
+        } else {
+            name = p.getName();
+        }
         return name != null ? name.toUpperCase() : "";
     }
 
