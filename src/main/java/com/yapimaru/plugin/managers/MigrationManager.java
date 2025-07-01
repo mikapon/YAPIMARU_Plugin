@@ -20,27 +20,27 @@ public class MigrationManager {
         ConfigurationSection oldPlayersSection = config.getConfigurationSection("players");
 
         if (oldPlayersSection == null || oldPlayersSection.getKeys(false).isEmpty()) {
-            return;
+            return; // 移行する古いデータはありません。
         }
 
         plugin.getLogger().info("Starting migration of old player data from config.yml...");
         int newProfiles = 0;
         int mergedUuids = 0;
 
-        // A temporary map to hold the final state of all participant data.
-        // Key: ParticipantID (filename), Value: ParticipantData
+        // 最終的な参加者データを保持するための一時的なマップ
+        // Key: ParticipantID (ファイル名), Value: ParticipantData
         Map<String, ParticipantData> finalDataMap = new HashMap<>();
 
-        // 1. Pre-populate the map with data from existing files
+        // 1. 既存のファイルからデータを事前に入力し、マージできるようにする
         participantManager.getActiveParticipants().forEach(data -> finalDataMap.put(data.getParticipantId(), data));
         participantManager.getDischargedParticipants().forEach(data -> finalDataMap.put(data.getParticipantId(), data));
 
-        // 2. Process players from config.yml
+        // 2. config.yml のプレイヤーを処理する
         for (String uuidStr : oldPlayersSection.getKeys(false)) {
             try {
                 UUID uuid = UUID.fromString(uuidStr);
 
-                // If this UUID is already linked to a participant, skip it.
+                // このUUIDが既に新しいシステムの参加者にリンクされている場合はスキップ
                 if (participantManager.getParticipant(uuid) != null) {
                     continue;
                 }
@@ -58,11 +58,11 @@ public class MigrationManager {
                 ParticipantData targetData = finalDataMap.get(participantId);
 
                 if (targetData != null) {
-                    // A profile for this person already exists, so add/merge this UUID into it.
+                    // この人物のプロフィールは既に存在するため、このUUIDを追加/マージする
                     targetData.addAssociatedUuid(uuid);
                     mergedUuids++;
                 } else {
-                    // This is a completely new person. Create a new profile.
+                    // 全く新しい人物。新しいプロフィールを作成する
                     targetData = new ParticipantData(baseName, linkedName);
                     targetData.addAssociatedUuid(uuid);
                     finalDataMap.put(participantId, targetData);
@@ -74,16 +74,17 @@ public class MigrationManager {
             }
         }
 
-        // 3. Save all changes
+        // 3. 全ての変更を保存する
         if (newProfiles > 0 || mergedUuids > 0) {
             plugin.getLogger().info("Saving migrated data...");
             for (ParticipantData data : finalDataMap.values()) {
+                // デフォルトで "active" ディレクトリに保存するメソッドを使用
                 participantManager.registerNewParticipant(data);
             }
             plugin.getLogger().info("Migration complete: " + newProfiles + " new profiles created, " + mergedUuids + " UUIDs merged.");
         }
 
-        // 4. Clear the old section from config.yml
+        // 4. config.yml から古いセクションを削除する
         plugin.getLogger().info("Clearing old player data from config.yml...");
         config.set("players", null);
         plugin.saveConfig();

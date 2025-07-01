@@ -58,10 +58,10 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
 
         initializeManagers();
 
-        // Run migration logic at startup, BEFORE other managers fully load their data.
+        // プラグイン起動時に、他のマネージャーがデータを完全に読み込む前に移行ロジックを実行
         new MigrationManager().migrate(this, participantManager);
 
-        // Now, load all data including the newly migrated files.
+        // 新しく移行されたファイルを含むすべてのデータを読み込む
         loadConfigAndManual();
         linkManagers();
 
@@ -112,7 +112,7 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
 
         if (whitelistManager != null) whitelistManager.load();
 
-        // Reload all participant data from files after migration.
+        // 移行後、ファイルからすべての参加者データを再読み込み
         if (participantManager != null) participantManager.reloadAllParticipants();
         if (nameManager != null) nameManager.reloadData();
     }

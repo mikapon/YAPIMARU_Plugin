@@ -33,7 +33,7 @@ public class YmTabCompleter implements TabCompleter {
             return StringUtil.copyPartialMatches(args[0], SUBCOMMANDS, new ArrayList<>());
         }
 
-        // ★★★ 新規追加 ★★★
+        // /ym participant ... のタブ補完
         if (args.length > 1 && args[0].equalsIgnoreCase("participant")) {
             if (args.length == 2) {
                 return StringUtil.copyPartialMatches(args[1], PARTICIPANT_SUB, new ArrayList<>());

@@ -44,7 +44,7 @@ public class PlayerRestrictionManager implements Listener {
     }
 
     private boolean isRestricted(Player player) {
-        // ★★★ 修正: OPは全ての制限から除外する ★★★
+        // OPは全ての制限から除外する
         if (player.isOp()) {
             return false;
         }

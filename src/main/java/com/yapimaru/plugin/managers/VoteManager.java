@@ -79,8 +79,7 @@ public class VoteManager {
 
     public void updatePlayerVoteStatus(Player player) {
         if (nameManager != null) {
-            // ★★★ 修正箇所 ★★★
-            // updatePlayerNameの引数を修正
+            // updatePlayerNameの引数をPlayerオブジェクトに修正
             nameManager.updatePlayerName(player);
         }
     }
@@ -123,7 +122,7 @@ public class VoteManager {
         }.runTaskTimer(plugin, 20L, 20L);
 
         if (nameManager != null) {
-            // ★★★ 修正箇所 ★★★
+            // オンラインの全プレイヤーの名前表示を更新
             Bukkit.getOnlinePlayers().forEach(nameManager::updatePlayerName);
         }
 
@@ -145,7 +144,7 @@ public class VoteManager {
         saveResultFile(voteData);
 
         if (nameManager != null && activePolls.isEmpty()) {
-            // ★★★ 修正箇所 ★★★
+            // 最後の投票が終了したら、全プレイヤーの名前表示を更新
             Bukkit.getOnlinePlayers().forEach(nameManager::updatePlayerName);
         }
         return voteData;

@@ -41,7 +41,6 @@ commands:
     description: 便利な管理GUIを開きます。
     usage: /<command> [subcommand] [args]
     aliases: [c]
-    # ★★★ 修正箇所 ★★★
     permission: yapimaru.creator
     permission-message: このコマンドを使用する権限がありません。
   server:
@@ -59,8 +58,6 @@ commands:
     description: 投票関連のコマンドです。
     usage: /<command> [question|evaluation|end|result|average|list] [args]
     aliases: [vote]
-    # ★★★ 修正箇所 ★★★
-    # /ans コマンドは誰でも使えるようにするため、voteコマンド自体に権限を設定
     permission: yapimaru.admin
     permission-message: このコマンドを使用する権限がありません。
   ans:
