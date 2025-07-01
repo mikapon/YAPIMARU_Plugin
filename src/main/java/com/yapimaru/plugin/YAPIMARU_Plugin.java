@@ -58,8 +58,6 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
 
         initializeManagers();
 
-        // ★★★ サーバー起動時の自動移行処理を削除 ★★★
-
         // データを読み込む
         loadConfigAndManual();
         linkManagers();
@@ -160,8 +158,6 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
         setExecutor("ans", new AnsCommand(voteManager), new AnsTabCompleter(voteManager));
         setExecutor("photographing", new PhotographingCommand(this, participantManager));
         setExecutor("stats", new StatsCommand(this, participantManager, nameManager), new StatsTabCompleter(participantManager));
-        // ★★★ 新しいコマンドを登録 ★★★
-        setExecutor("ppparticipant", new PpparticipantCommand(this, participantManager, nameManager));
     }
 
     private void setExecutor(String commandName, CommandExecutor executor) {

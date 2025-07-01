@@ -72,13 +72,6 @@ commands:
     usage: /<command> <player|list> [args]
     permission: yapimaru.admin
     permission-message: このコマンドを使用する権限がありません。
-  # ★★★ 新しいコマンド定義を追加 ★★★
-  ppparticipant:
-    description: config.ymlからプレイヤーデータを個別のファイルに手動で移行します。
-    usage: /<command>
-    permission: yapimaru.admin
-    permission-message: このコマンドを使用する権限がありません。
-
 
 permissions:
   yapimaru.admin:
@@ -88,5 +81,5 @@ permissions:
     description: /skinlist コマンドの使用を許可します。
     default: true
   yapimaru.creator:
-    description: /creator コマンドの使用を許可します。
+    description: /c コマンドの使用を許可します。
     default: op
