@@ -10,7 +10,6 @@ import com.yapimaru.plugin.managers.NameManager;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -18,7 +17,11 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 public class NameCommand implements CommandExecutor {
     private final YAPIMARU_Plugin plugin;
@@ -32,7 +35,7 @@ public class NameCommand implements CommandExecutor {
     @Override
     public boolean onCommand(@NotNull CommandSender sender, @NotNull Command cmd, @NotNull String label, @NotNull String[] args) {
         if (!sender.hasPermission("yapimaru.admin")) {
-            sender.sendMessage(ChatColor.RED + "このコマンドを使用する権限がありません。");
+            plugin.getAdventure().sender(sender).sendMessage(Component.text("このコマンドを使用する権限がありません。", NamedTextColor.RED));
             return true;
         }
 
@@ -46,26 +49,26 @@ public class NameCommand implements CommandExecutor {
         switch (sub) {
             case "set", "link" -> {
                 if (!(sender instanceof Player p)) {
-                    sender.sendMessage("このコマンドはプレイヤーのみが実行できます。");
+                    plugin.getAdventure().sender(sender).sendMessage(Component.text("このコマンドはプレイヤーのみが実行できます。", NamedTextColor.RED));
                     return true;
                 }
                 if (args.length < 2) {
-                    p.sendMessage(ChatColor.RED + "使い方: /name " + sub + " <名前>");
+                    plugin.getAdventure().player(p).sendMessage(Component.text("使い方: /name " + sub + " <名前>", NamedTextColor.RED));
                     return true;
                 }
                 String text = String.join(" ", Arrays.copyOfRange(args, 1, args.length));
                 if (sub.equals("set")) {
                     nameManager.setBaseName(p.getUniqueId(), text);
-                    p.sendMessage(ChatColor.GREEN + "基本の名前を「" + text + "」に設定しました。");
+                    plugin.getAdventure().player(p).sendMessage(Component.text("基本の名前を「" + text + "」に設定しました。", NamedTextColor.GREEN));
                 } else { // link
                     nameManager.setLinkedName(p.getUniqueId(), text);
-                    p.sendMessage(ChatColor.GREEN + "頭上の名前を「" + text + "」に設定しました。");
+                    plugin.getAdventure().player(p).sendMessage(Component.text("頭上の名前を「" + text + "」に設定しました。", NamedTextColor.GREEN));
                 }
                 return true;
             }
             case "color" -> {
                 if (args.length < 3) {
-                    sendColorSubHelp(sender); // ★★★ 修正箇所 ★★★
+                    sendColorSubHelp(sender);
                     return true;
                 }
                 String colorName = args[1];
@@ -104,13 +107,14 @@ public class NameCommand implements CommandExecutor {
                     }
                 }
                 if (!success.isEmpty())
-                    sender.sendMessage(ChatColor.GREEN + String.join(", ", success) + "の色を" + colorName + "に変更しました。");
-                if (!failed.isEmpty()) sender.sendMessage(ChatColor.RED + "失敗: " + String.join(", ", failed));
+                    plugin.getAdventure().sender(sender).sendMessage(Component.text(String.join(", ", success) + "の色を" + colorName + "に変更しました。", NamedTextColor.GREEN));
+                if (!failed.isEmpty())
+                    plugin.getAdventure().sender(sender).sendMessage(Component.text("失敗: " + String.join(", ", failed), NamedTextColor.RED));
                 return true;
             }
             case "reload" -> {
                 nameManager.reloadData();
-                sender.sendMessage(ChatColor.GREEN + "参加者情報をリロードしました。");
+                plugin.getAdventure().sender(sender).sendMessage(Component.text("参加者情報をリロードしました。", NamedTextColor.GREEN));
                 return true;
             }
             default -> {
@@ -121,18 +125,16 @@ public class NameCommand implements CommandExecutor {
     }
 
     private void sendHelp(CommandSender s) {
-        s.sendMessage("§6--- Name Command Help ---");
-        s.sendMessage("§e/name set <name> §7- チャット等での表示名を設定");
-        s.sendMessage("§e/name link <name|remove> §7- 頭上の表示名を設定（removeで削除）");
-        s.sendMessage("§e/name color <color> <target> §7- 名前の色を変更");
-        s.sendMessage("§e/name reload §7- 設定ファイルをリロード");
+        plugin.getAdventure().sender(s).sendMessage(Component.text("§6--- Name Command Help ---"));
+        plugin.getAdventure().sender(s).sendMessage(Component.text("§e/name set <name> §7- チャット等での表示名を設定"));
+        plugin.getAdventure().sender(s).sendMessage(Component.text("§e/name link <name|remove> §7- 頭上の表示名を設定（removeで削除）"));
+        plugin.getAdventure().sender(s).sendMessage(Component.text("§e/name color <color> <target> §7- 名前の色を変更"));
+        plugin.getAdventure().sender(s).sendMessage(Component.text("§e/name reload §7- 設定ファイルをリロード"));
     }
 
-    // ★★★ 修正箇所 ★★★
-    // sendSubHelpをsendColorSubHelpにリファクタリング
     private void sendColorSubHelp(CommandSender s) {
-        s.sendMessage("§c引数が不足しています。");
-        s.sendMessage("§e使い方: /name color <色> <プレイヤー名|@a|//sel...>");
-        s.sendMessage("§7利用可能な色: " + String.join(", ", NameManager.WOOL_COLOR_NAMES));
+        plugin.getAdventure().sender(s).sendMessage(Component.text("引数が不足しています。", NamedTextColor.RED));
+        plugin.getAdventure().sender(s).sendMessage(Component.text("§e使い方: /name color <色> <プレイヤー名|@a|//sel...>"));
+        plugin.getAdventure().sender(s).sendMessage(Component.text("§7利用可能な色: " + String.join(", ", NameManager.WOOL_COLOR_NAMES)));
     }
 }

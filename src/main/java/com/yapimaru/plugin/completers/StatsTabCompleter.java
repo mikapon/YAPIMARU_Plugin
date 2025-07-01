@@ -38,7 +38,7 @@ public class StatsTabCompleter implements TabCompleter {
 
         if (args.length == 2) {
             if (args[0].equalsIgnoreCase("player")) {
-                List<String> participantIds = participantManager.getAllParticipants().stream()
+                List<String> participantIds = participantManager.getActiveParticipants().stream()
                         .map(ParticipantData::getParticipantId)
                         .collect(Collectors.toList());
                 return StringUtil.copyPartialMatches(args[1], participantIds, new ArrayList<>());

@@ -4,12 +4,13 @@ import com.yapimaru.plugin.YAPIMARU_Plugin;
 import com.yapimaru.plugin.data.ParticipantData;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
-import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
@@ -18,8 +19,12 @@ public class ParticipantManager {
 
     private final YAPIMARU_Plugin plugin;
     private final File participantDir;
-    private final Map<String, ParticipantData> participants = new HashMap<>(); // Key: participantId (base_linked)
+    private final File activeDir;
+    private final File dischargedDir;
+
+    private final Map<String, ParticipantData> activeParticipants = new HashMap<>(); // Key: participantId
     private final Map<UUID, ParticipantData> uuidToParticipantMap = new HashMap<>();
+    private final Map<String, ParticipantData> dischargedParticipants = new HashMap<>();
 
     // For join/playtime tracking
     private final Map<UUID, Long> loginTimestamps = new HashMap<>();
@@ -28,26 +33,53 @@ public class ParticipantManager {
     public ParticipantManager(YAPIMARU_Plugin plugin) {
         this.plugin = plugin;
         this.participantDir = new File(plugin.getDataFolder(), "Participant_Information");
-        if (!participantDir.exists()) {
-            if(!participantDir.mkdirs()) {
-                plugin.getLogger().warning("Failed to create Participant_Information directory.");
-            }
-        }
+        this.activeDir = new File(participantDir, "participant");
+        this.dischargedDir = new File(participantDir, "discharge");
+
+        if (!activeDir.exists()) activeDir.mkdirs();
+        if (!dischargedDir.exists()) dischargedDir.mkdirs();
+
+        migrateOldFiles();
         loadAllParticipants();
     }
 
     private void loadAllParticipants() {
-        File[] files = participantDir.listFiles((dir, name) -> name.endsWith(".yml"));
-        if (files == null) return;
+        activeParticipants.clear();
+        uuidToParticipantMap.clear();
+        dischargedParticipants.clear();
 
-        for (File file : files) {
-            YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
-            ParticipantData data = new ParticipantData(config);
-            participants.put(data.getParticipantId(), data);
+        // Active participants
+        File[] activeFiles = activeDir.listFiles((dir, name) -> name.endsWith(".yml"));
+        if (activeFiles != null) {
+            for (File file : activeFiles) {
+                loadParticipantFromFile(file, activeParticipants);
+            }
+        }
+
+        // Discharged participants
+        File[] dischargedFiles = dischargedDir.listFiles((dir, name) -> name.endsWith(".yml"));
+        if (dischargedFiles != null) {
+            for (File file : dischargedFiles) {
+                loadParticipantFromFile(file, dischargedParticipants);
+            }
+        }
+        plugin.getLogger().info("Loaded " + activeParticipants.size() + " active and " + dischargedParticipants.size() + " participant data files.");
+    }
+
+    private void loadParticipantFromFile(File file, Map<String, ParticipantData> map) {
+        YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
+        ParticipantData data = new ParticipantData(config);
+        map.put(data.getParticipantId(), data);
+        if (map == activeParticipants) { // Only map UUIDs for active participants
             for (UUID uuid : data.getAssociatedUuids()) {
                 uuidToParticipantMap.put(uuid, data);
             }
         }
+    }
+
+    public void reloadAllParticipants() {
+        plugin.getLogger().info("Reloading all participant data...");
+        loadAllParticipants();
     }
 
     public ParticipantData getParticipant(UUID uuid) {
@@ -55,57 +87,62 @@ public class ParticipantManager {
     }
 
     public ParticipantData getParticipant(String participantId) {
-        return participants.get(participantId);
+        return activeParticipants.get(participantId);
     }
 
-    public Collection<ParticipantData> getAllParticipants() {
-        return participants.values();
+
+    public Collection<ParticipantData> getActiveParticipants() {
+        return activeParticipants.values();
     }
 
-    public ParticipantData findOrCreateParticipant(Player player) {
-        return findOrCreateParticipant((OfflinePlayer) player);
+    public Collection<ParticipantData> getDischargedParticipants() {
+        return dischargedParticipants.values();
     }
 
     public ParticipantData findOrCreateParticipant(OfflinePlayer player) {
+        if (player == null) return null;
         if (uuidToParticipantMap.containsKey(player.getUniqueId())) {
             return uuidToParticipantMap.get(player.getUniqueId());
         }
 
+        // This is a truly new player, not in config or existing files.
         String baseName = player.getName() != null ? player.getName() : player.getUniqueId().toString();
         String linkedName = "";
 
         ParticipantData data = new ParticipantData(baseName, linkedName);
         data.addAssociatedUuid(player.getUniqueId());
 
-        participants.put(data.getParticipantId(), data);
-        uuidToParticipantMap.put(player.getUniqueId(), data);
-        saveParticipant(data);
+        registerNewParticipant(data);
         return data;
     }
 
-    // ★★★ 修正箇所 ★★★
-    // ファイル保存時にコメントを付与するロジックを追加
     public void saveParticipant(ParticipantData data) {
-        File file = new File(participantDir, data.getParticipantId() + ".yml");
+        if (data == null) return;
+
+        boolean isDischarged = dischargedParticipants.containsKey(data.getParticipantId());
+        File targetDir = isDischarged ? dischargedDir : activeDir;
+
+        File file = new File(targetDir, data.getParticipantId() + ".yml");
         YamlConfiguration config = new YamlConfiguration();
 
-        // データの設定
         config.set("base_name", data.getBaseName());
-        config.set("linked_name", data.getLinkedName());
-        config.set("associated-uuids", data.getAssociatedUuids().stream().map(UUID::toString).collect(Collectors.toList()));
-        data.getStatistics().forEach((key, value) -> config.set("statistics." + key, value));
-
-        // コメントの設定
         config.setComments("base_name", List.of("プレイヤー名"));
+
+        config.set("linked_name", data.getLinkedName());
         config.setComments("linked_name", List.of("キャラクター名"));
+
+        config.set("associated-uuids", data.getAssociatedUuids().stream().map(UUID::toString).collect(Collectors.toList()));
         config.setComments("associated-uuids", List.of("UUID"));
-        config.setComments("statistics", List.of("統計情報"));
-        config.setComments("statistics.total_deaths", List.of("デス合計"));
-        config.setComments("statistics.total_playtime_seconds", List.of("サーバー参加合計時間"));
-        config.setComments("statistics.total_joins", List.of("サーバー入室合計回数"));
-        config.setComments("statistics.photoshoot_participations", List.of("撮影参加合計回数"));
-        config.setComments("statistics.total_chats", List.of("チャット合計回数"));
-        config.setComments("statistics.w_count", List.of("w合計数"));
+
+        String statsPath = "statistics";
+        config.createSection(statsPath, data.getStatistics());
+        config.setComments(statsPath, List.of("統計情報"));
+        config.setComments(statsPath + ".total_deaths", List.of("デス合計"));
+        config.setComments(statsPath + ".total_joins", List.of("サーバー入室合計回数"));
+        config.setComments(statsPath + ".total_playtime_seconds", List.of("サーバー参加合計時間"));
+        config.setComments(statsPath + ".photoshoot_participations", List.of("撮影参加合計回数"));
+        config.setComments(statsPath + ".total_chats", List.of("チャット合計回数"));
+        config.setComments(statsPath + ".w_count", List.of("w合計数"));
 
         try {
             config.save(file);
@@ -114,10 +151,68 @@ public class ParticipantManager {
         }
     }
 
-    // --- Statistics Methods ---
+    public void registerNewParticipant(ParticipantData data) {
+        if (data == null || data.getParticipantId() == null || data.getParticipantId().isEmpty()) {
+            return;
+        }
+        activeParticipants.put(data.getParticipantId(), data);
+        for (UUID uuid : data.getAssociatedUuids()) {
+            uuidToParticipantMap.put(uuid, data);
+        }
+        saveParticipant(data);
+    }
 
+    public boolean moveParticipantToActive(String participantId) {
+        ParticipantData data = dischargedParticipants.remove(participantId);
+        if (data == null) return false;
+
+        File oldFile = new File(dischargedDir, participantId + ".yml");
+        File newFile = new File(activeDir, participantId + ".yml");
+
+        try {
+            Files.move(oldFile.toPath(), newFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            activeParticipants.put(participantId, data);
+            data.getAssociatedUuids().forEach(uuid -> uuidToParticipantMap.put(uuid, data));
+            return true;
+        } catch (IOException e) {
+            plugin.getLogger().log(Level.SEVERE, "Could not move participant file to active: " + participantId, e);
+            dischargedParticipants.put(participantId, data); // revert in case of failure
+            return false;
+        }
+    }
+
+    public boolean moveParticipantToDischarged(String participantId) {
+        ParticipantData data = activeParticipants.remove(participantId);
+        if (data == null) return false;
+
+        File oldFile = new File(activeDir, participantId + ".yml");
+        File newFile = new File(dischargedDir, participantId + ".yml");
+
+        try {
+            Files.move(oldFile.toPath(), newFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            dischargedParticipants.put(participantId, data);
+            data.getAssociatedUuids().forEach(uuidToParticipantMap::remove);
+            return true;
+        } catch (IOException e) {
+            plugin.getLogger().log(Level.SEVERE, "Could not move participant file to discharged: " + participantId, e);
+            activeParticipants.put(participantId, data); // revert in case of failure
+            return false;
+        }
+    }
+
+    public Set<UUID> getAllAssociatedUuidsFromActive() {
+        return uuidToParticipantMap.keySet();
+    }
+
+    public Set<UUID> getAssociatedUuidsFromDischarged() {
+        return dischargedParticipants.values().stream()
+                .flatMap(p -> p.getAssociatedUuids().stream())
+                .collect(Collectors.toSet());
+    }
+
+    // --- Statistics Methods ---
     public void incrementDeaths(UUID uuid) {
-        ParticipantData data = getParticipant(uuid);
+        ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data == null) return;
         data.incrementStat("total_deaths");
         saveParticipant(data);
@@ -133,12 +228,13 @@ public class ParticipantManager {
         }
 
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
+        if (data == null) return;
         data.incrementStat("total_joins");
         saveParticipant(data);
     }
 
     public void addPlaytime(UUID uuid, long secondsToAdd) {
-        ParticipantData data = getParticipant(uuid);
+        ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data == null) return;
         long currentPlaytime = data.getStatistics().getOrDefault("total_playtime_seconds", 0L).longValue();
         data.getStatistics().put("total_playtime_seconds", currentPlaytime + secondsToAdd);
@@ -146,14 +242,14 @@ public class ParticipantManager {
     }
 
     public void incrementPhotoshootParticipations(UUID uuid) {
-        ParticipantData data = getParticipant(uuid);
+        ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data == null) return;
         data.incrementStat("photoshoot_participations");
         saveParticipant(data);
     }
 
     public void incrementChats(UUID uuid) {
-        ParticipantData data = getParticipant(uuid);
+        ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data == null) return;
         data.incrementStat("total_chats");
         saveParticipant(data);
@@ -161,7 +257,7 @@ public class ParticipantManager {
 
     public void incrementWCount(UUID uuid, int amount) {
         if (amount == 0) return;
-        ParticipantData data = getParticipant(uuid);
+        ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data == null) return;
         long currentWCount = data.getStatistics().getOrDefault("w_count", 0L).longValue();
         data.getStatistics().put("w_count", currentWCount + amount);
@@ -169,7 +265,6 @@ public class ParticipantManager {
     }
 
     // --- Join/Quit Time Tracking ---
-
     public void recordLoginTime(Player player) {
         loginTimestamps.put(player.getUniqueId(), System.currentTimeMillis());
         findOrCreateParticipant(player);
@@ -187,75 +282,46 @@ public class ParticipantManager {
     }
 
     // --- Name Management Logic ---
-
     public void changePlayerName(UUID uuid, String newBaseName, String newLinkedName) {
         ParticipantData oldData = getParticipant(uuid);
         if (oldData == null) return;
 
+        String oldParticipantId = oldData.getParticipantId();
         String newParticipantId = ParticipantData.generateId(newBaseName, newLinkedName);
 
-        ParticipantData existingNewData = participants.get(newParticipantId);
-
-        oldData.removeAssociatedUuid(uuid);
-
-        if (existingNewData != null) {
-            existingNewData.addAssociatedUuid(uuid);
-            uuidToParticipantMap.put(uuid, existingNewData);
-            saveParticipant(existingNewData);
-        } else {
-            ParticipantData newData = new ParticipantData(newBaseName, newLinkedName);
-            newData.addAssociatedUuid(uuid);
-            participants.put(newParticipantId, newData);
-            uuidToParticipantMap.put(uuid, newData);
-            saveParticipant(newData);
-        }
-
-        if (oldData.getAssociatedUuids().isEmpty()) {
-            participants.remove(oldData.getParticipantId());
-            File oldFile = new File(participantDir, oldData.getParticipantId() + ".yml");
-            if (!oldFile.delete()) {
-                plugin.getLogger().warning("Failed to delete empty participant file: " + oldFile.getName());
-            }
-        } else {
+        if (oldParticipantId.equals(newParticipantId)) {
+            oldData.setFullName(newBaseName, newLinkedName);
             saveParticipant(oldData);
-        }
-    }
-
-    public void migrateFromConfig() {
-        ConfigurationSection oldPlayersSection = plugin.getConfig().getConfigurationSection("players");
-        if (oldPlayersSection == null || oldPlayersSection.getKeys(false).isEmpty()) {
             return;
         }
 
-        plugin.getLogger().info("Starting migration of old name data from config.yml...");
-
-        for (String uuidStr : oldPlayersSection.getKeys(false)) {
-            try {
-                UUID uuid = UUID.fromString(uuidStr);
-                String baseName = oldPlayersSection.getString(uuidStr + ".base_name");
-                String linkedName = oldPlayersSection.getString(uuidStr + ".linked_name", "");
-
-                if (baseName == null) continue;
-
-                String participantId = ParticipantData.generateId(baseName, linkedName);
-                ParticipantData data = participants.get(participantId);
-
-                if (data == null) {
-                    data = new ParticipantData(baseName, linkedName);
-                    participants.put(participantId, data);
-                }
-
-                data.addAssociatedUuid(uuid);
-                uuidToParticipantMap.put(uuid, data);
-                saveParticipant(data);
-
-            } catch (Exception e) {
-                plugin.getLogger().warning("Failed to migrate player data for UUID " + uuidStr + ": " + e.getMessage());
+        File oldFile = new File(activeDir, oldParticipantId + ".yml");
+        if(oldFile.exists()) {
+            if(!oldFile.delete()) {
+                plugin.getLogger().warning("Failed to delete old participant file: " + oldFile.getName());
             }
         }
 
-        plugin.getConfig().set("players", null);
-        plugin.saveConfig();
-        plugin.getLogger().info("Name data migration completed successfully!");
+        activeParticipants.remove(oldParticipantId);
+        oldData.setFullName(newBaseName, newLinkedName);
+        activeParticipants.put(newParticipantId, oldData);
+        saveParticipant(oldData);
+    }
+
+    private void migrateOldFiles() {
+        File[] oldFiles = participantDir.listFiles(File::isFile);
+        if (oldFiles == null || oldFiles.length == 0) return;
+
+        plugin.getLogger().info("Moving old participant files to 'participant' sub-directory...");
+        int count = 0;
+        for (File oldFile : oldFiles) {
+            try {
+                Files.move(oldFile.toPath(), new File(activeDir, oldFile.getName()).toPath(), StandardCopyOption.REPLACE_EXISTING);
+                count++;
+            } catch (IOException e) {
+                plugin.getLogger().warning("Could not move file: " + oldFile.getName());
+            }
+        }
+        plugin.getLogger().info("Moved " + count + " files.");
     }
 }

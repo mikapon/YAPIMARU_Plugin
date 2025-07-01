@@ -19,15 +19,19 @@ public class SpectatorManager implements Listener {
     private final YAPIMARU_Plugin plugin;
     private boolean enabled = false;
     private final BukkitAudiences adventure;
-    private final NameManager nameManager;
-    private final PvpManager pvpManager;
+    private NameManager nameManager;
+    private PvpManager pvpManager;
 
-    public SpectatorManager(YAPIMARU_Plugin plugin, PvpManager pvpManager) {
+    public SpectatorManager(YAPIMARU_Plugin plugin) {
         this.plugin = plugin;
         this.adventure = plugin.getAdventure();
-        this.nameManager = plugin.getNameManager();
+    }
+
+    public void linkManagers(NameManager nameManager, PvpManager pvpManager) {
+        this.nameManager = nameManager;
         this.pvpManager = pvpManager;
     }
+
 
     public void setEnabled(boolean enabled, CommandSender sender) {
         if (this.enabled == enabled && sender != null) {
@@ -68,6 +72,7 @@ public class SpectatorManager implements Listener {
         if (player == null || !player.isOnline()) return;
 
         Team team = nameManager.getPlayerTeam(player.getUniqueId());
+        if (team == null) return;
 
         if (enabled && player.getGameMode() == GameMode.SPECTATOR) {
             team.setOption(Team.Option.NAME_TAG_VISIBILITY, Team.OptionStatus.NEVER);
@@ -75,7 +80,7 @@ public class SpectatorManager implements Listener {
             team.setOption(Team.Option.NAME_TAG_VISIBILITY, Team.OptionStatus.ALWAYS);
         }
 
-        if (pvpManager.getGameState() != PvpManager.GameState.IDLE) {
+        if (pvpManager != null && pvpManager.getGameState() != PvpManager.GameState.IDLE) {
             pvpManager.updatePlayerScoreboard(player);
         }
     }

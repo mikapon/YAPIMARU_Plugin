@@ -44,7 +44,14 @@ public class ParticipantData {
     }
 
     public static String generateId(String baseName, String linkedName) {
-        return (baseName + "_" + (linkedName != null ? linkedName : "")).replaceAll("[\\\\/:*?\"<>|]", "_");
+        String id;
+        if (linkedName != null && !linkedName.isEmpty()) {
+            id = linkedName + "_" + baseName;
+        } else {
+            id = baseName;
+        }
+        // ファイル名として不正な文字をアンダースコアに置換
+        return id.replaceAll("[\\\\/:*?\"<>|]", "_");
     }
 
     public String getDisplayName() {

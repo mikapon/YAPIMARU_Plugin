@@ -26,9 +26,8 @@ public class StatsCommand implements CommandExecutor {
 
     private final YAPIMARU_Plugin plugin;
     private final ParticipantManager participantManager;
-    private final NameManager nameManager; // ★★★ 追加
+    private final NameManager nameManager;
 
-    // ★★★ 修正箇所 ★★★
     public StatsCommand(YAPIMARU_Plugin plugin, ParticipantManager participantManager, NameManager nameManager) {
         this.plugin = plugin;
         this.participantManager = participantManager;
@@ -38,14 +37,18 @@ public class StatsCommand implements CommandExecutor {
     @Override
     public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command, @NotNull String label, @NotNull String[] args) {
         if (!sender.hasPermission("yapimaru.admin")) {
-            sender.sendMessage("§cこのコマンドを使用する権限がありません。");
+            plugin.getAdventure().sender(sender).sendMessage(Component.text("このコマンドを使用する権限がありません。", NamedTextColor.RED));
             return true;
         }
 
         if (args.length == 0) {
             if (sender instanceof Player p) {
-                ParticipantData data = participantManager.findOrCreateParticipant(p);
-                displayPlayerStats(sender, data.getParticipantId());
+                ParticipantData data = participantManager.getParticipant(p.getUniqueId());
+                if (data != null) {
+                    displayPlayerStats(sender, data.getParticipantId());
+                } else {
+                    plugin.getAdventure().sender(sender).sendMessage(Component.text("あなたの参加者情報が見つかりませんでした。", NamedTextColor.RED));
+                }
             } else {
                 sendHelp(sender);
             }
@@ -56,7 +59,7 @@ public class StatsCommand implements CommandExecutor {
         switch (subCommand) {
             case "player" -> {
                 if (args.length < 2) {
-                    sender.sendMessage("§c参加者名を指定してください。 /stats player <参加者名>");
+                    plugin.getAdventure().sender(sender).sendMessage(Component.text("参加者名を指定してください。 /stats player <参加者名>", NamedTextColor.RED));
                     return true;
                 }
                 String participantId = args[1];
@@ -64,7 +67,7 @@ public class StatsCommand implements CommandExecutor {
             }
             case "list" -> {
                 if (args.length < 2) {
-                    sender.sendMessage("§c統計項目を指定してください。 /stats list <項目>");
+                    plugin.getAdventure().sender(sender).sendMessage(Component.text("統計項目を指定してください。 /stats list <項目>", NamedTextColor.RED));
                     return true;
                 }
                 String statName = args[1].toLowerCase();
@@ -88,22 +91,22 @@ public class StatsCommand implements CommandExecutor {
     private void displayPlayerStats(CommandSender sender, String participantId) {
         ParticipantData data = participantManager.getParticipant(participantId);
         if (data == null) {
-            sender.sendMessage("§c参加者「" + participantId + "」は見つかりませんでした。");
+            plugin.getAdventure().sender(sender).sendMessage(Component.text("参加者「" + participantId + "」は見つかりませんでした。", NamedTextColor.RED));
             return;
         }
 
-        sender.sendMessage("§6--- " + data.getDisplayName() + " の統計情報 ---");
+        plugin.getAdventure().sender(sender).sendMessage(Component.text("§6--- " + data.getDisplayName() + " の統計情報 ---"));
         Map<String, Number> stats = data.getStatistics();
-        sender.sendMessage(formatStat("デス合計数", stats.get("total_deaths")));
-        sender.sendMessage(formatStat("サーバー入室合計回数", stats.get("total_joins")));
-        sender.sendMessage(formatStat("サーバー参加合計時間", formatDuration(stats.get("total_playtime_seconds").longValue())));
-        sender.sendMessage(formatStat("撮影参加合計回数", stats.get("photoshoot_participations")));
-        sender.sendMessage(formatStat("チャット合計回数", stats.get("total_chats")));
-        sender.sendMessage(formatStat("w合計数", stats.get("w_count")));
+        plugin.getAdventure().sender(sender).sendMessage(formatStat("デス合計数", stats.get("total_deaths")));
+        plugin.getAdventure().sender(sender).sendMessage(formatStat("サーバー入室合計回数", stats.get("total_joins")));
+        plugin.getAdventure().sender(sender).sendMessage(formatStat("サーバー参加合計時間", formatDuration(stats.get("total_playtime_seconds").longValue())));
+        plugin.getAdventure().sender(sender).sendMessage(formatStat("撮影参加合計回数", stats.get("photoshoot_participations")));
+        plugin.getAdventure().sender(sender).sendMessage(formatStat("チャット合計回数", stats.get("total_chats")));
+        plugin.getAdventure().sender(sender).sendMessage(formatStat("w合計数", stats.get("w_count")));
     }
 
-    private String formatStat(String name, Object value) {
-        return "§e" + name + ": §b" + value;
+    private Component formatStat(String name, Object value) {
+        return Component.text("§e" + name + ": §b" + value);
     }
 
     private String formatDuration(long totalSeconds) {
@@ -115,10 +118,10 @@ public class StatsCommand implements CommandExecutor {
     }
 
     private void displayLeaderboard(CommandSender sender, String statName, boolean worst, int page) {
-        List<ParticipantData> allData = new ArrayList<>(participantManager.getAllParticipants());
+        List<ParticipantData> allData = new ArrayList<>(participantManager.getActiveParticipants());
 
         if (allData.isEmpty() || allData.get(0).getStatistics().get(statName) == null) {
-            sender.sendMessage("§c無効な統計項目です: " + statName);
+            plugin.getAdventure().sender(sender).sendMessage(Component.text("無効な統計項目です: " + statName, NamedTextColor.RED));
             return;
         }
 
@@ -193,11 +196,7 @@ public class StatsCommand implements CommandExecutor {
 
         plugin.getAdventure().sender(sender).sendMessage(footerBuilder.build());
 
-        // ★★★ 新規追加 ★★★
-        // コマンド実行者のTABリスト表示を更新する
-        if (sender instanceof Player p) {
-            nameManager.setPlayerViewingStat(p, statName);
-        }
+        nameManager.setGloballyViewedStat(statName);
     }
 
     private String getStatDisplayName(String statName) {
@@ -213,8 +212,8 @@ public class StatsCommand implements CommandExecutor {
     }
 
     private void sendHelp(CommandSender sender) {
-        sender.sendMessage("§6--- Stats Command Help ---");
-        sender.sendMessage("§e/stats player <参加者名> §7- 個人の統計情報を表示");
-        sender.sendMessage("§e/stats list <項目> [worst] §7- ランキングを表示");
+        plugin.getAdventure().sender(sender).sendMessage(Component.text("§6--- Stats Command Help ---"));
+        plugin.getAdventure().sender(sender).sendMessage(Component.text("§e/stats player <参加者名> §7- 個人の統計情報を表示"));
+        plugin.getAdventure().sender(sender).sendMessage(Component.text("§e/stats list <項目> [worst] §7- ランキングを表示"));
     }
 }

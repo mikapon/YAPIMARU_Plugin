@@ -3,7 +3,11 @@ package com.yapimaru.plugin.managers;
 import com.yapimaru.plugin.YAPIMARU_Plugin;
 import net.kyori.adventure.platform.bukkit.BukkitAudiences;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.TextComponent;
+import net.kyori.adventure.text.event.ClickEvent;
+import net.kyori.adventure.text.event.HoverEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.OfflinePlayer;
@@ -18,11 +22,11 @@ public class WhitelistManager {
 
     private final YAPIMARU_Plugin plugin;
     private final BukkitAudiences adventure;
-    private final ParticipantManager participantManager; // ★★★ 修正箇所 ★★★
+    private final ParticipantManager participantManager;
     private Mode currentMode = Mode.OFF;
 
-    private final Set<UUID> candidatePlayers = new HashSet<>();
     private final Set<UUID> allowedPlayers = new HashSet<>();
+    private final Set<UUID> candidatePlayers = new HashSet<>();
     private final Set<UUID> lockdownPlayers = new HashSet<>();
     private final List<UUID> ownerUUIDs = new ArrayList<>();
 
@@ -33,12 +37,10 @@ public class WhitelistManager {
         LOCKDOWN
     }
 
-    // ★★★ 修正箇所 ★★★
     public WhitelistManager(YAPIMARU_Plugin plugin, ParticipantManager participantManager) {
         this.plugin = plugin;
         this.adventure = plugin.getAdventure();
         this.participantManager = participantManager;
-        load();
     }
 
     public void load() {
@@ -61,17 +63,18 @@ public class WhitelistManager {
             }
         });
 
-        candidatePlayers.clear();
-        config.getStringList("whitelist.candidates").forEach(uuidString -> candidatePlayers.add(UUID.fromString(uuidString)));
+        // candidatePlayersはもう使用しないため、読み込みを削除
         allowedPlayers.clear();
         config.getStringList("whitelist.allowed").forEach(uuidString -> allowedPlayers.add(UUID.fromString(uuidString)));
+
+        syncWhitelistWithParticipants();
     }
 
     public void save() {
         FileConfiguration config = plugin.getConfig();
         config.set("whitelist.mode", currentMode.name());
-        config.set("whitelist.candidates", candidatePlayers.stream().map(UUID::toString).collect(Collectors.toList()));
         config.set("whitelist.allowed", allowedPlayers.stream().map(UUID::toString).collect(Collectors.toList()));
+        // candidatePlayersはもう使用しないため、保存処理を削除
         plugin.saveConfig();
     }
 
@@ -88,42 +91,20 @@ public class WhitelistManager {
         return currentMode;
     }
 
-    public void addCandidate(OfflinePlayer player) {
-        if (player != null && !isAllowed(player.getUniqueId()) && !isCandidate(player.getUniqueId())) {
-            candidatePlayers.add(player.getUniqueId());
-            // ★★★ 修正箇所 ★★★
-            // 古いcacheFrozenDataの代わりに、ParticipantManagerでデータを作成・確保する
-            participantManager.findOrCreateParticipant(player);
-            save();
-        }
-    }
-
-    public void promoteCandidateToAllowed(UUID uuid) {
-        if (candidatePlayers.remove(uuid)) {
+    public void addAllowed(UUID uuid) {
+        if (!allowedPlayers.contains(uuid)) {
             allowedPlayers.add(uuid);
             save();
         }
     }
 
-    public void demoteCandidateToSource(UUID uuid) {
-        // ★★★ 修正箇所 ★★★
-        // removeFrozenDataは不要になったため削除。Participantデータは削除しない。
-        if (candidatePlayers.remove(uuid)) {
-            save();
-        }
-    }
-
-    public void demoteAllowedToCandidate(UUID uuid) {
+    public void removeAllowed(UUID uuid) {
         if (allowedPlayers.remove(uuid)) {
-            candidatePlayers.add(uuid);
             save();
         }
     }
 
-    public boolean isCandidate(UUID uuid) { return candidatePlayers.contains(uuid); }
-    public boolean isAllowed(UUID uuid) { return allowedPlayers.contains(uuid); }
-    public Set<UUID> getCandidatePlayers() { return Collections.unmodifiableSet(candidatePlayers); }
-    public Set<UUID> getAllowedPlayers() { return Collections.unmodifiableSet(allowedPlayers); }
+    public boolean isOwner(UUID uuid) { return ownerUUIDs.contains(uuid); }
 
     public void startLockdown() {
         lockdownPlayers.clear();
@@ -146,5 +127,62 @@ public class WhitelistManager {
             case WHITELIST_ONLY -> allowedPlayers.contains(playerUUID) ? null : maintenanceMsg;
             case LOCKDOWN -> lockdownPlayers.contains(playerUUID) ? null : lockdownMsg;
         };
+    }
+
+    public void syncWhitelistWithParticipants() {
+        Set<UUID> activeUuids = participantManager.getAllAssociatedUuidsFromActive();
+        Set<UUID> dischargedUuids = participantManager.getAssociatedUuidsFromDischarged();
+
+        boolean changed = false;
+
+        for (UUID uuid : activeUuids) {
+            if (!allowedPlayers.contains(uuid)) {
+                allowedPlayers.add(uuid);
+                changed = true;
+            }
+        }
+
+        if (allowedPlayers.removeAll(dischargedUuids)) {
+            changed = true;
+        }
+
+        if (changed) {
+            plugin.getLogger().info("Synced whitelist with participant/discharge directories.");
+            save();
+        }
+    }
+
+    public void checkForUnregisteredPlayers(Player owner) {
+        Set<UUID> allWhitelistedUuids = new HashSet<>(allowedPlayers);
+
+        Set<UUID> allParticipantUuids = participantManager.getAllAssociatedUuidsFromActive();
+
+        List<UUID> unregisteredUuids = allWhitelistedUuids.stream()
+                .filter(uuid -> !allParticipantUuids.contains(uuid) && !isOwner(uuid))
+                .toList();
+
+        if (unregisteredUuids.isEmpty()) return;
+
+        adventure.player(owner).sendMessage(Component.text("--- [未登録ホワイトリスト通知] ---", NamedTextColor.YELLOW));
+        for (UUID uuid : unregisteredUuids) {
+            OfflinePlayer p = Bukkit.getOfflinePlayer(uuid);
+
+            TextComponent message = Component.text()
+                    .append(Component.text(uuid.toString(), NamedTextColor.GRAY))
+                    .append(Component.newline())
+                    .append(Component.text(p.getName() != null ? p.getName() : "不明なプレイヤー", NamedTextColor.WHITE))
+                    .append(Component.newline())
+                    .append(Component.text("のプレイヤーが登録されていません。", NamedTextColor.RED))
+                    .append(Component.newline())
+                    .append(Component.text("参加者として登録するか、リストから削除してください。", NamedTextColor.RED))
+                    .append(Component.newline())
+                    .append(Component.text("(クリックでホワイトリストから削除)", NamedTextColor.AQUA, TextDecoration.UNDERLINED)
+                            .clickEvent(ClickEvent.runCommand("/ym remove-unregistered-wl " + uuid))
+                            .hoverEvent(HoverEvent.showText(Component.text(p.getName() + " をホワイトリストから削除します"))))
+                    .build();
+
+            adventure.player(owner).sendMessage(message);
+        }
+        adventure.player(owner).sendMessage(Component.text("--------------------", NamedTextColor.YELLOW));
     }
 }

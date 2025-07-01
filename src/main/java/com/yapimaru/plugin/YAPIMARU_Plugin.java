@@ -54,17 +54,19 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
         }
 
         getDataFolder().mkdirs();
-
         saveDefaultConfig();
-        loadConfigAndManual();
 
         initializeManagers();
+
+        // Run migration logic at startup, BEFORE other managers fully load their data.
+        new MigrationManager().migrate(this, participantManager);
+
+        // Now, load all data including the newly migrated files.
+        loadConfigAndManual();
         linkManagers();
 
         registerListeners();
         registerCommands();
-
-        participantManager.migrateFromConfig();
 
         for (Player player : Bukkit.getOnlinePlayers()) {
             nameManager.updatePlayerName(player);
@@ -109,6 +111,10 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
         }
 
         if (whitelistManager != null) whitelistManager.load();
+
+        // Reload all participant data from files after migration.
+        if (participantManager != null) participantManager.reloadAllParticipants();
+        if (nameManager != null) nameManager.reloadData();
     }
 
     public List<String> getCommandManual() {
@@ -120,17 +126,18 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
         nameManager = new NameManager(this, participantManager);
         voteManager = new VoteManager(this);
         whitelistManager = new WhitelistManager(this, participantManager);
-        creatorGuiManager = new GuiManager(nameManager);
+        creatorGuiManager = new GuiManager(this, nameManager);
         pvpManager = new PvpManager(this);
         timerManager = new TimerManager(this);
         restrictionManager = new PlayerRestrictionManager();
-        spectatorManager = new SpectatorManager(this, pvpManager);
+        spectatorManager = new SpectatorManager(this);
         ymCommand = new YmCommand(this);
     }
 
     private void linkManagers() {
         nameManager.setVoteManager(voteManager);
         voteManager.setNameManager(nameManager);
+        spectatorManager.linkManagers(nameManager, pvpManager);
     }
 
     private void registerListeners() {
@@ -142,7 +149,7 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
     }
 
     private void registerCommands() {
-        setExecutor("yapimaru", ymCommand, new YmTabCompleter());
+        setExecutor("yapimaru", ymCommand, new YmTabCompleter(participantManager));
         setExecutor("creator", new CreatorCommand(creatorGuiManager), new CreatorTabCompleter());
         setExecutor("hub", new HubCommand(this));
         setExecutor("name", new NameCommand(this, nameManager), new NameTabCompleter());
@@ -153,8 +160,7 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
         setExecutor("spectator", new SpectatorCommand(spectatorManager, adventure), new SpectatorTabCompleter());
         setExecutor("voting", new VotingCommand(this, voteManager), new VotingTabCompleter(voteManager));
         setExecutor("ans", new AnsCommand(voteManager), new AnsTabCompleter(voteManager));
-        setExecutor("photographing", new PhotographingCommand(participantManager));
-        // ★★★ 修正箇所 ★★★
+        setExecutor("photographing", new PhotographingCommand(this, participantManager));
         setExecutor("stats", new StatsCommand(this, participantManager, nameManager), new StatsTabCompleter(participantManager));
     }
 

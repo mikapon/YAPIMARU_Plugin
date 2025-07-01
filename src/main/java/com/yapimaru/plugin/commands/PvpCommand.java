@@ -10,6 +10,7 @@ import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.Arrays;
 
@@ -25,7 +26,7 @@ public class PvpCommand implements CommandExecutor {
     }
 
     @Override
-    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+    public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command, @NotNull String label, @NotNull String[] args) {
         if (args.length == 0) {
             sendHelp(sender, "main");
             return true;
@@ -46,42 +47,33 @@ public class PvpCommand implements CommandExecutor {
         String[] subArgs = Arrays.copyOfRange(args, 1, args.length);
 
         switch (sub) {
-            case "off":
-                pvpManager.setFeatureEnabled(false, sender);
-                break;
-            case "set":
-                if (!(sender instanceof Player p)) { sender.sendMessage("プレイヤーのみが実行できます。"); return true; }
-                if (subArgs.length < 1) { sendSubHelp(sender, "set"); return true; }
+            case "off" -> pvpManager.setFeatureEnabled(false, sender);
+            case "set" -> {
+                if (!(sender instanceof Player p)) {
+                    adventure.sender(sender).sendMessage(Component.text("プレイヤーのみが実行できます。", NamedTextColor.RED));
+                    return true;
+                }
+                if (subArgs.length < 1) {
+                    sendSubHelp(sender, "set");
+                    return true;
+                }
                 pvpManager.setCombined(p, subArgs[0]);
-                break;
-            case "remove":
-                if (subArgs.length < 1) { sendSubHelp(sender, "remove"); return true; }
+            }
+            case "remove" -> {
+                if (subArgs.length < 1) {
+                    sendSubHelp(sender, "remove");
+                    return true;
+                }
                 pvpManager.removeTeamSettings(sender, subArgs[0]);
-                break;
-            case "reset":
-                pvpManager.resetSettings(sender);
-                break;
-            case "status":
-                pvpManager.showStatus(sender);
-                break;
-            case "confirm":
-                pvpManager.prepareGame(sender);
-                break;
-            case "ded":
-                handleDedCommand(sender, subArgs);
-                break;
-            case "lives":
-                handleLivesCommand(sender, subArgs);
-                break;
-            case "invincible":
-                handleInvincibleCommand(sender, subArgs);
-                break;
-            case "grace":
-                handleGraceCommand(sender, subArgs);
-                break;
-            default:
-                sendHelp(sender, "main");
-                break;
+            }
+            case "reset" -> pvpManager.resetSettings(sender);
+            case "status" -> pvpManager.showStatus(sender);
+            case "confirm" -> pvpManager.prepareGame(sender);
+            case "ded" -> handleDedCommand(sender, subArgs);
+            case "lives" -> handleLivesCommand(sender, subArgs);
+            case "invincible" -> handleInvincibleCommand(sender, subArgs);
+            case "grace" -> handleGraceCommand(sender, subArgs);
+            default -> sendHelp(sender, "main");
         }
         return true;
     }
@@ -89,39 +81,34 @@ public class PvpCommand implements CommandExecutor {
     private void handleDedCommand(CommandSender sender, String[] args) {
         if (args.length < 1) { sendHelp(sender, "ded"); return; }
         switch(args[0].toLowerCase()) {
-            case "on":
-                pvpManager.setDedFeatureEnabled(true, sender);
-                break;
-            case "off":
-                pvpManager.setDedFeatureEnabled(false, sender);
-                break;
-            case "set":
-                if (!(sender instanceof Player p)) { sender.sendMessage("プレイヤーのみが実行できます。"); return; }
+            case "on" -> pvpManager.setDedFeatureEnabled(true, sender);
+            case "off" -> pvpManager.setDedFeatureEnabled(false, sender);
+            case "set" -> {
+                if (!(sender instanceof Player p)) {
+                    adventure.sender(sender).sendMessage(Component.text("プレイヤーのみが実行できます。", NamedTextColor.RED));
+                    return;
+                }
                 pvpManager.setDedCombined(p);
-                break;
-            case "time":
+            }
+            case "time" -> {
                 if (args.length < 2) { sendSubHelp(sender, "ded_time"); return; }
                 try {
                     int time = Integer.parseInt(args[1]);
                     pvpManager.setDedTime(time, sender);
                 } catch (NumberFormatException e) {
-                    sender.sendMessage("秒数は数字で入力してください。");
+                    adventure.sender(sender).sendMessage(Component.text("秒数は数字で入力してください。", NamedTextColor.RED));
                 }
-                break;
-            default: sendHelp(sender, "ded");
+            }
+            default -> sendHelp(sender, "ded");
         }
     }
 
     private void handleLivesCommand(CommandSender sender, String[] args) {
         if (args.length < 1) { sendHelp(sender, "lives"); return; }
         switch(args[0].toLowerCase()) {
-            case "on":
-                pvpManager.setLivesFeatureEnabled(true, sender);
-                break;
-            case "off":
-                pvpManager.setLivesFeatureEnabled(false, sender);
-                break;
-            case "mode":
+            case "on" -> pvpManager.setLivesFeatureEnabled(true, sender);
+            case "off" -> pvpManager.setLivesFeatureEnabled(false, sender);
+            case "mode" -> {
                 if (args.length < 2) { sendSubHelp(sender, "lives_mode"); return; }
                 try {
                     PvpManager.LivesMode mode = PvpManager.LivesMode.valueOf(args[1].toUpperCase());
@@ -129,8 +116,8 @@ public class PvpCommand implements CommandExecutor {
                 } catch (IllegalArgumentException e) {
                     sendSubHelp(sender, "lives_mode");
                 }
-                break;
-            case "set":
+            }
+            case "set" -> {
                 if (args.length < 4) { sendSubHelp(sender, "lives_set"); return; }
                 try {
                     int amount = Integer.parseInt(args[3]);
@@ -138,16 +125,19 @@ public class PvpCommand implements CommandExecutor {
                         pvpManager.setTeamLives(args[2], amount, sender);
                     } else if (args[1].equalsIgnoreCase("player")) {
                         Player target = Bukkit.getPlayer(args[2]);
-                        if (target == null) { sender.sendMessage("プレイヤー " + args[2] + " が見つかりません。"); return; }
+                        if (target == null) {
+                            adventure.sender(sender).sendMessage(Component.text("プレイヤー " + args[2] + " が見つかりません。", NamedTextColor.RED));
+                            return;
+                        }
                         pvpManager.setPlayerLives(target, amount, sender);
                     } else {
                         sendSubHelp(sender, "lives_set");
                     }
                 } catch (NumberFormatException e) {
-                    sender.sendMessage("残機は数字で入力してください。");
+                    adventure.sender(sender).sendMessage(Component.text("残機は数字で入力してください。", NamedTextColor.RED));
                 }
-                break;
-            case "onzero":
+            }
+            case "onzero" -> {
                 if (args.length < 2) { sendSubHelp(sender, "lives_onzero"); return; }
                 try {
                     PvpManager.OnZeroAction action = PvpManager.OnZeroAction.valueOf(args[1].toUpperCase());
@@ -155,8 +145,8 @@ public class PvpCommand implements CommandExecutor {
                 } catch (IllegalArgumentException e) {
                     sendSubHelp(sender, "lives_onzero");
                 }
-                break;
-            default: sendHelp(sender, "lives");
+            }
+            default -> sendHelp(sender, "lives");
         }
     }
 
@@ -170,7 +160,7 @@ public class PvpCommand implements CommandExecutor {
                 int time = Integer.parseInt(args[1]);
                 pvpManager.setRespawnInvincibleTime(time, sender);
             } catch (NumberFormatException e) {
-                sender.sendMessage("時間は数字で入力してください。");
+                adventure.sender(sender).sendMessage(Component.text("時間は数字で入力してください。", NamedTextColor.RED));
             }
         } else {
             sendHelp(sender, "invincible");
@@ -187,7 +177,7 @@ public class PvpCommand implements CommandExecutor {
                 int time = Integer.parseInt(args[1].replaceAll("[sSmMhH]", ""));
                 pvpManager.setGracePeriodTime(time, sender);
             } catch (NumberFormatException e) {
-                sender.sendMessage("時間は数字で入力してください。");
+                adventure.sender(sender).sendMessage(Component.text("時間は数字で入力してください。", NamedTextColor.RED));
             }
         } else {
             sendHelp(sender, "grace");
@@ -195,63 +185,57 @@ public class PvpCommand implements CommandExecutor {
     }
 
     private void sendHelp(CommandSender s, String category) {
-        s.sendMessage("§6--- PvP Command Help ---");
+        adventure.sender(s).sendMessage(Component.text("§6--- PvP Command Help ---"));
         switch (category) {
-            case "ded":
-                s.sendMessage("§e/pvp ded <on|off> §7- デススポーン機能の有効/無効");
-                s.sendMessage("§e/pvp ded set §7- 待機場所と壁を設定");
-                s.sendMessage("§e/pvp ded time <秒数> §7- 待機時間を設定(デフォ3)");
-                break;
-            case "lives":
-                s.sendMessage("§e/pvp lives <on|off> §7- 残機システムの有効/無効");
-                s.sendMessage("§e/pvp lives mode <team|player> §7- 残機モード設定");
-                s.sendMessage("§e/pvp lives set <team|player> <対象> <数> §7- 残機設定");
-                s.sendMessage("§e/pvp lives onzero <spectator|wait> §7- 残機0時の動作設定");
-                break;
-            case "invincible":
-                s.sendMessage("§e/pvp invincible time <秒数> §7- 効果時間を設定（デフォルト3秒）");
-                break;
-            case "grace":
-                s.sendMessage("§e/pvp grace time <秒数> §7- 効果時間を設定（デフォルト3秒）");
-                break;
-            default:
-                s.sendMessage("§e/pvp <on|off> §7- PvPモードの有効/無効");
-                s.sendMessage("§e/pvp set <色> §7- アリーナとスポーン地点を同時設定");
-                s.sendMessage("§e/pvp remove <色> §7- チーム設定を削除");
-                s.sendMessage("§e/pvp reset §7- 全てのPvP設定を初期化");
-                s.sendMessage("§e/pvp status §7- 設定状況の確認");
-                s.sendMessage("§e/pvp confirm §7- 開始前の設定最終確認");
-                s.sendMessage("§e/pvp <ded|lives|invincible|grace> ... §7- 各機能の詳細設定");
-                break;
+            case "ded" -> {
+                adventure.sender(s).sendMessage(Component.text("§e/pvp ded <on|off> §7- デススポーン機能の有効/無効"));
+                adventure.sender(s).sendMessage(Component.text("§e/pvp ded set §7- 待機場所と壁を設定"));
+                adventure.sender(s).sendMessage(Component.text("§e/pvp ded time <秒数> §7- 待機時間を設定(デフォ3)"));
+            }
+            case "lives" -> {
+                adventure.sender(s).sendMessage(Component.text("§e/pvp lives <on|off> §7- 残機システムの有効/無効"));
+                adventure.sender(s).sendMessage(Component.text("§e/pvp lives mode <team|player> §7- 残機モード設定"));
+                adventure.sender(s).sendMessage(Component.text("§e/pvp lives set <team|player> <対象> <数> §7- 残機設定"));
+                adventure.sender(s).sendMessage(Component.text("§e/pvp lives onzero <spectator|wait> §7- 残機0時の動作設定"));
+            }
+            case "invincible" -> adventure.sender(s).sendMessage(Component.text("§e/pvp invincible time <秒数> §7- 効果時間を設定（デフォルト3秒）"));
+            case "grace" -> adventure.sender(s).sendMessage(Component.text("§e/pvp grace time <秒数> §7- 効果時間を設定（デフォルト3秒）"));
+            default -> {
+                adventure.sender(s).sendMessage(Component.text("§e/pvp <on|off> §7- PvPモードの有効/無効"));
+                adventure.sender(s).sendMessage(Component.text("§e/pvp set <色> §7- アリーナとスポーン地点を同時設定"));
+                adventure.sender(s).sendMessage(Component.text("§e/pvp remove <色> §7- チーム設定を削除"));
+                adventure.sender(s).sendMessage(Component.text("§e/pvp reset §7- 全てのPvP設定を初期化"));
+                adventure.sender(s).sendMessage(Component.text("§e/pvp status §7- 設定状況の確認"));
+                adventure.sender(s).sendMessage(Component.text("§e/pvp confirm §7- 開始前の設定最終確認"));
+                adventure.sender(s).sendMessage(Component.text("§e/pvp <ded|lives|invincible|grace> ... §7- 各機能の詳細設定"));
+            }
         }
     }
 
     private void sendSubHelp(CommandSender s, String sub) {
-        s.sendMessage("§c引数が不足しています。");
+        adventure.sender(s).sendMessage(Component.text("引数が不足しています。", NamedTextColor.RED));
         switch(sub) {
-            case "set": s.sendMessage("§e使い方: /pvp set <チームの色>"); break;
-            case "remove": s.sendMessage("§e使い方: /pvp remove <チームの色>"); break;
-            case "ded_time":
-                s.sendMessage("§e使い方: /pvp ded time <秒数> §7- 待機時間を設定(デフォ3)");
-                break;
-            case "lives_mode":
-                s.sendMessage("§e使い方: /pvp lives mode <team|player>");
-                s.sendMessage("§7 team - チームモードに変更");
-                s.sendMessage("§7 player - 個人モードに変更");
-                break;
-            case "lives_set":
-                s.sendMessage("§e使い方: /pvp lives set team <対象> <数>");
-                s.sendMessage("§7- <対象> チームの色");
-                s.sendMessage("§7- <数> 残機数");
-                s.sendMessage("§e使い方: /pvp lives set player <対象> <数>");
-                s.sendMessage("§7- <対象> プレイヤーの名前");
-                s.sendMessage("§7- <数> 残機数");
-                break;
-            case "lives_onzero":
-                s.sendMessage("§e使い方: /pvp lives onzero <spectator|wait>");
-                s.sendMessage("§7 spectator - スペクテイターにする");
-                s.sendMessage("§7 wait - ded地点で待機する");
-                break;
+            case "set" -> adventure.sender(s).sendMessage(Component.text("§e使い方: /pvp set <チームの色>"));
+            case "remove" -> adventure.sender(s).sendMessage(Component.text("§e使い方: /pvp remove <チームの色>"));
+            case "ded_time" -> adventure.sender(s).sendMessage(Component.text("§e使い方: /pvp ded time <秒数> §7- 待機時間を設定(デフォ3)"));
+            case "lives_mode" -> {
+                adventure.sender(s).sendMessage(Component.text("§e使い方: /pvp lives mode <team|player>"));
+                adventure.sender(s).sendMessage(Component.text("§7 team - チームモードに変更"));
+                adventure.sender(s).sendMessage(Component.text("§7 player - 個人モードに変更"));
+            }
+            case "lives_set" -> {
+                adventure.sender(s).sendMessage(Component.text("§e使い方: /pvp lives set team <対象> <数>"));
+                adventure.sender(s).sendMessage(Component.text("§7- <対象> チームの色"));
+                adventure.sender(s).sendMessage(Component.text("§7- <数> 残機数"));
+                adventure.sender(s).sendMessage(Component.text("§e使い方: /pvp lives set player <対象> <数>"));
+                adventure.sender(s).sendMessage(Component.text("§7- <対象> プレイヤーの名前"));
+                adventure.sender(s).sendMessage(Component.text("§7- <数> 残機数"));
+            }
+            case "lives_onzero" -> {
+                adventure.sender(s).sendMessage(Component.text("§e使い方: /pvp lives onzero <spectator|wait>"));
+                adventure.sender(s).sendMessage(Component.text("§7 spectator - スペクテイターにする"));
+                adventure.sender(s).sendMessage(Component.text("§7 wait - ded地点で待機する"));
+            }
         }
     }
 }

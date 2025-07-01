@@ -23,6 +23,7 @@ import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.*;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.scheduler.BukkitRunnable;
+
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -56,6 +57,7 @@ public class PlayerEventListener implements Listener {
     public void onPlayerLogin(AsyncPlayerPreLoginEvent event) {
         String kickMessage = whitelistManager.checkLogin(event.getUniqueId());
         if (kickMessage != null) {
+            // disallowメソッドはComponentではなく、従来のカラーコードを含むStringを期待するため、直接渡すように修正
             event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_WHITELIST, kickMessage);
         }
     }
@@ -68,6 +70,10 @@ public class PlayerEventListener implements Listener {
 
         participantManager.incrementJoins(player.getUniqueId());
         participantManager.recordLoginTime(player);
+
+        if (whitelistManager.isOwner(player.getUniqueId())) {
+            whitelistManager.checkForUnregisteredPlayers(player);
+        }
 
         joinInvinciblePlayers.put(player.getUniqueId(), System.currentTimeMillis() + 60000);
 
@@ -126,8 +132,6 @@ public class PlayerEventListener implements Listener {
 
         participantManager.incrementChats(player.getUniqueId());
 
-        // ★★★ 修正箇所 ★★★
-        // カウントする前に、正規表現で()とその中身を全て削除する
         String countableMessage = message.replaceAll("\\(.*?\\)", "");
 
         int wCount = StringUtils.countMatches(countableMessage.toLowerCase(), "w");
@@ -141,7 +145,6 @@ public class PlayerEventListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerCommand(PlayerCommandPreprocessEvent event) {
-        // コマンドはチャット回数にのみカウントする
         participantManager.incrementChats(event.getPlayer().getUniqueId());
     }
 
@@ -252,7 +255,6 @@ public class PlayerEventListener implements Listener {
 
     @EventHandler
     public void onBlockBreak(BlockBreakEvent event) {
-        // ブロック破壊数の統計を削除したため、関連処理も削除
         if (pvpManager.getGameState() == PvpManager.GameState.IDLE) return;
         if (pvpManager.isLocationInProtectedArea(event.getBlock().getLocation()) || pvpManager.isLocationInSpawnProtection(event.getBlock().getLocation())) {
             adventure.player(event.getPlayer()).sendMessage(Component.text("保護エリア内ではブロックを破壊できません。", NamedTextColor.RED));
