@@ -4,7 +4,7 @@
   <groupId>com.yapimaru</groupId>
   <artifactId>YAPIMARU_Plugin</artifactId>
   <name>YAPIMARU_Plugin</name>
-  <version>3.0.0</version>
+  <version>3.0.</version>
   <build>
     <resources>
       <resource>

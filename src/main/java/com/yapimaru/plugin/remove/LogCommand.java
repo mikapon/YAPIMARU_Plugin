@@ -101,12 +101,10 @@ public class LogCommand implements CommandExecutor {
         plugin.getAdventure().sender(sender).sendMessage(Component.text("ファイル: " + logFileToProcess.getName() + " の処理を開始...", NamedTextColor.GRAY));
 
         try {
-            // ★★★ デバッグログ追加 ★★★
             Path sourcePath = logFileToProcess.toPath();
-            logger.info("[DEBUG] 処理対象ファイル: " + sourcePath.toAbsolutePath());
+            Path destPath = new File(processedDir, logFileToProcess.getName()).toPath();
 
             List<String> lines = Files.readAllLines(sourcePath);
-            logger.info("[DEBUG] ファイルの読み込みに成功。行数: " + lines.size());
 
             Map<String, UUID> nameToUuidMap = new HashMap<>();
 
@@ -123,19 +121,14 @@ public class LogCommand implements CommandExecutor {
                 }
             }
 
-            // ★★★ デバッグログ追加 ★★★
-            Path destPath = new File(processedDir, logFileToProcess.getName()).toPath();
-            logger.info("[DEBUG] ファイル移動処理を開始します。");
-            logger.info("[DEBUG] 移動元: " + sourcePath.toAbsolutePath());
-            logger.info("[DEBUG] 移動先: " + destPath.toAbsolutePath());
-            logger.info("[DEBUG] 移動元のファイルは存在しますか？ -> " + Files.exists(sourcePath));
-
-            Files.move(sourcePath, destPath, StandardCopyOption.REPLACE_EXISTING);
-            logger.info("[DEBUG] ファイル移動に成功しました。");
+            // ★★★ 修正箇所 ★★★
+            // 「移動」から「コピー＆削除」の2段階処理に変更
+            Files.copy(sourcePath, destPath, StandardCopyOption.REPLACE_EXISTING);
+            Files.delete(sourcePath);
 
         } catch (IOException e) {
             logger.log(Level.SEVERE, "ログファイル " + logFileToProcess.getName() + " の読み込みまたは移動に失敗しました。", e);
-            plugin.getAdventure().sender(sender).sendMessage(Component.text("エラー: " + logFileToProcess.getName() + " の処理に失敗しました。詳細はコンソールを確認しなさい", NamedTextColor.RED));
+            plugin.getAdventure().sender(sender).sendMessage(Component.text("エラー: " + logFileToProcess.getName() + " の処理に失敗しました。詳細はコンソールを確認してください。", NamedTextColor.RED));
             return;
         }
 
