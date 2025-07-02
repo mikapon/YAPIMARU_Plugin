@@ -18,8 +18,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -39,6 +42,7 @@ public class LogCommand implements CommandExecutor {
     private static final Pattern LEAVE_PATTERN = Pattern.compile("(\\S+) left the game");
     private static final Pattern DEATH_PATTERN = Pattern.compile("(\\S+) (was slain by|was shot by|drowned|blew up|fell|suffocated|starved|froze|died)");
     private static final Pattern CHAT_PATTERN = Pattern.compile("<(\\S+)> (.*)");
+    private static final Pattern DATE_FROM_FILENAME_PATTERN = Pattern.compile("(\\d{4}-\\d{2}-\\d{2})");
 
     // --- 内部クラス ---
     private enum EventType { JOIN, LEAVE }
@@ -103,10 +107,17 @@ public class LogCommand implements CommandExecutor {
         Arrays.sort(logFiles, Comparator.comparing(File::getName));
         File logFileToProcess = logFiles[0];
 
+        Matcher dateMatcher = DATE_FROM_FILENAME_PATTERN.matcher(logFileToProcess.getName());
+        if (!dateMatcher.find()) {
+            plugin.getAdventure().sender(sender).sendMessage(Component.text("エラー: ファイル名から日付を読み取れませんでした。ファイル名は `YYYY-MM-DD-n.log` 等の形式にしてください。", NamedTextColor.RED));
+            return;
+        }
+        LocalDate initialDate = LocalDate.parse(dateMatcher.group(1));
+
         int linesProcessed = 0;
         long totalPlaytimeAdded = 0;
 
-        plugin.getAdventure().sender(sender).sendMessage(Component.text("ファイル: " + logFileToProcess.getName() + " の処理を開始...", NamedTextColor.GRAY));
+        plugin.getAdventure().sender(sender).sendMessage(Component.text("ファイル: " + logFileToProcess.getName() + " (日付: "+ initialDate +") の処理を開始...", NamedTextColor.GRAY));
 
         try {
             Path sourcePath = logFileToProcess.toPath();
@@ -114,7 +125,6 @@ public class LogCommand implements CommandExecutor {
 
             List<String> lines = Files.readAllLines(sourcePath);
 
-            // 1. まずファイル内の全UUIDを収集
             Map<String, UUID> nameToUuidMap = new HashMap<>();
             for (String line : lines) {
                 Matcher uuidMatcher = UUID_PATTERN.matcher(line);
@@ -123,16 +133,37 @@ public class LogCommand implements CommandExecutor {
                 }
             }
 
-            // 2. ログイン/ログアウト/その他イベントを収集
             Map<UUID, List<LogEvent>> eventsByPlayer = new HashMap<>();
-            for (String line : lines) {
-                if(parseAndApplySimpleEvents(line, nameToUuidMap)) {
-                    linesProcessed++;
-                }
-                parseJoinLeaveEvents(line, nameToUuidMap, eventsByPlayer);
-            }
 
-            // 3. プレイ時間を計算して反映
+            // ★★★ ここから修正 ★★★
+            // 日付またぎを検知するための変数を準備
+            LocalDate currentDate = initialDate;
+            LocalTime lastTime = LocalTime.MIN;
+
+            for (String line : lines) {
+                Matcher timeMatcher = LOG_LINE_PATTERN.matcher(line);
+                if (!timeMatcher.find()) continue;
+
+                try {
+                    LocalTime currentTime = LocalTime.parse(timeMatcher.group(1), DateTimeFormatter.ISO_LOCAL_TIME);
+                    // 時刻が逆行したら（例: 23:59 -> 00:01）、日付を1日進める
+                    if (currentTime.isBefore(lastTime)) {
+                        currentDate = currentDate.plusDays(1);
+                    }
+                    LocalDateTime timestamp = currentDate.atTime(currentTime);
+                    lastTime = currentTime; // 最後の時刻を更新
+
+                    if(parseAndApplySimpleEvents(line, nameToUuidMap)) {
+                        linesProcessed++;
+                    }
+                    parseJoinLeaveEvents(line, nameToUuidMap, eventsByPlayer, timestamp);
+
+                } catch (DateTimeParseException e) {
+                    // 時刻の解析に失敗した行はスキップ
+                }
+            }
+            // ★★★ ここまで修正 ★★★
+
             for (Map.Entry<UUID, List<LogEvent>> entry : eventsByPlayer.entrySet()) {
                 UUID uuid = entry.getKey();
                 List<LogEvent> events = entry.getValue();
@@ -143,13 +174,13 @@ public class LogCommand implements CommandExecutor {
 
                 for (LogEvent event : events) {
                     if (event.type() == EventType.JOIN) {
-                        if (joinTime == null) { // 新しいセッションの開始
+                        if (joinTime == null) {
                             joinTime = event.timestamp();
                         }
                     } else if (event.type() == EventType.LEAVE) {
-                        if (joinTime != null) { // セッションの終了
+                        if (joinTime != null) {
                             sessionPlaytime += Duration.between(joinTime, event.timestamp()).getSeconds();
-                            joinTime = null; // セッションをリセット
+                            joinTime = null;
                         }
                     }
                 }
@@ -179,7 +210,7 @@ public class LogCommand implements CommandExecutor {
                         .append(Component.newline())
                         .append(Component.text("単純イベント処理行数: " + linesProcessed + "件", NamedTextColor.AQUA))
                         .append(Component.newline())
-                        .append(Component.text("追加された合計プレイ時間: " + (totalPlaytimeAdded / 3600) + "時間", NamedTextColor.AQUA))
+                        .append(Component.text("追加された合計プレイ時間: " + (totalPlaytimeAdded / 3600) + "時間 " + ((totalPlaytimeAdded % 3600) / 60) + "分", NamedTextColor.AQUA))
                         .append(Component.newline())
                         .append(Component.text("残りファイル数: " + remainingFilesCount + "件", NamedTextColor.YELLOW))
         );
@@ -191,12 +222,7 @@ public class LogCommand implements CommandExecutor {
         plugin.getAdventure().sender(sender).sendMessage(Component.text(count + " 人の参加者の統計情報をリセットしました。", NamedTextColor.GREEN));
     }
 
-    private void parseJoinLeaveEvents(String line, Map<String, UUID> nameToUuidMap, Map<UUID, List<LogEvent>> eventsByPlayer) {
-        Matcher timeMatcher = LOG_LINE_PATTERN.matcher(line);
-        if (!timeMatcher.find()) return;
-
-        LocalDateTime timestamp = LocalDateTime.parse(timeMatcher.group(1), DateTimeFormatter.ISO_LOCAL_TIME);
-
+    private void parseJoinLeaveEvents(String line, Map<String, UUID> nameToUuidMap, Map<UUID, List<LogEvent>> eventsByPlayer, LocalDateTime timestamp) {
         Matcher joinMatcher = JOIN_PATTERN.matcher(line);
         if (joinMatcher.find()) {
             String playerName = joinMatcher.group(1);
@@ -245,7 +271,6 @@ public class LogCommand implements CommandExecutor {
             }
         }
 
-        // 参加回数はJoin/Leaveイベントとは別でカウント
         Matcher joinMatcher = JOIN_PATTERN.matcher(line);
         if (joinMatcher.find()) {
             String playerName = joinMatcher.group(1);
