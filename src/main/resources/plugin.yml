@@ -61,10 +61,10 @@ commands:
     description: 撮影参加回数を記録します。
     usage: /<command> on
     permission: yapimaru.admin
-  # ★★★ この定義を一番下に追加 ★★★
-  logadd:
-    description: 古いログファイルを読み込み統計に反映させます。（一時的機能）
-    usage: /<command>
+  # ★★★ 以下の定義を修正 ★★★
+  log:
+    description: 古いログファイルの処理や統計のリセットを行います。（一時的機能）
+    usage: /<command> <add|reset>
     permission: yapimaru.admin
 
 permissions:

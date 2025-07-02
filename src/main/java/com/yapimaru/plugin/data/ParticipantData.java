@@ -9,6 +9,7 @@ public class ParticipantData {
     private String linkedName;
     private final Set<UUID> associatedUuids = new HashSet<>();
     private final Map<String, Number> statistics = new HashMap<>();
+    private final Map<UUID, String> uuidToNameMap = new HashMap<>();
 
     public ParticipantData(String baseName, String linkedName) {
         this.baseName = baseName;
@@ -27,7 +28,15 @@ public class ParticipantData {
                 statistics.put(key, (Number) statsSection.get(key));
             }
         }
-        initializeStats(); // 存在しない統計項目を0で初期化
+
+        ConfigurationSection uuidNameSection = config.getConfigurationSection("uuid-to-name");
+        if (uuidNameSection != null) {
+            for (String uuidStr : uuidNameSection.getKeys(false)) {
+                uuidToNameMap.put(UUID.fromString(uuidStr), uuidNameSection.getString(uuidStr));
+            }
+        }
+
+        initializeStats();
     }
 
     private void initializeStats() {
@@ -37,6 +46,15 @@ public class ParticipantData {
         statistics.putIfAbsent("photoshoot_participations", 0);
         statistics.putIfAbsent("total_chats", 0);
         statistics.putIfAbsent("w_count", 0);
+    }
+
+    public void resetStats() {
+        statistics.put("total_deaths", 0);
+        statistics.put("total_joins", 0);
+        statistics.put("total_playtime_seconds", 0L);
+        statistics.put("photoshoot_participations", 0);
+        statistics.put("total_chats", 0);
+        statistics.put("w_count", 0);
     }
 
     public String getParticipantId() {
@@ -50,7 +68,6 @@ public class ParticipantData {
         } else {
             id = baseName;
         }
-        // ファイル名として不正な文字をアンダースコアに置換
         return id.replaceAll("[\\\\/:*?\"<>|]", "_");
     }
 
@@ -66,6 +83,7 @@ public class ParticipantData {
     public String getLinkedName() { return linkedName; }
     public Set<UUID> getAssociatedUuids() { return associatedUuids; }
     public Map<String, Number> getStatistics() { return statistics; }
+    public Map<UUID, String> getUuidToNameMap() { return uuidToNameMap; }
 
     public void addAssociatedUuid(UUID uuid) {
         this.associatedUuids.add(uuid);

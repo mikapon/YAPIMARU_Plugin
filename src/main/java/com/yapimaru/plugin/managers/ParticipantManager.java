@@ -26,7 +26,6 @@ public class ParticipantManager {
     private final Map<UUID, ParticipantData> uuidToParticipantMap = new HashMap<>();
     private final Map<String, ParticipantData> dischargedParticipants = new HashMap<>();
 
-    // For join/playtime tracking
     private final Map<UUID, Long> loginTimestamps = new HashMap<>();
     private final Map<UUID, Long> lastQuitTimestamps = new HashMap<>();
 
@@ -48,7 +47,6 @@ public class ParticipantManager {
         uuidToParticipantMap.clear();
         dischargedParticipants.clear();
 
-        // Active participants
         File[] activeFiles = activeDir.listFiles((dir, name) -> name.endsWith(".yml"));
         if (activeFiles != null) {
             for (File file : activeFiles) {
@@ -56,7 +54,6 @@ public class ParticipantManager {
             }
         }
 
-        // Discharged participants
         File[] dischargedFiles = dischargedDir.listFiles((dir, name) -> name.endsWith(".yml"));
         if (dischargedFiles != null) {
             for (File file : dischargedFiles) {
@@ -70,7 +67,7 @@ public class ParticipantManager {
         YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
         ParticipantData data = new ParticipantData(config);
         map.put(data.getParticipantId(), data);
-        if (map == activeParticipants) { // Only map UUIDs for active participants
+        if (map == activeParticipants) {
             for (UUID uuid : data.getAssociatedUuids()) {
                 uuidToParticipantMap.put(uuid, data);
             }
@@ -105,7 +102,6 @@ public class ParticipantManager {
             return uuidToParticipantMap.get(player.getUniqueId());
         }
 
-        // This is a truly new player, not in config or existing files.
         String baseName = player.getName() != null ? player.getName() : player.getUniqueId().toString();
         String linkedName = "";
 
@@ -126,13 +122,22 @@ public class ParticipantManager {
         YamlConfiguration config = new YamlConfiguration();
 
         config.set("base_name", data.getBaseName());
-        config.setComments("base_name", List.of("プレイヤー名"));
-
         config.set("linked_name", data.getLinkedName());
-        config.setComments("linked_name", List.of("キャラクター名"));
 
-        config.set("associated-uuids", data.getAssociatedUuids().stream().map(UUID::toString).collect(Collectors.toList()));
-        config.setComments("associated-uuids", List.of("UUID"));
+        List<String> uuidStrings = data.getAssociatedUuids().stream().map(UUID::toString).collect(Collectors.toList());
+        config.set("associated-uuids", uuidStrings);
+
+        Map<String, String> uuidNameMap = new HashMap<>();
+        for(UUID uuid : data.getAssociatedUuids()) {
+            OfflinePlayer p = Bukkit.getOfflinePlayer(uuid);
+            if (p.getName() != null) {
+                uuidNameMap.put(uuid.toString(), p.getName());
+            } else if (data.getUuidToNameMap().containsKey(uuid)) {
+                uuidNameMap.put(uuid.toString(), data.getUuidToNameMap().get(uuid));
+            }
+        }
+        config.createSection("uuid-to-name", uuidNameMap);
+        config.setComments("uuid-to-name", List.of("紐付けられたUUIDと、その時点でのプレイヤー名の記録"));
 
         String statsPath = "statistics";
         config.createSection(statsPath, data.getStatistics());
@@ -177,7 +182,7 @@ public class ParticipantManager {
             return true;
         } catch (IOException e) {
             plugin.getLogger().log(Level.SEVERE, "Could not move participant file to active: " + participantId, e);
-            dischargedParticipants.put(participantId, data); // revert in case of failure
+            dischargedParticipants.put(participantId, data);
             return false;
         }
     }
@@ -197,7 +202,7 @@ public class ParticipantManager {
             return true;
         } catch (IOException e) {
             plugin.getLogger().log(Level.SEVERE, "Could not move participant file to discharged: " + participantId, e);
-            activeParticipants.put(participantId, data); // revert in case of failure
+            activeParticipants.put(participantId, data);
             return false;
         }
     }
@@ -210,6 +215,21 @@ public class ParticipantManager {
         return dischargedParticipants.values().stream()
                 .flatMap(p -> p.getAssociatedUuids().stream())
                 .collect(Collectors.toSet());
+    }
+
+    public int resetAllStats() {
+        int count = 0;
+        for (ParticipantData data : activeParticipants.values()) {
+            data.resetStats();
+            saveParticipant(data);
+            count++;
+        }
+        for (ParticipantData data : dischargedParticipants.values()) {
+            data.resetStats();
+            saveParticipant(data);
+            count++;
+        }
+        return count;
     }
 
     // --- Statistics Methods ---

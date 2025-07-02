@@ -7,7 +7,7 @@ import com.yapimaru.plugin.listeners.GuiListener;
 import com.yapimaru.plugin.listeners.PlayerEventListener;
 import com.yapimaru.plugin.listeners.VoteListener;
 import com.yapimaru.plugin.managers.*;
-import com.yapimaru.plugin.remove.LogAddCommand;
+import com.yapimaru.plugin.remove.LogCommand;
 import net.kyori.adventure.platform.bukkit.BukkitAudiences;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandExecutor;
@@ -161,7 +161,7 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
         setExecutor("ans", new AnsCommand(voteManager), new AnsTabCompleter(voteManager));
         setExecutor("stats", new StatsCommand(this, participantManager, nameManager), new StatsTabCompleter(participantManager));
         setExecutor("photographing", new PhotographingCommand(this, participantManager));
-        setExecutor("logadd", new LogAddCommand(this));
+        setExecutor("log", new LogCommand(this));
     }
 
     private void setExecutor(String commandName, CommandExecutor executor) {
