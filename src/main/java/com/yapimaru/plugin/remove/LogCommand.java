@@ -15,6 +15,7 @@ import org.jetbrains.annotations.NotNull;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -23,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -30,6 +32,7 @@ public class LogCommand implements CommandExecutor {
 
     private final YAPIMARU_Plugin plugin;
     private final ParticipantManager participantManager;
+    private final Logger logger;
 
     private static final Pattern UUID_PATTERN = Pattern.compile("UUID of player (\\S+) is ([0-9a-f\\-]+)");
     private static final Pattern JOIN_PATTERN = Pattern.compile("(\\S+)\\[/.*\\] logged in");
@@ -39,6 +42,7 @@ public class LogCommand implements CommandExecutor {
     public LogCommand(YAPIMARU_Plugin plugin) {
         this.plugin = plugin;
         this.participantManager = plugin.getParticipantManager();
+        this.logger = plugin.getLogger();
     }
 
     @Override
@@ -83,8 +87,6 @@ public class LogCommand implements CommandExecutor {
             processedDir.mkdirs();
         }
 
-        // ★★★ 修正箇所 ★★★
-        // .logで終わるファイルだけでなく、ディレクトリではない全てのファイルを対象にする
         File[] logFiles = logDir.listFiles(File::isFile);
         if (logFiles == null || logFiles.length == 0) {
             plugin.getAdventure().sender(sender).sendMessage(Component.text("処理対象のログファイルが見つかりませんでした。", NamedTextColor.GOLD));
@@ -99,7 +101,13 @@ public class LogCommand implements CommandExecutor {
         plugin.getAdventure().sender(sender).sendMessage(Component.text("ファイル: " + logFileToProcess.getName() + " の処理を開始...", NamedTextColor.GRAY));
 
         try {
-            List<String> lines = Files.readAllLines(logFileToProcess.toPath());
+            // ★★★ デバッグログ追加 ★★★
+            Path sourcePath = logFileToProcess.toPath();
+            logger.info("[DEBUG] 処理対象ファイル: " + sourcePath.toAbsolutePath());
+
+            List<String> lines = Files.readAllLines(sourcePath);
+            logger.info("[DEBUG] ファイルの読み込みに成功。行数: " + lines.size());
+
             Map<String, UUID> nameToUuidMap = new HashMap<>();
 
             for (String line : lines) {
@@ -115,10 +123,18 @@ public class LogCommand implements CommandExecutor {
                 }
             }
 
-            Files.move(logFileToProcess.toPath(), new File(processedDir, logFileToProcess.getName()).toPath(), StandardCopyOption.REPLACE_EXISTING);
+            // ★★★ デバッグログ追加 ★★★
+            Path destPath = new File(processedDir, logFileToProcess.getName()).toPath();
+            logger.info("[DEBUG] ファイル移動処理を開始します。");
+            logger.info("[DEBUG] 移動元: " + sourcePath.toAbsolutePath());
+            logger.info("[DEBUG] 移動先: " + destPath.toAbsolutePath());
+            logger.info("[DEBUG] 移動元のファイルは存在しますか？ -> " + Files.exists(sourcePath));
+
+            Files.move(sourcePath, destPath, StandardCopyOption.REPLACE_EXISTING);
+            logger.info("[DEBUG] ファイル移動に成功しました。");
 
         } catch (IOException e) {
-            plugin.getLogger().log(Level.SEVERE, "ログファイル " + logFileToProcess.getName() + " の読み込みまたは移動に失敗しました。", e);
+            logger.log(Level.SEVERE, "ログファイル " + logFileToProcess.getName() + " の読み込みまたは移動に失敗しました。", e);
             plugin.getAdventure().sender(sender).sendMessage(Component.text("エラー: " + logFileToProcess.getName() + " の処理に失敗しました。詳細はコンソールを確認してください。", NamedTextColor.RED));
             return;
         }
