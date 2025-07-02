@@ -77,14 +77,19 @@ public class LogCommand implements CommandExecutor {
         plugin.getAdventure().sender(sender).sendMessage(Component.text("古いログの統計情報への反映を開始します...", NamedTextColor.YELLOW));
 
         File logDir = new File(new File(plugin.getDataFolder(), "Participant_Information"), "log");
-        if (!logDir.exists() || !logDir.isDirectory()) {
-            plugin.getAdventure().sender(sender).sendMessage(Component.text("エラー: " + logDir.getPath() + " ディレクトリが見つかりません。", NamedTextColor.RED));
-            return;
-        }
+        Path processedDirPath = new File(logDir, "processed").toPath();
 
-        File processedDir = new File(logDir, "processed");
-        if (!processedDir.exists()) {
-            processedDir.mkdirs();
+        // ★★★ 修正箇所 ★★★
+        // フォルダ作成処理を、より確実な Files.createDirectories に変更
+        try {
+            if (!Files.exists(processedDirPath)) {
+                Files.createDirectories(processedDirPath);
+                logger.info("Created 'processed' directory at: " + processedDirPath.toString());
+            }
+        } catch (IOException e) {
+            logger.log(Level.SEVERE, "'processed' ディレクトリの作成に失敗しました。", e);
+            plugin.getAdventure().sender(sender).sendMessage(Component.text("エラー: 'processed' ディレクトリの作成に失敗しました。サーバーの権限を確認してください。", NamedTextColor.RED));
+            return;
         }
 
         File[] logFiles = logDir.listFiles(File::isFile);
@@ -102,7 +107,7 @@ public class LogCommand implements CommandExecutor {
 
         try {
             Path sourcePath = logFileToProcess.toPath();
-            Path destPath = new File(processedDir, logFileToProcess.getName()).toPath();
+            Path destPath = processedDirPath.resolve(logFileToProcess.getName());
 
             List<String> lines = Files.readAllLines(sourcePath);
 
@@ -121,8 +126,6 @@ public class LogCommand implements CommandExecutor {
                 }
             }
 
-            // ★★★ 修正箇所 ★★★
-            // 「移動」から「コピー＆削除」の2段階処理に変更
             Files.copy(sourcePath, destPath, StandardCopyOption.REPLACE_EXISTING);
             Files.delete(sourcePath);
 
