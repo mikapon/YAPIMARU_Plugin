@@ -10,6 +10,8 @@ import org.bukkit.OfflinePlayer;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
@@ -43,10 +45,6 @@ public class LogCommand implements CommandExecutor {
     private static final Pattern DEATH_PATTERN = Pattern.compile("(\\S+) (was slain by|was shot by|drowned|blew up|fell|suffocated|starved|froze|died)");
     private static final Pattern CHAT_PATTERN = Pattern.compile("<(\\S+)> (.*)");
     private static final Pattern DATE_FROM_FILENAME_PATTERN = Pattern.compile("(\\d{4}-\\d{2}-\\d{2})");
-
-    // --- 内部クラス ---
-    private enum EventType { JOIN, LEAVE }
-    private record LogEvent(LocalDateTime timestamp, EventType type) {}
 
     public LogCommand(YAPIMARU_Plugin plugin) {
         this.plugin = plugin;
@@ -86,21 +84,24 @@ public class LogCommand implements CommandExecutor {
         plugin.getAdventure().sender(sender).sendMessage(Component.text("古いログの統計情報への反映を開始します...", NamedTextColor.YELLOW));
 
         File logDir = new File(new File(plugin.getDataFolder(), "Participant_Information"), "log");
-        Path processedDirPath = new File(logDir, "processed").toPath();
+        File processedDir = new File(logDir, "processed");
+        File memoriDir = new File(logDir, "memori");
+        File sessionFile = new File(memoriDir, "sessions.yml");
 
         try {
-            if (!Files.exists(processedDirPath)) {
-                Files.createDirectories(processedDirPath);
-            }
+            if (!processedDir.exists()) Files.createDirectories(processedDir.toPath());
+            if (!memoriDir.exists()) Files.createDirectories(memoriDir.toPath());
         } catch (IOException e) {
-            logger.log(Level.SEVERE, "'processed' ディレクトリの作成に失敗しました。", e);
-            plugin.getAdventure().sender(sender).sendMessage(Component.text("エラー: 'processed' ディレクトリの作成に失敗しました。サーバーの権限を確認してください。", NamedTextColor.RED));
+            logger.log(Level.SEVERE, "作業ディレクトリの作成に失敗しました。", e);
+            plugin.getAdventure().sender(sender).sendMessage(Component.text("エラー: 作業ディレクトリの作成に失敗しました。サーバーの権限を確認してください。", NamedTextColor.RED));
             return;
         }
 
         File[] logFiles = logDir.listFiles(File::isFile);
         if (logFiles == null || logFiles.length == 0) {
             plugin.getAdventure().sender(sender).sendMessage(Component.text("処理対象のログファイルが見つかりませんでした。", NamedTextColor.GOLD));
+            // 処理するファイルがなければ、一時ファイルも削除
+            if(sessionFile.exists()) sessionFile.delete();
             return;
         }
 
@@ -109,22 +110,17 @@ public class LogCommand implements CommandExecutor {
 
         Matcher dateMatcher = DATE_FROM_FILENAME_PATTERN.matcher(logFileToProcess.getName());
         if (!dateMatcher.find()) {
-            plugin.getAdventure().sender(sender).sendMessage(Component.text("エラー: ファイル名から日付を読み取れませんでした。ファイル名は `YYYY-MM-DD-n.log` 等の形式にしてください。", NamedTextColor.RED));
+            plugin.getAdventure().sender(sender).sendMessage(Component.text("エラー: ファイル名から日付を読み取れませんでした。ファイル名は `YYYY-MM-DD...` の形式にしてください。", NamedTextColor.RED));
             return;
         }
         LocalDate initialDate = LocalDate.parse(dateMatcher.group(1));
 
-        int linesProcessed = 0;
-        long totalPlaytimeAdded = 0;
-
-        plugin.getAdventure().sender(sender).sendMessage(Component.text("ファイル: " + logFileToProcess.getName() + " (日付: "+ initialDate +") の処理を開始...", NamedTextColor.GRAY));
+        plugin.getAdventure().sender(sender).sendMessage(Component.text("ファイル: " + logFileToProcess.getName() + " の処理を開始...", NamedTextColor.GRAY));
 
         try {
-            Path sourcePath = logFileToProcess.toPath();
-            Path destPath = processedDirPath.resolve(logFileToProcess.getName());
+            List<String> lines = Files.readAllLines(logFileToProcess.toPath());
 
-            List<String> lines = Files.readAllLines(sourcePath);
-
+            // 1. UUIDマップを構築
             Map<String, UUID> nameToUuidMap = new HashMap<>();
             for (String line : lines) {
                 Matcher uuidMatcher = UUID_PATTERN.matcher(line);
@@ -133,10 +129,10 @@ public class LogCommand implements CommandExecutor {
                 }
             }
 
-            Map<UUID, List<LogEvent>> eventsByPlayer = new HashMap<>();
+            // 2. 一時ファイルから前回のセッション情報を読み込む
+            Map<UUID, LocalDateTime> openSessions = loadOpenSessions(sessionFile);
 
-            // ★★★ ここから修正 ★★★
-            // 日付またぎを検知するための変数を準備
+            // 3. ログを解析
             LocalDate currentDate = initialDate;
             LocalTime lastTime = LocalTime.MIN;
 
@@ -146,100 +142,102 @@ public class LogCommand implements CommandExecutor {
 
                 try {
                     LocalTime currentTime = LocalTime.parse(timeMatcher.group(1), DateTimeFormatter.ISO_LOCAL_TIME);
-                    // 時刻が逆行したら（例: 23:59 -> 00:01）、日付を1日進める
                     if (currentTime.isBefore(lastTime)) {
                         currentDate = currentDate.plusDays(1);
                     }
                     LocalDateTime timestamp = currentDate.atTime(currentTime);
-                    lastTime = currentTime; // 最後の時刻を更新
+                    lastTime = currentTime;
 
-                    if(parseAndApplySimpleEvents(line, nameToUuidMap)) {
-                        linesProcessed++;
-                    }
-                    parseJoinLeaveEvents(line, nameToUuidMap, eventsByPlayer, timestamp);
+                    parseAndApplySimpleEvents(line, nameToUuidMap);
 
-                } catch (DateTimeParseException e) {
-                    // 時刻の解析に失敗した行はスキップ
-                }
-            }
-            // ★★★ ここまで修正 ★★★
-
-            for (Map.Entry<UUID, List<LogEvent>> entry : eventsByPlayer.entrySet()) {
-                UUID uuid = entry.getKey();
-                List<LogEvent> events = entry.getValue();
-                events.sort(Comparator.comparing(LogEvent::timestamp));
-
-                long sessionPlaytime = 0;
-                LocalDateTime joinTime = null;
-
-                for (LogEvent event : events) {
-                    if (event.type() == EventType.JOIN) {
-                        if (joinTime == null) {
-                            joinTime = event.timestamp();
+                    // Join/Leaveイベントを処理
+                    Matcher joinMatcher = JOIN_PATTERN.matcher(line);
+                    if (joinMatcher.find()) {
+                        UUID uuid = nameToUuidMap.get(joinMatcher.group(1));
+                        if (uuid != null && !openSessions.containsKey(uuid)) {
+                            openSessions.put(uuid, timestamp);
                         }
-                    } else if (event.type() == EventType.LEAVE) {
-                        if (joinTime != null) {
-                            sessionPlaytime += Duration.between(joinTime, event.timestamp()).getSeconds();
-                            joinTime = null;
+                    } else {
+                        Matcher leaveMatcher = LEAVE_PATTERN.matcher(line);
+                        if (leaveMatcher.find()) {
+                            UUID uuid = nameToUuidMap.get(leaveMatcher.group(1));
+                            if (uuid != null && openSessions.containsKey(uuid)) {
+                                LocalDateTime joinTime = openSessions.get(uuid);
+                                long playtime = Duration.between(joinTime, timestamp).getSeconds();
+                                if(playtime > 0) participantManager.addPlaytime(uuid, playtime);
+                                openSessions.remove(uuid); // セッションを閉じる
+                            }
                         }
                     }
-                }
-                if (sessionPlaytime > 0) {
-                    participantManager.addPlaytime(uuid, sessionPlaytime);
-                    totalPlaytimeAdded += sessionPlaytime;
-                }
+                } catch (DateTimeParseException e) { /* 時刻解析失敗は無視 */ }
             }
 
-            Files.copy(sourcePath, destPath, StandardCopyOption.REPLACE_EXISTING);
-            Files.delete(sourcePath);
+            // 4. ログアウトしていないプレイヤーのセッション情報を一時ファイルに保存
+            saveOpenSessions(sessionFile, openSessions);
+
+            // 5. 処理済みファイルを移動
+            Files.move(logFileToProcess.toPath(), processedDir.toPath().resolve(logFileToProcess.getName()), StandardCopyOption.REPLACE_EXISTING);
 
         } catch (IOException e) {
-            logger.log(Level.SEVERE, "ログファイル " + logFileToProcess.getName() + " の読み込みまたは移動に失敗しました。", e);
+            logger.log(Level.SEVERE, "ログファイル " + logFileToProcess.getName() + " の処理に失敗しました。", e);
             plugin.getAdventure().sender(sender).sendMessage(Component.text("エラー: " + logFileToProcess.getName() + " の処理に失敗しました。詳細はコンソールを確認してください。", NamedTextColor.RED));
             return;
         }
 
-        int remainingFilesCount = 0;
-        File[] remainingFiles = logDir.listFiles(File::isFile);
-        if (remainingFiles != null) {
-            remainingFilesCount = remainingFiles.length;
-        }
+        long remainingFileCount = logDir.listFiles(File::isFile).length;
 
         plugin.getAdventure().sender(sender).sendMessage(
                 Component.text("ログファイル「" + logFileToProcess.getName() + "」の処理が完了しました！", NamedTextColor.GREEN)
                         .append(Component.newline())
-                        .append(Component.text("単純イベント処理行数: " + linesProcessed + "件", NamedTextColor.AQUA))
-                        .append(Component.newline())
-                        .append(Component.text("追加された合計プレイ時間: " + (totalPlaytimeAdded / 3600) + "時間 " + ((totalPlaytimeAdded % 3600) / 60) + "分", NamedTextColor.AQUA))
-                        .append(Component.newline())
-                        .append(Component.text("残りファイル数: " + remainingFilesCount + "件", NamedTextColor.YELLOW))
+                        .append(Component.text("残りファイル数: " + remainingFileCount + "件", NamedTextColor.YELLOW))
         );
+
+        // もし残りファイルがなければ一時ファイルを削除
+        if (remainingFileCount == 0) {
+            if (sessionFile.exists()) sessionFile.delete();
+            plugin.getAdventure().sender(sender).sendMessage(Component.text("全てのログ処理が完了したため、一時ファイルを削除しました。", NamedTextColor.GOLD));
+        }
     }
 
-    private void handleResetCommand(CommandSender sender) {
-        plugin.getAdventure().sender(sender).sendMessage(Component.text("全参加者の統計情報をリセットしています...", NamedTextColor.YELLOW));
-        int count = participantManager.resetAllStats();
-        plugin.getAdventure().sender(sender).sendMessage(Component.text(count + " 人の参加者の統計情報をリセットしました。", NamedTextColor.GREEN));
+    private Map<UUID, LocalDateTime> loadOpenSessions(File sessionFile) {
+        Map<UUID, LocalDateTime> openSessions = new HashMap<>();
+        if (sessionFile.exists()) {
+            YamlConfiguration config = YamlConfiguration.loadConfiguration(sessionFile);
+            ConfigurationSection section = config.getConfigurationSection("open-sessions");
+            if (section != null) {
+                for (String key : section.getKeys(false)) {
+                    try {
+                        UUID uuid = UUID.fromString(key);
+                        LocalDateTime time = LocalDateTime.parse(section.getString(key));
+                        openSessions.put(uuid, time);
+                    } catch (Exception e) {
+                        logger.warning("セッションファイル " + key + " の読み込みに失敗しました。");
+                    }
+                }
+            }
+        }
+        return openSessions;
     }
 
-    private void parseJoinLeaveEvents(String line, Map<String, UUID> nameToUuidMap, Map<UUID, List<LogEvent>> eventsByPlayer, LocalDateTime timestamp) {
-        Matcher joinMatcher = JOIN_PATTERN.matcher(line);
-        if (joinMatcher.find()) {
-            String playerName = joinMatcher.group(1);
-            UUID uuid = nameToUuidMap.get(playerName);
-            if (uuid != null) {
-                eventsByPlayer.computeIfAbsent(uuid, k -> new ArrayList<>()).add(new LogEvent(timestamp, EventType.JOIN));
+    private void saveOpenSessions(File sessionFile, Map<UUID, LocalDateTime> openSessions) {
+        YamlConfiguration config = new YamlConfiguration();
+        if (openSessions.isEmpty()) {
+            // セッションが空ならファイルを削除
+            if (sessionFile.exists()) {
+                sessionFile.delete();
             }
             return;
         }
 
-        Matcher leaveMatcher = LEAVE_PATTERN.matcher(line);
-        if(leaveMatcher.find()) {
-            String playerName = leaveMatcher.group(1);
-            UUID uuid = nameToUuidMap.get(playerName);
-            if(uuid != null) {
-                eventsByPlayer.computeIfAbsent(uuid, k -> new ArrayList<>()).add(new LogEvent(timestamp, EventType.LEAVE));
-            }
+        ConfigurationSection section = config.createSection("open-sessions");
+        for(Map.Entry<UUID, LocalDateTime> entry : openSessions.entrySet()) {
+            section.set(entry.getKey().toString(), entry.getValue().toString());
+        }
+
+        try {
+            config.save(sessionFile);
+        } catch (IOException e) {
+            logger.log(Level.SEVERE, "セッションファイルの上書き保存に失敗しました。", e);
         }
     }
 
@@ -283,6 +281,12 @@ public class LogCommand implements CommandExecutor {
         }
 
         return false;
+    }
+
+    private void handleResetCommand(CommandSender sender) {
+        plugin.getAdventure().sender(sender).sendMessage(Component.text("全参加者の統計情報をリセットしています...", NamedTextColor.YELLOW));
+        int count = participantManager.resetAllStats();
+        plugin.getAdventure().sender(sender).sendMessage(Component.text(count + " 人の参加者の統計情報をリセットしました。", NamedTextColor.GREEN));
     }
 
     private void sendHelp(CommandSender sender) {
