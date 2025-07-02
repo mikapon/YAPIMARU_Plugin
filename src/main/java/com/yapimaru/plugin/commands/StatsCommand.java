@@ -57,15 +57,15 @@ public class StatsCommand implements CommandExecutor {
 
         String subCommand = args[0].toLowerCase();
         switch (subCommand) {
-            case "player" -> {
+            case "player":
                 if (args.length < 2) {
-                    plugin.getAdventure().sender(sender).sendMessage(Component.text("参加者名を指定してください。 /stats player <参加者名>", NamedTextColor.RED));
+                    plugin.getAdventure().sender(sender).sendMessage(Component.text("参加者IDを指定してください。 /stats player <参加者ID>", NamedTextColor.RED));
                     return true;
                 }
                 String participantId = args[1];
                 displayPlayerStats(sender, participantId);
-            }
-            case "list" -> {
+                break;
+            case "list":
                 if (args.length < 2) {
                     plugin.getAdventure().sender(sender).sendMessage(Component.text("統計項目を指定してください。 /stats list <項目>", NamedTextColor.RED));
                     return true;
@@ -82,8 +82,10 @@ public class StatsCommand implements CommandExecutor {
                 if (page < 0) page = 0;
 
                 displayLeaderboard(sender, statName, worst, page);
-            }
-            default -> sendHelp(sender);
+                break;
+            default:
+                sendHelp(sender);
+                break;
         }
         return true;
     }

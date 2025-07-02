@@ -17,12 +17,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Matcher;
@@ -34,10 +32,17 @@ public class LogCommand implements CommandExecutor {
     private final ParticipantManager participantManager;
     private final Logger logger;
 
+    // --- 正規表現パターン ---
+    private static final Pattern LOG_LINE_PATTERN = Pattern.compile("^\\[(\\d{2}:\\d{2}:\\d{2})].*");
     private static final Pattern UUID_PATTERN = Pattern.compile("UUID of player (\\S+) is ([0-9a-f\\-]+)");
-    private static final Pattern JOIN_PATTERN = Pattern.compile("(\\S+)\\[/.*\\] logged in");
+    private static final Pattern JOIN_PATTERN = Pattern.compile("(\\S+) joined the game");
+    private static final Pattern LEAVE_PATTERN = Pattern.compile("(\\S+) left the game");
     private static final Pattern DEATH_PATTERN = Pattern.compile("(\\S+) (was slain by|was shot by|drowned|blew up|fell|suffocated|starved|froze|died)");
     private static final Pattern CHAT_PATTERN = Pattern.compile("<(\\S+)> (.*)");
+
+    // --- 内部クラス ---
+    private enum EventType { JOIN, LEAVE }
+    private record LogEvent(LocalDateTime timestamp, EventType type) {}
 
     public LogCommand(YAPIMARU_Plugin plugin) {
         this.plugin = plugin;
@@ -79,12 +84,9 @@ public class LogCommand implements CommandExecutor {
         File logDir = new File(new File(plugin.getDataFolder(), "Participant_Information"), "log");
         Path processedDirPath = new File(logDir, "processed").toPath();
 
-        // ★★★ 修正箇所 ★★★
-        // フォルダ作成処理を、より確実な Files.createDirectories に変更
         try {
             if (!Files.exists(processedDirPath)) {
                 Files.createDirectories(processedDirPath);
-                logger.info("Created 'processed' directory at: " + processedDirPath.toString());
             }
         } catch (IOException e) {
             logger.log(Level.SEVERE, "'processed' ディレクトリの作成に失敗しました。", e);
@@ -102,6 +104,7 @@ public class LogCommand implements CommandExecutor {
         File logFileToProcess = logFiles[0];
 
         int linesProcessed = 0;
+        long totalPlaytimeAdded = 0;
 
         plugin.getAdventure().sender(sender).sendMessage(Component.text("ファイル: " + logFileToProcess.getName() + " の処理を開始...", NamedTextColor.GRAY));
 
@@ -111,8 +114,8 @@ public class LogCommand implements CommandExecutor {
 
             List<String> lines = Files.readAllLines(sourcePath);
 
+            // 1. まずファイル内の全UUIDを収集
             Map<String, UUID> nameToUuidMap = new HashMap<>();
-
             for (String line : lines) {
                 Matcher uuidMatcher = UUID_PATTERN.matcher(line);
                 if (uuidMatcher.find()) {
@@ -120,9 +123,39 @@ public class LogCommand implements CommandExecutor {
                 }
             }
 
+            // 2. ログイン/ログアウト/その他イベントを収集
+            Map<UUID, List<LogEvent>> eventsByPlayer = new HashMap<>();
             for (String line : lines) {
-                if (parseAndApplyLog(line, nameToUuidMap)) {
+                if(parseAndApplySimpleEvents(line, nameToUuidMap)) {
                     linesProcessed++;
+                }
+                parseJoinLeaveEvents(line, nameToUuidMap, eventsByPlayer);
+            }
+
+            // 3. プレイ時間を計算して反映
+            for (Map.Entry<UUID, List<LogEvent>> entry : eventsByPlayer.entrySet()) {
+                UUID uuid = entry.getKey();
+                List<LogEvent> events = entry.getValue();
+                events.sort(Comparator.comparing(LogEvent::timestamp));
+
+                long sessionPlaytime = 0;
+                LocalDateTime joinTime = null;
+
+                for (LogEvent event : events) {
+                    if (event.type() == EventType.JOIN) {
+                        if (joinTime == null) { // 新しいセッションの開始
+                            joinTime = event.timestamp();
+                        }
+                    } else if (event.type() == EventType.LEAVE) {
+                        if (joinTime != null) { // セッションの終了
+                            sessionPlaytime += Duration.between(joinTime, event.timestamp()).getSeconds();
+                            joinTime = null; // セッションをリセット
+                        }
+                    }
+                }
+                if (sessionPlaytime > 0) {
+                    participantManager.addPlaytime(uuid, sessionPlaytime);
+                    totalPlaytimeAdded += sessionPlaytime;
                 }
             }
 
@@ -144,7 +177,9 @@ public class LogCommand implements CommandExecutor {
         plugin.getAdventure().sender(sender).sendMessage(
                 Component.text("ログファイル「" + logFileToProcess.getName() + "」の処理が完了しました！", NamedTextColor.GREEN)
                         .append(Component.newline())
-                        .append(Component.text("処理ログ行数: " + linesProcessed + "件", NamedTextColor.AQUA))
+                        .append(Component.text("単純イベント処理行数: " + linesProcessed + "件", NamedTextColor.AQUA))
+                        .append(Component.newline())
+                        .append(Component.text("追加された合計プレイ時間: " + (totalPlaytimeAdded / 3600) + "時間", NamedTextColor.AQUA))
                         .append(Component.newline())
                         .append(Component.text("残りファイル数: " + remainingFilesCount + "件", NamedTextColor.YELLOW))
         );
@@ -156,18 +191,33 @@ public class LogCommand implements CommandExecutor {
         plugin.getAdventure().sender(sender).sendMessage(Component.text(count + " 人の参加者の統計情報をリセットしました。", NamedTextColor.GREEN));
     }
 
-    private boolean parseAndApplyLog(String line, Map<String, UUID> nameToUuidMap) {
+    private void parseJoinLeaveEvents(String line, Map<String, UUID> nameToUuidMap, Map<UUID, List<LogEvent>> eventsByPlayer) {
+        Matcher timeMatcher = LOG_LINE_PATTERN.matcher(line);
+        if (!timeMatcher.find()) return;
+
+        LocalDateTime timestamp = LocalDateTime.parse(timeMatcher.group(1), DateTimeFormatter.ISO_LOCAL_TIME);
+
         Matcher joinMatcher = JOIN_PATTERN.matcher(line);
         if (joinMatcher.find()) {
             String playerName = joinMatcher.group(1);
             UUID uuid = nameToUuidMap.get(playerName);
             if (uuid != null) {
-                participantManager.findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
-                participantManager.incrementJoins(uuid);
-                return true;
+                eventsByPlayer.computeIfAbsent(uuid, k -> new ArrayList<>()).add(new LogEvent(timestamp, EventType.JOIN));
             }
+            return;
         }
 
+        Matcher leaveMatcher = LEAVE_PATTERN.matcher(line);
+        if(leaveMatcher.find()) {
+            String playerName = leaveMatcher.group(1);
+            UUID uuid = nameToUuidMap.get(playerName);
+            if(uuid != null) {
+                eventsByPlayer.computeIfAbsent(uuid, k -> new ArrayList<>()).add(new LogEvent(timestamp, EventType.LEAVE));
+            }
+        }
+    }
+
+    private boolean parseAndApplySimpleEvents(String line, Map<String, UUID> nameToUuidMap) {
         Matcher deathMatcher = DEATH_PATTERN.matcher(line);
         if (deathMatcher.find()) {
             String playerName = deathMatcher.group(1);
@@ -191,6 +241,18 @@ public class LogCommand implements CommandExecutor {
                 if (w_count > 0) {
                     participantManager.incrementWCount(uuid, w_count);
                 }
+                return true;
+            }
+        }
+
+        // 参加回数はJoin/Leaveイベントとは別でカウント
+        Matcher joinMatcher = JOIN_PATTERN.matcher(line);
+        if (joinMatcher.find()) {
+            String playerName = joinMatcher.group(1);
+            UUID uuid = nameToUuidMap.get(playerName);
+            if (uuid != null) {
+                participantManager.findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
+                participantManager.incrementJoins(uuid);
                 return true;
             }
         }

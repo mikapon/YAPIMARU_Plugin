@@ -6,6 +6,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
+import org.bukkit.scheduler.BukkitRunnable;
 
 import java.io.File;
 import java.io.IOException;
@@ -40,7 +41,35 @@ public class ParticipantManager {
 
         migrateOldFiles();
         loadAllParticipants();
+
+        // ★★★ この行をコンストラクタの最後に追加 ★★★
+        startPeriodicPlaytimeSaver();
     }
+
+    // ★★★ このメソッドを新たに追加 ★★★
+    private void startPeriodicPlaytimeSaver() {
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                // 現在オンラインの全プレイヤーに対して処理
+                for (Player player : Bukkit.getOnlinePlayers()) {
+                    UUID uuid = player.getUniqueId();
+                    if (loginTimestamps.containsKey(uuid)) {
+                        long loginTime = loginTimestamps.get(uuid);
+                        long currentTime = System.currentTimeMillis();
+                        long durationSeconds = (currentTime - loginTime) / 1000;
+
+                        if (durationSeconds > 0) {
+                            addPlaytime(uuid, durationSeconds);
+                            // 次の計算のために、現在の時刻を新しいログイン時刻として記録
+                            loginTimestamps.put(uuid, currentTime);
+                        }
+                    }
+                }
+            }
+        }.runTaskTimerAsynchronously(plugin, 20L * 60 * 5, 20L * 60 * 5); // 5分ごと (5 * 60 * 20 ticks)
+    }
+
 
     private void loadAllParticipants() {
         activeParticipants.clear();
