@@ -5,6 +5,8 @@ import com.yapimaru.plugin.managers.ParticipantManager;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.apache.commons.lang3.StringUtils;
+import org.bukkit.Bukkit;
+import org.bukkit.OfflinePlayer;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -14,6 +16,8 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,7 +31,6 @@ public class LogCommand implements CommandExecutor {
     private final YAPIMARU_Plugin plugin;
     private final ParticipantManager participantManager;
 
-    // 正規表現パターン
     private static final Pattern UUID_PATTERN = Pattern.compile("UUID of player (\\S+) is ([0-9a-f\\-]+)");
     private static final Pattern JOIN_PATTERN = Pattern.compile("(\\S+)\\[/.*\\] logged in");
     private static final Pattern DEATH_PATTERN = Pattern.compile("(\\S+) (was slain by|was shot by|drowned|blew up|fell|suffocated|starved|froze|died)");
@@ -80,48 +83,58 @@ public class LogCommand implements CommandExecutor {
             processedDir.mkdirs();
         }
 
-        File[] logFiles = logDir.listFiles((dir, name) -> name.endsWith(".log"));
+        // ★★★ 修正箇所 ★★★
+        // .logで終わるファイルだけでなく、ディレクトリではない全てのファイルを対象にする
+        File[] logFiles = logDir.listFiles(File::isFile);
         if (logFiles == null || logFiles.length == 0) {
-            plugin.getAdventure().sender(sender).sendMessage(Component.text("処理対象のログファイル(.log)が見つかりませんでした。", NamedTextColor.GOLD));
+            plugin.getAdventure().sender(sender).sendMessage(Component.text("処理対象のログファイルが見つかりませんでした。", NamedTextColor.GOLD));
             return;
         }
 
-        int filesProcessed = 0;
+        Arrays.sort(logFiles, Comparator.comparing(File::getName));
+        File logFileToProcess = logFiles[0];
+
         int linesProcessed = 0;
 
-        for (File logFile : logFiles) {
-            if (logFile.isDirectory()) continue;
+        plugin.getAdventure().sender(sender).sendMessage(Component.text("ファイル: " + logFileToProcess.getName() + " の処理を開始...", NamedTextColor.GRAY));
 
-            try {
-                List<String> lines = Files.readAllLines(logFile.toPath());
-                Map<String, UUID> nameToUuidMap = new HashMap<>();
+        try {
+            List<String> lines = Files.readAllLines(logFileToProcess.toPath());
+            Map<String, UUID> nameToUuidMap = new HashMap<>();
 
-                for (String line : lines) {
-                    Matcher uuidMatcher = UUID_PATTERN.matcher(line);
-                    if (uuidMatcher.find()) {
-                        nameToUuidMap.put(uuidMatcher.group(1), UUID.fromString(uuidMatcher.group(2)));
-                    }
+            for (String line : lines) {
+                Matcher uuidMatcher = UUID_PATTERN.matcher(line);
+                if (uuidMatcher.find()) {
+                    nameToUuidMap.put(uuidMatcher.group(1), UUID.fromString(uuidMatcher.group(2)));
                 }
-
-                for (String line : lines) {
-                    if (parseAndApplyLog(line, nameToUuidMap)) {
-                        linesProcessed++;
-                    }
-                }
-
-                Files.move(logFile.toPath(), new File(processedDir, logFile.getName()).toPath(), StandardCopyOption.REPLACE_EXISTING);
-                filesProcessed++;
-            } catch (IOException e) {
-                plugin.getLogger().log(Level.SEVERE, "ログファイル " + logFile.getName() + " の読み込みまたは移動に失敗しました。", e);
             }
+
+            for (String line : lines) {
+                if (parseAndApplyLog(line, nameToUuidMap)) {
+                    linesProcessed++;
+                }
+            }
+
+            Files.move(logFileToProcess.toPath(), new File(processedDir, logFileToProcess.getName()).toPath(), StandardCopyOption.REPLACE_EXISTING);
+
+        } catch (IOException e) {
+            plugin.getLogger().log(Level.SEVERE, "ログファイル " + logFileToProcess.getName() + " の読み込みまたは移動に失敗しました。", e);
+            plugin.getAdventure().sender(sender).sendMessage(Component.text("エラー: " + logFileToProcess.getName() + " の処理に失敗しました。詳細はコンソールを確認してください。", NamedTextColor.RED));
+            return;
+        }
+
+        int remainingFilesCount = 0;
+        File[] remainingFiles = logDir.listFiles(File::isFile);
+        if (remainingFiles != null) {
+            remainingFilesCount = remainingFiles.length;
         }
 
         plugin.getAdventure().sender(sender).sendMessage(
-                Component.text("ログの反映が完了しました！", NamedTextColor.GREEN)
-                        .append(Component.newline())
-                        .append(Component.text("処理ファイル数: " + filesProcessed + "件", NamedTextColor.AQUA))
+                Component.text("ログファイル「" + logFileToProcess.getName() + "」の処理が完了しました！", NamedTextColor.GREEN)
                         .append(Component.newline())
                         .append(Component.text("処理ログ行数: " + linesProcessed + "件", NamedTextColor.AQUA))
+                        .append(Component.newline())
+                        .append(Component.text("残りファイル数: " + remainingFilesCount + "件", NamedTextColor.YELLOW))
         );
     }
 
@@ -137,6 +150,7 @@ public class LogCommand implements CommandExecutor {
             String playerName = joinMatcher.group(1);
             UUID uuid = nameToUuidMap.get(playerName);
             if (uuid != null) {
+                participantManager.findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
                 participantManager.incrementJoins(uuid);
                 return true;
             }
@@ -147,6 +161,7 @@ public class LogCommand implements CommandExecutor {
             String playerName = deathMatcher.group(1);
             UUID uuid = nameToUuidMap.get(playerName);
             if (uuid != null) {
+                participantManager.findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
                 participantManager.incrementDeaths(uuid);
                 return true;
             }
@@ -158,6 +173,7 @@ public class LogCommand implements CommandExecutor {
             String message = chatMatcher.group(2);
             UUID uuid = nameToUuidMap.get(playerName);
             if (uuid != null) {
+                participantManager.findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
                 participantManager.incrementChats(uuid);
                 int w_count = StringUtils.countMatches(message, "w");
                 if (w_count > 0) {
@@ -172,7 +188,7 @@ public class LogCommand implements CommandExecutor {
 
     private void sendHelp(CommandSender sender) {
         sender.sendMessage("§6--- Log Command Help ---");
-        sender.sendMessage("§e/log add §7- ログファイルを読み込み統計を合算します。");
+        sender.sendMessage("§e/log add §7- ログファイルを1つ読み込み統計を合算します。");
         sender.sendMessage("§e/log reset §7- 全ての統計情報をリセットします。");
     }
 }
