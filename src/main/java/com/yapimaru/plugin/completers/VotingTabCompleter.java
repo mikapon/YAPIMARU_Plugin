@@ -27,7 +27,6 @@ public class VotingTabCompleter implements TabCompleter {
 
     @Override
     public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command, @NotNull String alias, @NotNull String[] args) {
-        // ★★★ 修正箇所 ★★★
         if (!sender.hasPermission("yapimaru.admin")) {
             return Collections.emptyList();
         }
@@ -47,7 +46,10 @@ public class VotingTabCompleter implements TabCompleter {
                         .map(p -> String.valueOf(p.getNumericId()))
                         .forEach(completions::add);
                 case "result" -> getCompletedPollIds(completions);
-                case "average" -> getEvaluationProjectNames(currentArg, completions);
+                case "average" -> {
+                    getEvaluationProjectNames(currentArg, completions);
+                    getCompletedPollIds(completions);
+                }
                 case "list" -> getProjectNameCompletions(currentArg, completions);
             }
         } else if (args.length == 3) {

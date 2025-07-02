@@ -27,7 +27,6 @@ public class PvpTabCompleter implements TabCompleter {
 
     @Override
     public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command, @NotNull String alias, @NotNull String[] args) {
-        // ★★★ 修正箇所 ★★★
         if (!sender.hasPermission("yapimaru.admin")) {
             return Collections.emptyList();
         }

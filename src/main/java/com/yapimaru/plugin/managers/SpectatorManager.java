@@ -12,26 +12,21 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerGameModeChangeEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
-import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.scoreboard.Team;
 
 public class SpectatorManager implements Listener {
     private final YAPIMARU_Plugin plugin;
     private boolean enabled = false;
     private final BukkitAudiences adventure;
-    private NameManager nameManager;
-    private PvpManager pvpManager;
+    private final NameManager nameManager;
+    private final PvpManager pvpManager;
 
-    public SpectatorManager(YAPIMARU_Plugin plugin) {
+    public SpectatorManager(YAPIMARU_Plugin plugin, PvpManager pvpManager) {
         this.plugin = plugin;
         this.adventure = plugin.getAdventure();
-    }
-
-    public void linkManagers(NameManager nameManager, PvpManager pvpManager) {
-        this.nameManager = nameManager;
+        this.nameManager = plugin.getNameManager();
         this.pvpManager = pvpManager;
     }
-
 
     public void setEnabled(boolean enabled, CommandSender sender) {
         if (this.enabled == enabled && sender != null) {
@@ -63,11 +58,6 @@ public class SpectatorManager implements Listener {
         handlePlayerState(event.getPlayer());
     }
 
-    @EventHandler
-    public void onPlayerQuit(PlayerQuitEvent event) {
-        // No specific action needed on quit
-    }
-
     private void handlePlayerState(Player player) {
         if (player == null || !player.isOnline()) return;
 
@@ -80,7 +70,7 @@ public class SpectatorManager implements Listener {
             team.setOption(Team.Option.NAME_TAG_VISIBILITY, Team.OptionStatus.ALWAYS);
         }
 
-        if (pvpManager != null && pvpManager.getGameState() != PvpManager.GameState.IDLE) {
+        if (pvpManager.getGameState() != PvpManager.GameState.IDLE) {
             pvpManager.updatePlayerScoreboard(player);
         }
     }

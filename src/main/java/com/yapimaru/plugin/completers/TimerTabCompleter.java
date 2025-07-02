@@ -19,7 +19,6 @@ public class TimerTabCompleter implements TabCompleter {
 
     @Override
     public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command, @NotNull String alias, @NotNull String[] args) {
-        // ★★★ 修正箇所 ★★★
         if (!sender.hasPermission("yapimaru.admin")) {
             return Collections.emptyList();
         }
@@ -42,7 +41,7 @@ public class TimerTabCompleter implements TabCompleter {
         }
         if (args.length == 3 && args[0].equalsIgnoreCase("onend")) {
             switch(args[1].toLowerCase()) {
-                case "add", "remove", "list" -> {
+                case "add", "remove" -> {
                     return StringUtil.copyPartialMatches(args[2], ONEND_TYPE_ARGS, new ArrayList<>());
                 }
             }

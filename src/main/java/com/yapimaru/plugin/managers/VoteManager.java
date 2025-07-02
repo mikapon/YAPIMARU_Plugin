@@ -39,7 +39,9 @@ public class VoteManager {
         this.adventure = plugin.getAdventure();
         this.votingFolder = new File(plugin.getDataFolder(), "voting");
         if (!votingFolder.exists()) {
-            votingFolder.mkdirs();
+            if (!votingFolder.mkdirs()) {
+                plugin.getLogger().warning("Failed to create voting directory.");
+            }
         }
         this.idCounterFile = new File(this.votingFolder, "id_counter.dat");
         this.nextPollNumericId = new AtomicInteger(loadNextPollId());
@@ -48,12 +50,12 @@ public class VoteManager {
     private int loadNextPollId() {
         if (idCounterFile.exists()) {
             try (DataInputStream dis = new DataInputStream(new FileInputStream(idCounterFile))) {
-                return dis.readInt() + 1;
+                return dis.readInt() + 1; // 保存されている最後のIDの次の番号から開始
             } catch (IOException e) {
                 plugin.getLogger().log(Level.WARNING, "Could not read poll ID counter file. Starting from 1.", e);
             }
         }
-        return 1;
+        return 1; // ファイルがなければ1から開始
     }
 
     private void saveCurrentPollId(int id) {
@@ -79,7 +81,6 @@ public class VoteManager {
 
     public void updatePlayerVoteStatus(Player player) {
         if (nameManager != null) {
-            // updatePlayerNameの引数をPlayerオブジェクトに修正
             nameManager.updatePlayerName(player);
         }
     }
@@ -122,8 +123,7 @@ public class VoteManager {
         }.runTaskTimer(plugin, 20L, 20L);
 
         if (nameManager != null) {
-            // オンラインの全プレイヤーの名前表示を更新
-            Bukkit.getOnlinePlayers().forEach(nameManager::updatePlayerName);
+            Bukkit.getOnlinePlayers().forEach(this::updatePlayerVoteStatus);
         }
 
         return voteData;
@@ -144,8 +144,7 @@ public class VoteManager {
         saveResultFile(voteData);
 
         if (nameManager != null && activePolls.isEmpty()) {
-            // 最後の投票が終了したら、全プレイヤーの名前表示を更新
-            Bukkit.getOnlinePlayers().forEach(nameManager::updatePlayerName);
+            Bukkit.getOnlinePlayers().forEach(this::updatePlayerVoteStatus);
         }
         return voteData;
     }
@@ -173,8 +172,8 @@ public class VoteManager {
 
     private void saveResultFile(VoteData voteData) {
         File dir = new File(this.votingFolder, voteData.getDirectoryName());
-        if (!dir.exists()) {
-            dir.mkdirs();
+        if (!dir.exists() && !dir.mkdirs()) {
+            plugin.getLogger().warning("Failed to create directory for poll results: " + dir.getPath());
         }
 
         String date = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss").format(new Date());

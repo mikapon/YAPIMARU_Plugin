@@ -63,7 +63,7 @@ public class ParticipantManager {
                 loadParticipantFromFile(file, dischargedParticipants);
             }
         }
-        plugin.getLogger().info("Loaded " + activeParticipants.size() + " active and " + dischargedParticipants.size() + " participant data files.");
+        plugin.getLogger().info("Loaded " + activeParticipants.size() + " active and " + dischargedParticipants.size() + " discharged participant data files.");
     }
 
     private void loadParticipantFromFile(File file, Map<String, ParticipantData> map) {
@@ -92,11 +92,11 @@ public class ParticipantManager {
 
 
     public Collection<ParticipantData> getActiveParticipants() {
-        return activeParticipants.values();
+        return Collections.unmodifiableCollection(activeParticipants.values());
     }
 
     public Collection<ParticipantData> getDischargedParticipants() {
-        return dischargedParticipants.values();
+        return Collections.unmodifiableCollection(dischargedParticipants.values());
     }
 
     public ParticipantData findOrCreateParticipant(OfflinePlayer player) {
@@ -173,6 +173,7 @@ public class ParticipantManager {
             Files.move(oldFile.toPath(), newFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
             activeParticipants.put(participantId, data);
             data.getAssociatedUuids().forEach(uuid -> uuidToParticipantMap.put(uuid, data));
+            plugin.getWhitelistManager().syncAllowedPlayers();
             return true;
         } catch (IOException e) {
             plugin.getLogger().log(Level.SEVERE, "Could not move participant file to active: " + participantId, e);
@@ -192,6 +193,7 @@ public class ParticipantManager {
             Files.move(oldFile.toPath(), newFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
             dischargedParticipants.put(participantId, data);
             data.getAssociatedUuids().forEach(uuidToParticipantMap::remove);
+            plugin.getWhitelistManager().syncAllowedPlayers();
             return true;
         } catch (IOException e) {
             plugin.getLogger().log(Level.SEVERE, "Could not move participant file to discharged: " + participantId, e);
@@ -282,9 +284,9 @@ public class ParticipantManager {
     }
 
     // --- Name Management Logic ---
-    public void changePlayerName(UUID uuid, String newBaseName, String newLinkedName) {
+    public boolean changePlayerName(UUID uuid, String newBaseName, String newLinkedName) {
         ParticipantData oldData = getParticipant(uuid);
-        if (oldData == null) return;
+        if (oldData == null) return false;
 
         String oldParticipantId = oldData.getParticipantId();
         String newParticipantId = ParticipantData.generateId(newBaseName, newLinkedName);
@@ -292,13 +294,14 @@ public class ParticipantManager {
         if (oldParticipantId.equals(newParticipantId)) {
             oldData.setFullName(newBaseName, newLinkedName);
             saveParticipant(oldData);
-            return;
+            return true;
         }
 
         File oldFile = new File(activeDir, oldParticipantId + ".yml");
         if(oldFile.exists()) {
             if(!oldFile.delete()) {
                 plugin.getLogger().warning("Failed to delete old participant file: " + oldFile.getName());
+                return false;
             }
         }
 
@@ -306,6 +309,7 @@ public class ParticipantManager {
         oldData.setFullName(newBaseName, newLinkedName);
         activeParticipants.put(newParticipantId, oldData);
         saveParticipant(oldData);
+        return true;
     }
 
     private void migrateOldFiles() {
@@ -322,6 +326,8 @@ public class ParticipantManager {
                 plugin.getLogger().warning("Could not move file: " + oldFile.getName());
             }
         }
-        plugin.getLogger().info("Moved " + count + " files.");
+        if (count > 0) {
+            plugin.getLogger().info("Moved " + count + " files.");
+        }
     }
 }

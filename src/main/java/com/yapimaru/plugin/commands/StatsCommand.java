@@ -168,7 +168,7 @@ public class StatsCommand implements CommandExecutor {
                 rankOffset++;
             }
 
-            String valueStr = (statName.equals("total_playtime_seconds")) ? formatDuration(value.longValue()) : value.toString() + "回";
+            String valueStr = (statName.equals("total_playtime_seconds")) ? formatDuration(value.longValue()) : value.toString();
             plugin.getAdventure().sender(sender).sendMessage(Component.text("  §e" + currentRank + "位 - §b" + valueStr + " §e- §f" + data.getDisplayName()));
             lastValue = value;
         }
@@ -213,7 +213,8 @@ public class StatsCommand implements CommandExecutor {
 
     private void sendHelp(CommandSender sender) {
         plugin.getAdventure().sender(sender).sendMessage(Component.text("§6--- Stats Command Help ---"));
-        plugin.getAdventure().sender(sender).sendMessage(Component.text("§e/stats player <参加者名> §7- 個人の統計情報を表示"));
-        plugin.getAdventure().sender(sender).sendMessage(Component.text("§e/stats list <項目> [worst] §7- ランキングを表示"));
+        plugin.getAdventure().sender(sender).sendMessage(Component.text("§e/stats §7- 自分の統計情報を表示"));
+        plugin.getAdventure().sender(sender).sendMessage(Component.text("§e/stats player <参加者ID> §7- 個人の統計情報を表示"));
+        plugin.getAdventure().sender(sender).sendMessage(Component.text("§e/stats list <項目> [worst] [ページ] §7- ランキングを表示"));
     }
 }

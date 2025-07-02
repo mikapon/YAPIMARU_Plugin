@@ -21,11 +21,6 @@ public class NameTabCompleter implements TabCompleter {
 
     @Override
     public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command c, @NotNull String a, @NotNull String[] args) {
-        // ★★★ 修正箇所 ★★★
-        if (!sender.hasPermission("yapimaru.admin")) {
-            return Collections.emptyList();
-        }
-
         List<String> completions = new ArrayList<>();
         if (args.length == 1) {
             StringUtil.copyPartialMatches(args[0], SUB1, completions);
@@ -33,11 +28,17 @@ public class NameTabCompleter implements TabCompleter {
             if (args[0].equalsIgnoreCase("link")) {
                 StringUtil.copyPartialMatches(args[1], SUB_LINK, completions);
             } else if (args[0].equalsIgnoreCase("color")) {
+                if (!sender.hasPermission("yapimaru.admin")) {
+                    return Collections.emptyList();
+                }
                 List<String> colorSuggestions = new ArrayList<>(NameManager.WOOL_COLOR_NAMES);
                 colorSuggestions.add("reset");
                 StringUtil.copyPartialMatches(args[1], colorSuggestions, completions);
             }
         } else if (args.length >= 3 && args[0].equalsIgnoreCase("color")) {
+            if (!sender.hasPermission("yapimaru.admin")) {
+                return Collections.emptyList();
+            }
             List<String> players = Bukkit.getOnlinePlayers().stream().map(Player::getName).collect(Collectors.toList());
             players.addAll(SUB_TARGET);
             StringUtil.copyPartialMatches(args[args.length - 1], players, completions);

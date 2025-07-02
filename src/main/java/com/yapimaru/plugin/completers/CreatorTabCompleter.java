@@ -15,7 +15,6 @@ public class CreatorTabCompleter implements TabCompleter {
 
     @Override
     public List<String> onTabComplete(@NotNull CommandSender s, @NotNull Command c, @NotNull String a, @NotNull String[] args) {
-        // ★★★ 修正箇所 ★★★
         // コマンドの実行権限がない場合は、候補を何も表示しない
         if (!s.hasPermission("yapimaru.admin") && !s.hasPermission("yapimaru.creator")) {
             return Collections.emptyList();

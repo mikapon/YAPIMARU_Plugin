@@ -9,7 +9,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
-import org.bukkit.block.BlockFace;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -54,26 +53,25 @@ public class PlayerEventListener implements Listener {
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
-    public void onPlayerLogin(AsyncPlayerPreLoginEvent event) {
+    public void onPlayerPreLogin(AsyncPlayerPreLoginEvent event) {
         String kickMessage = whitelistManager.checkLogin(event.getUniqueId());
         if (kickMessage != null) {
-            // disallowメソッドはComponentではなく、従来のカラーコードを含むStringを期待するため、直接渡すように修正
+            // ★★★ 最終修正箇所 ★★★
+            // event.disallow には Component ではなく String を渡す
             event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_WHITELIST, kickMessage);
         }
     }
 
     @EventHandler
+    @SuppressWarnings("deprecation")
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
         Bukkit.getScheduler().runTaskLater(plugin, () -> nameManager.updatePlayerName(player), 5L);
         restrictionManager.applyModeToPlayer(player);
 
-        participantManager.incrementJoins(player.getUniqueId());
         participantManager.recordLoginTime(player);
+        participantManager.incrementJoins(player.getUniqueId());
 
-        if (whitelistManager.isOwner(player.getUniqueId())) {
-            whitelistManager.checkForUnregisteredPlayers(player);
-        }
 
         joinInvinciblePlayers.put(player.getUniqueId(), System.currentTimeMillis() + 60000);
 
@@ -84,11 +82,10 @@ public class PlayerEventListener implements Listener {
                     this.cancel();
                     return;
                 }
-
-                boolean isGrounded = !player.isFlying() && player.getLocation().getBlock().getRelative(BlockFace.DOWN).getType().isSolid();
+                boolean isOnGround = player.isOnGround();
                 boolean isInLiquid = player.getLocation().getBlock().isLiquid();
 
-                if (isGrounded || isInLiquid) {
+                if (isOnGround || isInLiquid) {
                     adventure.player(player).sendMessage(Component.text("サーバーへようこそ！3秒間の無敵時間があります。", NamedTextColor.GOLD));
                     joinInvinciblePlayers.put(player.getUniqueId(), System.currentTimeMillis() + 3000);
                     new BukkitRunnable() {
@@ -106,12 +103,26 @@ public class PlayerEventListener implements Listener {
         joinInvincibilityTasks.put(player.getUniqueId(), task);
     }
 
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerChat(AsyncPlayerChatEvent event) {
+        participantManager.incrementChats(event.getPlayer().getUniqueId());
+        int w_count = StringUtils.countMatches(event.getMessage(), "w");
+        participantManager.incrementWCount(event.getPlayer().getUniqueId(), w_count);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerCommand(PlayerCommandPreprocessEvent event) {
+        if (event.getMessage().toLowerCase().startsWith("/skin")) {
+            return; // /skin コマンドは除外
+        }
+        participantManager.incrementChats(event.getPlayer().getUniqueId());
+    }
+
+
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
-
         participantManager.recordQuitTime(player);
-
         joinInvinciblePlayers.remove(player.getUniqueId());
         if(joinInvincibilityTasks.containsKey(player.getUniqueId())) {
             joinInvincibilityTasks.get(player.getUniqueId()).cancel();
@@ -120,34 +131,6 @@ public class PlayerEventListener implements Listener {
         pvpManager.handlePlayerQuit(player);
         guiManager.handlePlayerQuit(player);
     }
-
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onPlayerChat(AsyncPlayerChatEvent event) {
-        Player player = event.getPlayer();
-        String message = event.getMessage();
-
-        if (message.startsWith("/")) {
-            return;
-        }
-
-        participantManager.incrementChats(player.getUniqueId());
-
-        String countableMessage = message.replaceAll("\\(.*?\\)", "");
-
-        int wCount = StringUtils.countMatches(countableMessage.toLowerCase(), "w");
-        wCount += StringUtils.countMatches(countableMessage, "草");
-        wCount += StringUtils.countMatches(countableMessage.toLowerCase(), "kusa");
-
-        if (wCount > 0) {
-            participantManager.incrementWCount(player.getUniqueId(), wCount);
-        }
-    }
-
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onPlayerCommand(PlayerCommandPreprocessEvent event) {
-        participantManager.incrementChats(event.getPlayer().getUniqueId());
-    }
-
 
     @EventHandler
     public void onEntityDamage(EntityDamageEvent event) {

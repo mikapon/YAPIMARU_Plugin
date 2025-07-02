@@ -6,39 +6,35 @@ import com.sk89q.worldedit.WorldEdit;
 import com.sk89q.worldedit.bukkit.BukkitAdapter;
 import com.sk89q.worldedit.regions.Region;
 import com.yapimaru.plugin.YAPIMARU_Plugin;
+import com.yapimaru.plugin.data.ParticipantData;
 import com.yapimaru.plugin.managers.NameManager;
+import com.yapimaru.plugin.managers.ParticipantManager;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
-import org.jetbrains.annotations.NotNull;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
+import java.util.stream.Collectors;
 
 public class NameCommand implements CommandExecutor {
     private final YAPIMARU_Plugin plugin;
     private final NameManager nameManager;
+    private final ParticipantManager participantManager;
 
-    public NameCommand(YAPIMARU_Plugin plugin, NameManager nameManager) {
+    public NameCommand(YAPIMARU_Plugin plugin, NameManager nameManager, ParticipantManager participantManager) {
         this.plugin = plugin;
         this.nameManager = nameManager;
+        this.participantManager = participantManager;
     }
 
     @Override
-    public boolean onCommand(@NotNull CommandSender sender, @NotNull Command cmd, @NotNull String label, @NotNull String[] args) {
-        if (!sender.hasPermission("yapimaru.admin")) {
-            plugin.getAdventure().sender(sender).sendMessage(Component.text("このコマンドを使用する権限がありません。", NamedTextColor.RED));
-            return true;
-        }
-
+    public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
         if (args.length == 0) {
             sendHelp(sender);
             return true;
@@ -49,26 +45,51 @@ public class NameCommand implements CommandExecutor {
         switch (sub) {
             case "set", "link" -> {
                 if (!(sender instanceof Player p)) {
-                    plugin.getAdventure().sender(sender).sendMessage(Component.text("このコマンドはプレイヤーのみが実行できます。", NamedTextColor.RED));
+                    sender.sendMessage("このコマンドはプレイヤーのみが実行できます。");
                     return true;
                 }
-                if (args.length < 2) {
-                    plugin.getAdventure().player(p).sendMessage(Component.text("使い方: /name " + sub + " <名前>", NamedTextColor.RED));
+                ParticipantData data = participantManager.findOrCreateParticipant(p);
+                if (data == null) {
+                    p.sendMessage(ChatColor.RED + "あなたの参加者データが見つかりませんでした。");
                     return true;
                 }
+
+                if (args.length < 2 && sub.equals("set")) {
+                    p.sendMessage(ChatColor.RED + "使い方: /name " + sub + " <名前>");
+                    return true;
+                }
+
                 String text = String.join(" ", Arrays.copyOfRange(args, 1, args.length));
+
                 if (sub.equals("set")) {
-                    nameManager.setBaseName(p.getUniqueId(), text);
-                    plugin.getAdventure().player(p).sendMessage(Component.text("基本の名前を「" + text + "」に設定しました。", NamedTextColor.GREEN));
+                    if (participantManager.changePlayerName(p.getUniqueId(), text, data.getLinkedName())) {
+                        p.sendMessage(ChatColor.GREEN + "基本の名前を「" + text + "」に設定しました。");
+                        nameManager.updatePlayerName(p);
+                    } else {
+                        p.sendMessage(ChatColor.RED + "名前の変更に失敗しました。");
+                    }
                 } else { // link
-                    nameManager.setLinkedName(p.getUniqueId(), text);
-                    plugin.getAdventure().player(p).sendMessage(Component.text("頭上の名前を「" + text + "」に設定しました。", NamedTextColor.GREEN));
+                    String newLinkedName = (text.isEmpty() || text.equalsIgnoreCase("remove")) ? "" : text;
+                    if (participantManager.changePlayerName(p.getUniqueId(), data.getBaseName(), newLinkedName)) {
+                        if (newLinkedName.isEmpty()) {
+                            p.sendMessage(ChatColor.GREEN + "キャラクター名を削除しました。");
+                        } else {
+                            p.sendMessage(ChatColor.GREEN + "キャラクター名を「" + newLinkedName + "」に設定しました。");
+                        }
+                        nameManager.updatePlayerName(p);
+                    } else {
+                        p.sendMessage(ChatColor.RED + "名前の変更に失敗しました。");
+                    }
                 }
                 return true;
             }
             case "color" -> {
+                if (!sender.hasPermission("yapimaru.admin")) {
+                    sender.sendMessage(ChatColor.RED + "このコマンドを使用する権限がありません。");
+                    return true;
+                }
                 if (args.length < 3) {
-                    sendColorSubHelp(sender);
+                    sendSubHelp(sender, "color");
                     return true;
                 }
                 String colorName = args[1];
@@ -107,14 +128,18 @@ public class NameCommand implements CommandExecutor {
                     }
                 }
                 if (!success.isEmpty())
-                    plugin.getAdventure().sender(sender).sendMessage(Component.text(String.join(", ", success) + "の色を" + colorName + "に変更しました。", NamedTextColor.GREEN));
-                if (!failed.isEmpty())
-                    plugin.getAdventure().sender(sender).sendMessage(Component.text("失敗: " + String.join(", ", failed), NamedTextColor.RED));
+                    sender.sendMessage(ChatColor.GREEN + String.join(", ", success) + "の色を" + colorName + "に変更しました。");
+                if (!failed.isEmpty()) sender.sendMessage(ChatColor.RED + "失敗: " + String.join(", ", failed));
                 return true;
             }
             case "reload" -> {
+                if (!sender.hasPermission("yapimaru.admin")) {
+                    sender.sendMessage(ChatColor.RED + "このコマンドを使用する権限がありません。");
+                    return true;
+
+                }
                 nameManager.reloadData();
-                plugin.getAdventure().sender(sender).sendMessage(Component.text("参加者情報をリロードしました。", NamedTextColor.GREEN));
+                sender.sendMessage(ChatColor.GREEN + "名前表示をリロードしました。");
                 return true;
             }
             default -> {
@@ -125,16 +150,20 @@ public class NameCommand implements CommandExecutor {
     }
 
     private void sendHelp(CommandSender s) {
-        plugin.getAdventure().sender(s).sendMessage(Component.text("§6--- Name Command Help ---"));
-        plugin.getAdventure().sender(s).sendMessage(Component.text("§e/name set <name> §7- チャット等での表示名を設定"));
-        plugin.getAdventure().sender(s).sendMessage(Component.text("§e/name link <name|remove> §7- 頭上の表示名を設定（removeで削除）"));
-        plugin.getAdventure().sender(s).sendMessage(Component.text("§e/name color <color> <target> §7- 名前の色を変更"));
-        plugin.getAdventure().sender(s).sendMessage(Component.text("§e/name reload §7- 設定ファイルをリロード"));
+        s.sendMessage("§6--- Name Command Help ---");
+        s.sendMessage("§e/name set <名前> §7- チャット等での表示名を設定");
+        s.sendMessage("§e/name link <名前|remove> §7- 頭上の表示名(キャラクター名)を設定");
+        if (s.hasPermission("yapimaru.admin")) {
+            s.sendMessage("§e/name color <color> <target> §7- 名前の色を変更");
+            s.sendMessage("§e/name reload §7- 名前表示をリロード");
+        }
     }
 
-    private void sendColorSubHelp(CommandSender s) {
-        plugin.getAdventure().sender(s).sendMessage(Component.text("引数が不足しています。", NamedTextColor.RED));
-        plugin.getAdventure().sender(s).sendMessage(Component.text("§e使い方: /name color <色> <プレイヤー名|@a|//sel...>"));
-        plugin.getAdventure().sender(s).sendMessage(Component.text("§7利用可能な色: " + String.join(", ", NameManager.WOOL_COLOR_NAMES)));
+    private void sendSubHelp(CommandSender s, String sub) {
+        s.sendMessage("§c引数が不足しています。");
+        if ("color".equals(sub)) {
+            s.sendMessage("§e使い方: /name color <色> <プレイヤー名|@a|//sel...>");
+            s.sendMessage("§7利用可能な色: " + String.join(", ", NameManager.WOOL_COLOR_NAMES));
+        }
     }
 }

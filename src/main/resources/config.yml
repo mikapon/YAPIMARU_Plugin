@@ -15,9 +15,10 @@ hub-location:
 #  Whitelist (ホワイトリスト) 機能
 # ==================================
 # このセクションはプラグインによって管理されます。
-# オーナー(owners)リストのみ手動で編集可能です。
+# オーナー(operators)リストのみ手動で編集可能です。
 whitelist:
   mode: OFF
   owners:
     - "002c8ff8-fbdb-4752-b166-fe609ee031b4"
+  candidates: []
   allowed: []

@@ -669,8 +669,14 @@ public class PvpManager {
             Team mainBoardTeam = nameManager.getPlayerTeam(p.getUniqueId());
             if (mainBoardTeam == null) continue;
 
-            Team pvpBoardTeam = board.registerNewTeam(mainBoardTeam.getName());
+            Team pvpBoardTeam = board.getTeam(mainBoardTeam.getName());
+            if (pvpBoardTeam == null) {
+                pvpBoardTeam = board.registerNewTeam(mainBoardTeam.getName());
+            }
+
             pvpBoardTeam.setColor(mainBoardTeam.getColor());
+            // ★★★ 修正箇所 ★★★
+            // setPrefix/setSuffixを使用
             pvpBoardTeam.setPrefix(mainBoardTeam.getPrefix());
             pvpBoardTeam.setSuffix(mainBoardTeam.getSuffix());
             pvpBoardTeam.setOption(Team.Option.NAME_TAG_VISIBILITY, mainBoardTeam.getOption(Team.Option.NAME_TAG_VISIBILITY));

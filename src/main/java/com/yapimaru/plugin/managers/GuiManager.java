@@ -1,8 +1,5 @@
 package com.yapimaru.plugin.managers;
 
-import com.yapimaru.plugin.YAPIMARU_Plugin;
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Material;
@@ -23,7 +20,6 @@ import java.util.stream.Collectors;
 
 public class GuiManager {
 
-    private final YAPIMARU_Plugin plugin;
     private final NameManager nameManager;
 
     // --- InventoryHolder Marker Interfaces ---
@@ -54,7 +50,7 @@ public class GuiManager {
 
     static {
         Map<Material, PotionEffect> effects = new HashMap<>();
-        int infiniteDuration = -1;
+        int infiniteDuration = -1; // Potion.INFINITE_DURATION is not available in all versions, -1 works for recent versions.
         effects.put(Material.GLASS, new PotionEffect(PotionEffectType.INVISIBILITY, infiniteDuration, 0, false, false));
         effects.put(Material.GLOWSTONE_DUST, new PotionEffect(PotionEffectType.NIGHT_VISION, infiniteDuration, 0, false, false));
         effects.put(Material.GLOW_BERRIES, new PotionEffect(PotionEffectType.GLOWING, infiniteDuration, 0, false, false));
@@ -69,13 +65,8 @@ public class GuiManager {
         TOGGLEABLE_EFFECTS = Collections.unmodifiableMap(effects);
     }
 
-    public GuiManager(YAPIMARU_Plugin plugin, NameManager nameManager) {
-        this.plugin = plugin;
+    public GuiManager(NameManager nameManager) {
         this.nameManager = nameManager;
-    }
-
-    public YAPIMARU_Plugin getPlugin() {
-        return plugin;
     }
 
     public void openMainMenu(Player p) {
@@ -221,7 +212,7 @@ public class GuiManager {
             String colorName = itemMaterialName.replace("_WOOL", "").toLowerCase();
 
             ItemMeta itemMeta = item.getItemMeta();
-            if (itemMeta != null && itemMeta.hasDisplayName() && itemMeta.getDisplayName().contains("チームなし")) {
+            if (itemMeta != null && itemMeta.getDisplayName().contains("チームなし")) {
                 colorName = "none";
             }
 
@@ -237,13 +228,13 @@ public class GuiManager {
                     .collect(Collectors.toList());
 
             if (teamPlayers.isEmpty()) {
-                plugin.getAdventure().player(p).sendMessage(Component.text("テレポート対象のプレイヤーがチーム '" + colorName + "' にいません。", NamedTextColor.RED));
+                p.sendMessage("§cテレポート対象のプレイヤーがチーム '" + colorName + "' にいません。");
                 return;
             }
 
             Player target = teamPlayers.get(new Random().nextInt(teamPlayers.size()));
             p.teleport(target.getLocation());
-            plugin.getAdventure().player(p).sendMessage(Component.text("チーム '" + colorName + "' の " + target.getName() + " §aへランダムにテレポートしました。", NamedTextColor.GREEN));
+            p.sendMessage("§aチーム '" + colorName + "' の " + target.getName() + " §aへランダムにテレポートしました。");
             p.closeInventory();
             return;
         }
@@ -254,17 +245,17 @@ public class GuiManager {
                 awaitingTpAllTarget.remove(p.getUniqueId());
                 Player destination = Bukkit.getPlayer(meta.getOwningPlayer().getUniqueId());
                 if (destination != null) {
-                    plugin.getAdventure().player(p).sendMessage(Component.text(destination.getName() + " の元へ、全プレイヤーをテレポートさせます...", NamedTextColor.RED));
+                    p.sendMessage("§c" + destination.getName() + " の元へ、全プレイヤーをテレポートさせます...");
 
                     Bukkit.getOnlinePlayers().stream()
                             .filter(target -> !target.equals(destination))
                             .forEach(target -> target.teleport(destination));
                     p.closeInventory();
                 } else {
-                    plugin.getAdventure().player(p).sendMessage(Component.text("テレポート先のプレイヤーが見つかりません。", NamedTextColor.RED));
+                    p.sendMessage("§cテレポート先のプレイヤーが見つかりません。");
                 }
             } else {
-                plugin.getAdventure().player(p).sendMessage(Component.text("キャンセルしました。プレイヤーの頭をクリックしてください。", NamedTextColor.RED));
+                p.sendMessage("§cキャンセルしました。プレイヤーの頭をクリックしてください。");
                 awaitingTpAllTarget.remove(p.getUniqueId());
             }
             return;
@@ -278,14 +269,14 @@ public class GuiManager {
                         TeleportMode currentMode = playerTpModes.getOrDefault(p.getUniqueId(), TeleportMode.TELEPORT_TO);
                         if (currentMode == TeleportMode.TELEPORT_TO) {
                             p.teleport(target.getLocation());
-                            plugin.getAdventure().player(p).sendMessage(Component.text(target.getName() + "にテレポートしました。", NamedTextColor.GREEN));
+                            p.sendMessage("§a" + target.getName() + "にテレポートしました。");
                         } else {
                             target.teleport(p.getLocation());
-                            plugin.getAdventure().player(p).sendMessage(Component.text(target.getName() + "をあなたの場所に召喚しました。", NamedTextColor.AQUA));
+                            p.sendMessage("§b" + target.getName() + "をあなたの場所に召喚しました。");
                         }
                         p.closeInventory();
                     } else {
-                        plugin.getAdventure().player(p).sendMessage(Component.text("テレポート先のプレイヤーが見つかりません。", NamedTextColor.RED));
+                        p.sendMessage("§cテレポート先のプレイヤーが見つかりません。");
                     }
                 }
                 break;
@@ -311,12 +302,12 @@ public class GuiManager {
                 Bukkit.getOnlinePlayers().stream()
                         .filter(target -> !target.equals(p))
                         .forEach(target -> target.teleport(p.getLocation()));
-                plugin.getAdventure().player(p).sendMessage(Component.text("自分以外の全プレイヤーをあなたの場所に召喚しました。", NamedTextColor.RED));
+                p.sendMessage("§c自分以外の全プレイヤーをあなたの場所に召喚しました。");
                 p.closeInventory();
                 break;
             case NETHER_STAR:
                 awaitingTpAllTarget.add(p.getUniqueId());
-                plugin.getAdventure().player(p).sendMessage(Component.text("[全員テレポート] 次にクリックしたプレイヤーに全員をテレポートさせます。", NamedTextColor.YELLOW));
+                p.sendMessage("§e[全員テレポート] 次にクリックしたプレイヤーに全員をテレポートさせます。");
                 p.closeInventory();
                 p.openInventory(inventory);
                 break;
@@ -337,7 +328,7 @@ public class GuiManager {
                 p.addPotionEffect(new PotionEffect(PotionEffectType.INSTANT_HEALTH, 1, 10));
                 p.setSaturation(20);
                 p.setFoodLevel(20);
-                plugin.getAdventure().player(p).sendMessage(Component.text("体力を回復し、お腹を満たしました。", NamedTextColor.LIGHT_PURPLE));
+                p.sendMessage("§d体力を回復し、お腹を満たしました。");
             }
             case MILK_BUCKET -> {
                 stickyEffects.remove(p.getUniqueId());
@@ -359,7 +350,7 @@ public class GuiManager {
             case ARROW -> { openMainMenu(p); return; }
             case BARRIER -> {
                 stickyGameModes.remove(p.getUniqueId());
-                plugin.getAdventure().player(p).sendMessage(Component.text("ゲームモードの固定を解除しました。", NamedTextColor.YELLOW));
+                p.sendMessage("§eゲームモードの固定を解除しました。");
                 openGamemodeMenu(p);
                 return;
             }
@@ -367,7 +358,7 @@ public class GuiManager {
         if (targetMode != null) {
             p.setGameMode(targetMode);
             stickyGameModes.put(p.getUniqueId(), targetMode);
-            plugin.getAdventure().player(p).sendMessage(Component.text("ゲームモードを" + targetMode.name() + "に固定しました。", NamedTextColor.GREEN));
+            p.sendMessage("§aゲームモードを" + targetMode.name() + "に固定しました。");
             openGamemodeMenu(p);
         }
     }
@@ -377,8 +368,7 @@ public class GuiManager {
         ItemMeta meta = item.getItemMeta();
         if (meta == null) return item;
         meta.setDisplayName(name);
-        List<String> loreList = new ArrayList<>(Arrays.asList(lore));
-        meta.setLore(loreList);
+        meta.setLore(Arrays.asList(lore));
         meta.addItemFlags(ItemFlag.HIDE_ENCHANTS, ItemFlag.HIDE_ATTRIBUTES);
         item.setItemMeta(meta);
         return item;

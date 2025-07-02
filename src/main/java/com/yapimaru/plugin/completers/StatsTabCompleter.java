@@ -50,7 +50,9 @@ public class StatsTabCompleter implements TabCompleter {
 
         if (args.length == 3) {
             if (args[0].equalsIgnoreCase("list")) {
-                return StringUtil.copyPartialMatches(args[2], Collections.singletonList("worst"), new ArrayList<>());
+                if (STAT_NAMES.contains(args[1].toLowerCase())) {
+                    return StringUtil.copyPartialMatches(args[2], Collections.singletonList("worst"), new ArrayList<>());
+                }
             }
         }
 
