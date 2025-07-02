@@ -7,6 +7,7 @@ import com.yapimaru.plugin.listeners.GuiListener;
 import com.yapimaru.plugin.listeners.PlayerEventListener;
 import com.yapimaru.plugin.listeners.VoteListener;
 import com.yapimaru.plugin.managers.*;
+import com.yapimaru.plugin.remove.LogAddCommand;
 import net.kyori.adventure.platform.bukkit.BukkitAudiences;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandExecutor;
@@ -30,15 +31,15 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
     private BukkitAudiences adventure;
     private WorldEdit worldEditHook;
 
-    private ParticipantManager participantManager;
     private NameManager nameManager;
     private GuiManager creatorGuiManager;
     private TimerManager timerManager;
     private PvpManager pvpManager;
-    private WhitelistManager whitelistManager;
     private PlayerRestrictionManager restrictionManager;
     private SpectatorManager spectatorManager;
     private VoteManager voteManager;
+    private ParticipantManager participantManager;
+    private WhitelistManager whitelistManager;
     private YmCommand ymCommand;
 
     private List<String> commandManual = new ArrayList<>();
@@ -53,19 +54,17 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
             getLogger().warning("WorldEdit not found. Some features will be disabled.");
         }
 
-        getDataFolder().mkdirs();
         saveDefaultConfig();
+        loadConfigAndManual();
 
         initializeManagers();
-
-        // データを読み込む
-        loadConfigAndManual();
         linkManagers();
 
         registerListeners();
         registerCommands();
 
         for (Player player : Bukkit.getOnlinePlayers()) {
+            participantManager.recordLoginTime(player);
             nameManager.updatePlayerName(player);
         }
 
@@ -80,6 +79,12 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
             }
         }
         if (timerManager != null) timerManager.forceStop(true);
+
+        if (participantManager != null) {
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                participantManager.recordQuitTime(player);
+            }
+        }
 
         if(adventure != null) {
             adventure.close();
@@ -107,10 +112,9 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
             getLogger().log(Level.SEVERE, "Could not read commands.txt!", e);
         }
 
-        if (whitelistManager != null) whitelistManager.load();
-
         if (participantManager != null) participantManager.reloadAllParticipants();
         if (nameManager != null) nameManager.reloadData();
+        if (whitelistManager != null) whitelistManager.load();
     }
 
     public List<String> getCommandManual() {
@@ -119,21 +123,20 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
 
     private void initializeManagers() {
         participantManager = new ParticipantManager(this);
-        nameManager = new NameManager(this, participantManager);
         voteManager = new VoteManager(this);
+        nameManager = new NameManager(this, participantManager);
         whitelistManager = new WhitelistManager(this, participantManager);
-        creatorGuiManager = new GuiManager(this, nameManager);
+        creatorGuiManager = new GuiManager(nameManager);
         pvpManager = new PvpManager(this);
         timerManager = new TimerManager(this);
         restrictionManager = new PlayerRestrictionManager();
-        spectatorManager = new SpectatorManager(this);
+        spectatorManager = new SpectatorManager(this, pvpManager);
         ymCommand = new YmCommand(this);
     }
 
     private void linkManagers() {
         nameManager.setVoteManager(voteManager);
         voteManager.setNameManager(nameManager);
-        spectatorManager.linkManagers(nameManager, pvpManager);
     }
 
     private void registerListeners() {
@@ -148,7 +151,7 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
         setExecutor("yapimaru", ymCommand, new YmTabCompleter(participantManager));
         setExecutor("creator", new CreatorCommand(creatorGuiManager), new CreatorTabCompleter());
         setExecutor("hub", new HubCommand(this));
-        setExecutor("name", new NameCommand(this, nameManager), new NameTabCompleter());
+        setExecutor("name", new NameCommand(this, nameManager, participantManager), new NameTabCompleter());
         setExecutor("pvp", new PvpCommand(this, pvpManager), new PvpTabCompleter(pvpManager));
         setExecutor("timer", new TimerCommand(this, timerManager), new TimerTabCompleter());
         setExecutor("skinlist", new SkinListCommand(adventure));
@@ -156,8 +159,9 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
         setExecutor("spectator", new SpectatorCommand(spectatorManager, adventure), new SpectatorTabCompleter());
         setExecutor("voting", new VotingCommand(this, voteManager), new VotingTabCompleter(voteManager));
         setExecutor("ans", new AnsCommand(voteManager), new AnsTabCompleter(voteManager));
-        setExecutor("photographing", new PhotographingCommand(this, participantManager));
         setExecutor("stats", new StatsCommand(this, participantManager, nameManager), new StatsTabCompleter(participantManager));
+        setExecutor("photographing", new PhotographingCommand(this, participantManager));
+        setExecutor("logadd", new LogAddCommand(this));
     }
 
     private void setExecutor(String commandName, CommandExecutor executor) {
@@ -175,15 +179,15 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
         }
     }
 
-    // Getters
-    public ParticipantManager getParticipantManager() { return participantManager; }
     public WorldEdit getWorldEditHook() { return this.worldEditHook; }
     public BukkitAudiences getAdventure() { return this.adventure; }
     public NameManager getNameManager() { return nameManager; }
     public TimerManager getTimerManager() { return timerManager; }
     public PvpManager getPvpManager() { return pvpManager; }
-    public WhitelistManager getWhitelistManager() { return whitelistManager; }
     public PlayerRestrictionManager getRestrictionManager() { return restrictionManager; }
     public SpectatorManager getSpectatorManager() { return spectatorManager; }
     public GuiManager getCreatorGuiManager() { return creatorGuiManager; }
+    public ParticipantManager getParticipantManager() { return participantManager; }
+    public WhitelistManager getWhitelistManager() { return whitelistManager; }
+    public YmCommand getYmCommand() { return ymCommand; }
 }
