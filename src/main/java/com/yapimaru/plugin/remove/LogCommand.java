@@ -37,7 +37,6 @@ public class LogCommand implements CommandExecutor {
     private final ParticipantManager participantManager;
     private final Logger logger;
 
-    // --- 正規表現パターン ---
     private static final Pattern LOG_LINE_PATTERN = Pattern.compile("^\\[(\\d{2}:\\d{2}:\\d{2})].*");
     private static final Pattern UUID_PATTERN = Pattern.compile("UUID of player (\\S+) is ([0-9a-f\\-]+)");
     private static final Pattern JOIN_PATTERN = Pattern.compile("(\\S+) joined the game");
@@ -45,6 +44,9 @@ public class LogCommand implements CommandExecutor {
     private static final Pattern DEATH_PATTERN = Pattern.compile("(\\S+) (was slain by|was shot by|drowned|blew up|fell|suffocated|starved|froze|died)");
     private static final Pattern CHAT_PATTERN = Pattern.compile("<(\\S+)> (.*)");
     private static final Pattern DATE_FROM_FILENAME_PATTERN = Pattern.compile("(\\d{4}-\\d{2}-\\d{2})");
+
+    private enum EventType { JOIN, LEAVE }
+    private record LogEvent(LocalDateTime timestamp, EventType type) {}
 
     public LogCommand(YAPIMARU_Plugin plugin) {
         this.plugin = plugin;
@@ -67,7 +69,8 @@ public class LogCommand implements CommandExecutor {
         String subCommand = args[0].toLowerCase();
         switch (subCommand) {
             case "add":
-                handleAddCommand(sender);
+                // 非同期で実行してサーバーのメインスレッドを止めないようにする
+                Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> handleAddCommand(sender));
                 break;
             case "reset":
                 handleResetCommand(sender);
@@ -81,7 +84,7 @@ public class LogCommand implements CommandExecutor {
     }
 
     private void handleAddCommand(CommandSender sender) {
-        plugin.getAdventure().sender(sender).sendMessage(Component.text("古いログの統計情報への反映を開始します...", NamedTextColor.YELLOW));
+        plugin.getAdventure().sender(sender).sendMessage(Component.text("古いログの統計情報への一括反映を開始します... (処理中はサーバーに負荷がかかる可能性があります)", NamedTextColor.YELLOW));
 
         File logDir = new File(new File(plugin.getDataFolder(), "Participant_Information"), "log");
         File processedDir = new File(logDir, "processed");
@@ -97,108 +100,127 @@ public class LogCommand implements CommandExecutor {
             return;
         }
 
-        File[] logFiles = logDir.listFiles(File::isFile);
-        if (logFiles == null || logFiles.length == 0) {
-            plugin.getAdventure().sender(sender).sendMessage(Component.text("処理対象のログファイルが見つかりませんでした。", NamedTextColor.GOLD));
-            // 処理するファイルがなければ、一時ファイルも削除
-            if(sessionFile.exists()) sessionFile.delete();
-            return;
-        }
+        // ★★★ ここから修正 ★★★
+        // whileループでフォルダが空になるまで処理を続ける
+        int totalFilesProcessed = 0;
 
-        Arrays.sort(logFiles, Comparator.comparing(File::getName));
-        File logFileToProcess = logFiles[0];
-
-        Matcher dateMatcher = DATE_FROM_FILENAME_PATTERN.matcher(logFileToProcess.getName());
-        if (!dateMatcher.find()) {
-            plugin.getAdventure().sender(sender).sendMessage(Component.text("エラー: ファイル名から日付を読み取れませんでした。ファイル名は `YYYY-MM-DD...` の形式にしてください。", NamedTextColor.RED));
-            return;
-        }
-        LocalDate initialDate = LocalDate.parse(dateMatcher.group(1));
-
-        plugin.getAdventure().sender(sender).sendMessage(Component.text("ファイル: " + logFileToProcess.getName() + " の処理を開始...", NamedTextColor.GRAY));
-
-        try {
-            List<String> lines = Files.readAllLines(logFileToProcess.toPath());
-
-            // 1. UUIDマップを構築
-            Map<String, UUID> nameToUuidMap = new HashMap<>();
-            for (String line : lines) {
-                Matcher uuidMatcher = UUID_PATTERN.matcher(line);
-                if (uuidMatcher.find()) {
-                    nameToUuidMap.put(uuidMatcher.group(1), UUID.fromString(uuidMatcher.group(2)));
-                }
+        while(true) {
+            File[] logFiles = logDir.listFiles(File::isFile);
+            if (logFiles == null || logFiles.length == 0) {
+                // 処理するファイルがなくなったらループを抜ける
+                break;
             }
 
-            // 2. 一時ファイルから前回のセッション情報を読み込む
-            Map<UUID, LocalDateTime> openSessions = loadOpenSessions(sessionFile);
+            Arrays.sort(logFiles, Comparator.comparing(File::getName));
+            File logFileToProcess = logFiles[0];
 
-            // 3. ログを解析
-            LocalDate currentDate = initialDate;
-            LocalTime lastTime = LocalTime.MIN;
-
-            for (String line : lines) {
-                Matcher timeMatcher = LOG_LINE_PATTERN.matcher(line);
-                if (!timeMatcher.find()) continue;
-
+            Matcher dateMatcher = DATE_FROM_FILENAME_PATTERN.matcher(logFileToProcess.getName());
+            if (!dateMatcher.find()) {
+                logger.warning("ファイル名から日付を読み取れないためスキップします: " + logFileToProcess.getName());
                 try {
-                    LocalTime currentTime = LocalTime.parse(timeMatcher.group(1), DateTimeFormatter.ISO_LOCAL_TIME);
-                    if (currentTime.isBefore(lastTime)) {
-                        currentDate = currentDate.plusDays(1);
-                    }
-                    LocalDateTime timestamp = currentDate.atTime(currentTime);
-                    lastTime = currentTime;
-
-                    parseAndApplySimpleEvents(line, nameToUuidMap);
-
-                    // Join/Leaveイベントを処理
-                    Matcher joinMatcher = JOIN_PATTERN.matcher(line);
-                    if (joinMatcher.find()) {
-                        UUID uuid = nameToUuidMap.get(joinMatcher.group(1));
-                        if (uuid != null && !openSessions.containsKey(uuid)) {
-                            openSessions.put(uuid, timestamp);
-                        }
-                    } else {
-                        Matcher leaveMatcher = LEAVE_PATTERN.matcher(line);
-                        if (leaveMatcher.find()) {
-                            UUID uuid = nameToUuidMap.get(leaveMatcher.group(1));
-                            if (uuid != null && openSessions.containsKey(uuid)) {
-                                LocalDateTime joinTime = openSessions.get(uuid);
-                                long playtime = Duration.between(joinTime, timestamp).getSeconds();
-                                if(playtime > 0) participantManager.addPlaytime(uuid, playtime);
-                                openSessions.remove(uuid); // セッションを閉じる
-                            }
-                        }
-                    }
-                } catch (DateTimeParseException e) { /* 時刻解析失敗は無視 */ }
+                    // 不正なファイルは移動だけしておく
+                    Files.move(logFileToProcess.toPath(), processedDir.toPath().resolve(logFileToProcess.getName()), StandardCopyOption.REPLACE_EXISTING);
+                } catch (IOException e) {
+                    logger.log(Level.SEVERE, "不正なログファイルの移動に失敗: " + logFileToProcess.getName(), e);
+                }
+                continue; // 次のファイルの処理へ
             }
+            LocalDate initialDate = LocalDate.parse(dateMatcher.group(1));
 
-            // 4. ログアウトしていないプレイヤーのセッション情報を一時ファイルに保存
-            saveOpenSessions(sessionFile, openSessions);
+            plugin.getAdventure().sender(sender).sendMessage(Component.text("ファイル: " + logFileToProcess.getName() + " の処理を開始...", NamedTextColor.GRAY));
 
-            // 5. 処理済みファイルを移動
-            Files.move(logFileToProcess.toPath(), processedDir.toPath().resolve(logFileToProcess.getName()), StandardCopyOption.REPLACE_EXISTING);
+            try {
+                List<String> lines = Files.readAllLines(logFileToProcess.toPath());
 
-        } catch (IOException e) {
-            logger.log(Level.SEVERE, "ログファイル " + logFileToProcess.getName() + " の処理に失敗しました。", e);
-            plugin.getAdventure().sender(sender).sendMessage(Component.text("エラー: " + logFileToProcess.getName() + " の処理に失敗しました。詳細はコンソールを確認してください。", NamedTextColor.RED));
-            return;
+                Map<String, UUID> nameToUuidMap = new HashMap<>();
+                for (String line : lines) {
+                    Matcher uuidMatcher = UUID_PATTERN.matcher(line);
+                    if (uuidMatcher.find()) {
+                        nameToUuidMap.put(uuidMatcher.group(1), UUID.fromString(uuidMatcher.group(2)));
+                    }
+                }
+
+                Map<UUID, LocalDateTime> openSessions = loadOpenSessions(sessionFile);
+
+                LocalDate currentDate = initialDate;
+                LocalTime lastTime = LocalTime.MIN;
+
+                for (String line : lines) {
+                    Matcher timeMatcher = LOG_LINE_PATTERN.matcher(line);
+                    if (!timeMatcher.find()) continue;
+
+                    try {
+                        LocalTime currentTime = LocalTime.parse(timeMatcher.group(1), DateTimeFormatter.ISO_LOCAL_TIME);
+                        if (currentTime.isBefore(lastTime)) {
+                            currentDate = currentDate.plusDays(1);
+                        }
+                        LocalDateTime timestamp = currentDate.atTime(currentTime);
+                        lastTime = currentTime;
+
+                        parseAndApplySimpleEvents(line, nameToUuidMap);
+                        parseJoinLeaveEvents(line, nameToUuidMap, openSessions, timestamp);
+
+                    } catch (DateTimeParseException e) { /* スキップ */ }
+                }
+
+                saveOpenSessions(sessionFile, openSessions);
+                Files.move(logFileToProcess.toPath(), processedDir.toPath().resolve(logFileToProcess.getName()), StandardCopyOption.REPLACE_EXISTING);
+                totalFilesProcessed++;
+
+            } catch (IOException e) {
+                logger.log(Level.SEVERE, "ログファイル " + logFileToProcess.getName() + " の処理中にエラーが発生しました。", e);
+                plugin.getAdventure().sender(sender).sendMessage(Component.text("エラー: " + logFileToProcess.getName() + " の処理に失敗しました。次のファイルに進みます。", NamedTextColor.RED));
+                continue;
+            }
+        } // whileループの終わり
+
+        // 全ての処理が終わったら最終報告
+        if (sessionFile.exists()) {
+            sessionFile.delete();
         }
 
-        long remainingFileCount = logDir.listFiles(File::isFile).length;
-
-        plugin.getAdventure().sender(sender).sendMessage(
-                Component.text("ログファイル「" + logFileToProcess.getName() + "」の処理が完了しました！", NamedTextColor.GREEN)
-                        .append(Component.newline())
-                        .append(Component.text("残りファイル数: " + remainingFileCount + "件", NamedTextColor.YELLOW))
-        );
-
-        // もし残りファイルがなければ一時ファイルを削除
-        if (remainingFileCount == 0) {
-            if (sessionFile.exists()) sessionFile.delete();
-            plugin.getAdventure().sender(sender).sendMessage(Component.text("全てのログ処理が完了したため、一時ファイルを削除しました。", NamedTextColor.GOLD));
+        if (totalFilesProcessed > 0) {
+            plugin.getAdventure().sender(sender).sendMessage(
+                    Component.text("全てのログ処理が完了しました！", NamedTextColor.GREEN)
+                            .append(Component.newline())
+                            .append(Component.text("合計処理ファイル数: " + totalFilesProcessed + "件", NamedTextColor.AQUA))
+            );
+        } else {
+            plugin.getAdventure().sender(sender).sendMessage(Component.text("処理対象のログファイルが見つかりませんでした。", NamedTextColor.GOLD));
         }
     }
 
+    private void handleResetCommand(CommandSender sender) {
+        plugin.getAdventure().sender(sender).sendMessage(Component.text("全参加者の統計情報をリセットしています...", NamedTextColor.YELLOW));
+        int count = participantManager.resetAllStats();
+        plugin.getAdventure().sender(sender).sendMessage(Component.text(count + " 人の参加者の統計情報をリセットしました。", NamedTextColor.GREEN));
+    }
+
+    private void parseJoinLeaveEvents(String line, Map<String, UUID> nameToUuidMap, Map<UUID, LocalDateTime> openSessions, LocalDateTime timestamp) {
+        Matcher joinMatcher = JOIN_PATTERN.matcher(line);
+        if (joinMatcher.find()) {
+            String playerName = joinMatcher.group(1);
+            UUID uuid = nameToUuidMap.get(playerName);
+            if (uuid != null && !openSessions.containsKey(uuid)) {
+                openSessions.put(uuid, timestamp);
+            }
+            return;
+        }
+
+        Matcher leaveMatcher = LEAVE_PATTERN.matcher(line);
+        if(leaveMatcher.find()) {
+            String playerName = leaveMatcher.group(1);
+            UUID uuid = nameToUuidMap.get(playerName);
+            if(uuid != null && openSessions.containsKey(uuid)) {
+                LocalDateTime joinTime = openSessions.get(uuid);
+                long playtime = Duration.between(joinTime, timestamp).getSeconds();
+                if(playtime > 0) participantManager.addPlaytime(uuid, playtime);
+                openSessions.remove(uuid);
+            }
+        }
+    }
+
+    // 他のメソッドは変更なし...
     private Map<UUID, LocalDateTime> loadOpenSessions(File sessionFile) {
         Map<UUID, LocalDateTime> openSessions = new HashMap<>();
         if (sessionFile.exists()) {
@@ -222,7 +244,6 @@ public class LogCommand implements CommandExecutor {
     private void saveOpenSessions(File sessionFile, Map<UUID, LocalDateTime> openSessions) {
         YamlConfiguration config = new YamlConfiguration();
         if (openSessions.isEmpty()) {
-            // セッションが空ならファイルを削除
             if (sessionFile.exists()) {
                 sessionFile.delete();
             }
@@ -283,15 +304,9 @@ public class LogCommand implements CommandExecutor {
         return false;
     }
 
-    private void handleResetCommand(CommandSender sender) {
-        plugin.getAdventure().sender(sender).sendMessage(Component.text("全参加者の統計情報をリセットしています...", NamedTextColor.YELLOW));
-        int count = participantManager.resetAllStats();
-        plugin.getAdventure().sender(sender).sendMessage(Component.text(count + " 人の参加者の統計情報をリセットしました。", NamedTextColor.GREEN));
-    }
-
     private void sendHelp(CommandSender sender) {
         sender.sendMessage("§6--- Log Command Help ---");
-        sender.sendMessage("§e/log add §7- ログファイルを1つ読み込み統計を合算します。");
+        sender.sendMessage("§e/log add §7- ログファイルを全て読み込み統計を合算します。");
         sender.sendMessage("§e/log reset §7- 全ての統計情報をリセットします。");
     }
 }
