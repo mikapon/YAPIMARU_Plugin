@@ -110,15 +110,6 @@ public class PlayerEventListener implements Listener {
         participantManager.incrementWCount(event.getPlayer().getUniqueId(), w_count);
     }
 
-    @EventHandler(priority = EventPriority.MONITOR)
-    public void onPlayerCommand(PlayerCommandPreprocessEvent event) {
-        if (event.getMessage().toLowerCase().startsWith("/skin")) {
-            return; // /skin コマンドは除外
-        }
-        participantManager.incrementChats(event.getPlayer().getUniqueId());
-    }
-
-
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
