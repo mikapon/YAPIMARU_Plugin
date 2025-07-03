@@ -16,7 +16,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
@@ -63,7 +62,7 @@ public class ParticipantManager {
                                 LocalDateTime quitTime = startupTime.minusMinutes(2); // Assume a 2-minute session if server crashed
                                 long playTime = Duration.between(LocalDateTime.ofInstant(Instant.ofEpochMilli(loginTimestamp), ZoneId.systemDefault()), quitTime).getSeconds();
                                 if (playTime > 0) {
-                                    addPlaytime(entry.getKey(), playTime);
+                                    data.addPlaytime(playTime);
                                 }
                             }
                             entry.getValue().setOnline(false);
@@ -90,7 +89,6 @@ public class ParticipantManager {
             Map<String, ParticipantData> map = (directory.equals(activeDir)) ? activeParticipants : dischargedParticipants;
 
             for (File file : files) {
-                // ファイルからデータを読み込む
                 loadParticipantFromFile(file, map);
             }
         };
@@ -138,7 +136,6 @@ public class ParticipantManager {
         if (player == null) return null;
         ParticipantData data = getParticipant(player.getUniqueId());
         if (data != null) {
-            // 既存データにアカウント情報がない場合(古いデータからの移行など)は追加
             if (!data.getAccounts().containsKey(player.getUniqueId())) {
                 data.addAccount(player.getUniqueId(), player.getName());
             }
@@ -222,39 +219,7 @@ public class ParticipantManager {
         ParticipantData data = findOrCreateParticipant(player);
         if (data == null) return;
 
-        boolean wasAlreadyOnline = data.isOnline();
-
-        ParticipantData.AccountInfo accountInfo = data.getAccounts().get(player.getUniqueId());
-        if (accountInfo != null) {
-            accountInfo.setOnline(true);
-        } else {
-            data.addAccount(player.getUniqueId(), player.getName());
-            data.getAccounts().get(player.getUniqueId()).setOnline(true);
-        }
-
-        if (!wasAlreadyOnline) {
-            LocalDateTime now = LocalDateTime.now();
-            List<String> joinHistory = data.getJoinHistory();
-            String lastJoinStr = joinHistory.isEmpty() ? null : joinHistory.get(joinHistory.size() - 1);
-
-            boolean shouldRecord = true;
-            if (lastJoinStr != null) {
-                try {
-                    LocalDateTime lastJoin = LocalDateTime.parse(lastJoinStr);
-                    if (Duration.between(lastJoin, now).toMinutes() < 10) {
-                        shouldRecord = false;
-                    }
-                } catch (Exception e) {
-                    // Ignore parse exception
-                }
-            }
-
-            if (shouldRecord) {
-                data.incrementStat("total_joins");
-                data.addHistoryEvent("join", now);
-            }
-        }
-
+        data.recordLogin(player.getUniqueId(), LocalDateTime.now());
         sessionStartTimes.put(player.getUniqueId(), System.currentTimeMillis());
         saveParticipant(data);
     }
@@ -264,20 +229,12 @@ public class ParticipantManager {
         if (data == null) return;
 
         Long loginTimestamp = sessionStartTimes.remove(player.getUniqueId());
+        long durationSeconds = 0;
         if (loginTimestamp != null) {
-            long durationSeconds = (System.currentTimeMillis() - loginTimestamp) / 1000;
-            if (durationSeconds > 0) {
-                addPlaytime(player.getUniqueId(), durationSeconds);
-                data.addPlaytimeToHistory(durationSeconds);
-            }
+            durationSeconds = (System.currentTimeMillis() - loginTimestamp) / 1000;
         }
 
-        data.setLastQuitTime(LocalDateTime.now());
-
-        ParticipantData.AccountInfo accountInfo = data.getAccounts().get(player.getUniqueId());
-        if (accountInfo != null) {
-            accountInfo.setOnline(false);
-        }
+        data.recordLogout(player.getUniqueId(), LocalDateTime.now(), durationSeconds);
         saveParticipant(data);
     }
 
@@ -296,19 +253,6 @@ public class ParticipantManager {
         return count;
     }
 
-    public synchronized void addPlaytime(UUID uuid, long secondsToAdd) {
-        ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
-        if (data == null) return;
-        long currentPlaytime = data.getStatistics().getOrDefault("total_playtime_seconds", 0L).longValue();
-        data.getStatistics().put("total_playtime_seconds", currentPlaytime + secondsToAdd);
-    }
-
-    public synchronized void addJoinHistory(UUID uuid, LocalDateTime joinTime) {
-        ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
-        if (data == null) return;
-        data.addHistoryEvent("join", joinTime);
-    }
-
     public synchronized void incrementPhotoshootParticipations(UUID uuid, LocalDateTime timestamp) {
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data == null) return;
@@ -320,12 +264,6 @@ public class ParticipantManager {
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data == null) return;
         data.incrementStat("total_deaths");
-    }
-
-    public synchronized void incrementJoins(UUID uuid) {
-        ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
-        if (data == null) return;
-        data.incrementStat("total_joins");
     }
 
     public synchronized void incrementChats(UUID uuid) {

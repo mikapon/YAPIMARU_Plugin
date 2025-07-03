@@ -68,7 +68,6 @@ public class PlayerEventListener implements Listener {
         restrictionManager.applyModeToPlayer(player);
 
         participantManager.recordLoginTime(player);
-        participantManager.incrementJoins(player.getUniqueId());
 
 
         joinInvinciblePlayers.put(player.getUniqueId(), System.currentTimeMillis() + 60000);
@@ -155,6 +154,7 @@ public class PlayerEventListener implements Listener {
 
     @EventHandler
     public void onPlayerDeath(PlayerDeathEvent event) {
+        // ★★★ このメソッド内の処理を修正 ★★★
         participantManager.incrementDeaths(event.getEntity().getUniqueId());
         pvpManager.handlePlayerDeath(event.getEntity());
     }

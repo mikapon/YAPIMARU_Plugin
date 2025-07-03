@@ -73,7 +73,7 @@ public class LogCommand implements CommandExecutor {
 
     private record LogLine(LocalDateTime timestamp, String content, String fileName) {}
     private record ProcessResult(boolean hasError, List<String> errorLines) {}
-    private record PlayerSession(LocalDateTime actualLoginTime, String loginLogLine, String loginFileName) {}
+    private record PlayerSession(LocalDateTime loginTime, String loginLogLine, String loginFileName) {}
 
 
     public LogCommand(YAPIMARU_Plugin plugin) {
@@ -309,31 +309,9 @@ public class LogCommand implements CommandExecutor {
                 String name = joinMatcher.group(1);
                 UUID uuid = findUuidForName(name, nameToUuidMap);
                 if (uuid != null) {
-                    if (!openSessions.containsKey(uuid)) {
-                        ParticipantData data = participantManager.findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
-                        List<String> joinHistory = data.getJoinHistory();
-                        String lastJoinStr = joinHistory.isEmpty() ? null : joinHistory.get(joinHistory.size() - 1);
-                        LocalDateTime sessionStartTime = timestamp;
-                        boolean isNewSession = true;
-
-                        if (lastJoinStr != null) {
-                            try {
-                                LocalDateTime lastJoin = LocalDateTime.parse(lastJoinStr);
-                                if (Duration.between(lastJoin, timestamp).toMinutes() < 10) {
-                                    isNewSession = false;
-                                    sessionStartTime = lastJoin;
-                                }
-                            } catch (DateTimeParseException e) {
-                                // Ignore parse error in history
-                            }
-                        }
-
-                        if (isNewSession) {
-                            participantManager.incrementJoins(uuid);
-                            participantManager.addJoinHistory(uuid, timestamp);
-                        }
-                        openSessions.put(uuid, new PlayerSession(sessionStartTime, content, log.fileName()));
-                    }
+                    ParticipantData data = participantManager.findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
+                    data.recordLogin(uuid, timestamp);
+                    openSessions.put(uuid, new PlayerSession(timestamp, content, log.fileName()));
                 } else if (!NON_PLAYER_ENTITIES.contains(name)) {
                     unmappedNames.add(name);
                 }
@@ -345,7 +323,7 @@ public class LogCommand implements CommandExecutor {
                 String name = lostConnectionMatcher.group(1);
                 UUID uuid = findUuidForName(name, nameToUuidMap);
                 if (uuid != null) {
-                    endPlayerSession(uuid, timestamp, openSessions, errorLines, content);
+                    endPlayerSession(uuid, timestamp, openSessions, errorLines);
                 }
                 continue;
             }
@@ -355,7 +333,7 @@ public class LogCommand implements CommandExecutor {
                 String name = leftGameMatcher.group(1);
                 UUID uuid = findUuidForName(name, nameToUuidMap);
                 if(uuid != null && openSessions.containsKey(uuid)) {
-                    endPlayerSession(uuid, timestamp, openSessions, errorLines, content);
+                    endPlayerSession(uuid, timestamp, openSessions, errorLines);
                 }
                 continue;
             }
@@ -368,7 +346,10 @@ public class LogCommand implements CommandExecutor {
                 }
                 UUID uuid = findUuidForName(potentialName, nameToUuidMap);
                 if (uuid != null) {
-                    participantManager.incrementDeaths(uuid);
+                    ParticipantData data = participantManager.getParticipant(uuid);
+                    if (data != null) {
+                        data.incrementStat("total_deaths");
+                    }
                 } else {
                     unmappedNames.add(potentialName);
                 }
@@ -387,8 +368,6 @@ public class LogCommand implements CommandExecutor {
             if (chatMatcher.find()) {
                 String name = chatMatcher.group(1);
 
-                // ★★★ 修正箇所 ★★★
-                // 名前が数字のみで構成されている場合は、プレイヤーのチャットとして扱わない
                 if (name.matches("^\\d+$")) {
                     continue;
                 }
@@ -422,21 +401,14 @@ public class LogCommand implements CommandExecutor {
         return new ProcessResult(!errorLines.isEmpty(), errorLines);
     }
 
-    private void endPlayerSession(UUID uuid, LocalDateTime timestamp, Map<UUID, PlayerSession> openSessions, List<String> errorLines, String originalContent) {
+    private void endPlayerSession(UUID uuid, LocalDateTime timestamp, Map<UUID, PlayerSession> openSessions, List<String> errorLines) {
         PlayerSession session = openSessions.remove(uuid);
         if (session != null) {
             ParticipantData data = participantManager.getParticipant(uuid);
             if (data == null) return;
 
-            long playTime = Duration.between(session.actualLoginTime(), timestamp).getSeconds();
-            if (playTime > 0) {
-                participantManager.addPlaytime(uuid, playTime);
-                data.addPlaytimeToHistory(playTime);
-            }
-            data.setLastQuitTime(timestamp);
-        } else {
-            // ログアウト記録はあるが、対応するログイン記録がセッション内にない場合
-            // これはエラーとして記録してもよいが、今回は無視して次の処理へ進む
+            long playTime = Duration.between(session.loginTime(), timestamp).getSeconds();
+            data.recordLogout(uuid, timestamp, playTime);
         }
     }
 
