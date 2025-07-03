@@ -16,6 +16,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
@@ -97,7 +98,7 @@ public class ParticipantManager {
         processDirectory.accept(activeDir);
         processDirectory.accept(dischargedDir);
 
-        plugin.getLogger().info("Loaded " + activeParticipants.size() + " active and " + dischargedParticipants.size() + " discharged participant data files.");
+        plugin.getLogger().info("Loaded " + activeParticipants.size() + " active and " + dischargedParticipants.size() + " participant data files.");
     }
 
     private synchronized void loadParticipantFromFile(File file, Map<String, ParticipantData> map) {
@@ -137,6 +138,10 @@ public class ParticipantManager {
         if (player == null) return null;
         ParticipantData data = getParticipant(player.getUniqueId());
         if (data != null) {
+            // 既存データにアカウント情報がない場合(古いデータからの移行など)は追加
+            if (!data.getAccounts().containsKey(player.getUniqueId())) {
+                data.addAccount(player.getUniqueId(), player.getName());
+            }
             return data;
         }
 
@@ -162,7 +167,6 @@ public class ParticipantManager {
         config.set("base_name", data.getBaseName());
         config.set("linked_name", data.getLinkedName());
 
-        // accounts セクションを保存
         config.setComments("accounts", List.of("紐付けられたUUIDと、その時点でのプレイヤー名の記録、オンライン状況"));
         for (Map.Entry<UUID, ParticipantData.AccountInfo> entry : data.getAccounts().entrySet()) {
             String uuidStr = entry.getKey().toString();
@@ -170,7 +174,6 @@ public class ParticipantManager {
             config.set("accounts." + uuidStr + ".online", entry.getValue().isOnline());
         }
 
-        // statisticsセクションをコメント付きで保存
         Map<String, Number> stats = data.getStatistics();
         config.set("statistics.total_deaths", stats.get("total_deaths"));
         config.setComments("statistics.total_deaths", List.of("デス合計数"));
@@ -185,13 +188,15 @@ public class ParticipantManager {
         config.set("statistics.w_count", stats.get("w_count"));
         config.setComments("statistics.w_count", List.of("w合計数"));
 
-        // 履歴リストをコメント付きで保存
         config.set("join-history", data.getJoinHistory());
         config.setComments("join-history", List.of("参加履歴"));
         config.set("photoshoot-history", data.getPhotoshootHistory());
         config.setComments("photoshoot-history", List.of("撮影参加履歴"));
+        config.set("last-quit-time", data.getLastQuitTime());
+        config.setComments("last-quit-time", List.of("最終退出時刻"));
+        config.set("playtime-history", data.getPlaytimeHistory());
+        config.setComments("playtime-history", List.of("直近10回のプレイ時間(秒)"));
 
-        // オンライン状態をコメント付きで保存
         config.set("is-online", data.isOnline());
         config.setComments("is-online", List.of("この参加者に紐づくアカウントのいずれかがオンラインか"));
 
@@ -217,16 +222,40 @@ public class ParticipantManager {
         ParticipantData data = findOrCreateParticipant(player);
         if (data == null) return;
 
-        sessionStartTimes.put(player.getUniqueId(), System.currentTimeMillis());
+        boolean wasAlreadyOnline = data.isOnline();
 
         ParticipantData.AccountInfo accountInfo = data.getAccounts().get(player.getUniqueId());
         if (accountInfo != null) {
             accountInfo.setOnline(true);
         } else {
-            // This case should ideally not happen if findOrCreateParticipant works correctly
             data.addAccount(player.getUniqueId(), player.getName());
             data.getAccounts().get(player.getUniqueId()).setOnline(true);
         }
+
+        if (!wasAlreadyOnline) {
+            LocalDateTime now = LocalDateTime.now();
+            List<String> joinHistory = data.getJoinHistory();
+            String lastJoinStr = joinHistory.isEmpty() ? null : joinHistory.get(joinHistory.size() - 1);
+
+            boolean shouldRecord = true;
+            if (lastJoinStr != null) {
+                try {
+                    LocalDateTime lastJoin = LocalDateTime.parse(lastJoinStr);
+                    if (Duration.between(lastJoin, now).toMinutes() < 10) {
+                        shouldRecord = false;
+                    }
+                } catch (Exception e) {
+                    // Ignore parse exception
+                }
+            }
+
+            if (shouldRecord) {
+                data.incrementStat("total_joins");
+                data.addHistoryEvent("join", now);
+            }
+        }
+
+        sessionStartTimes.put(player.getUniqueId(), System.currentTimeMillis());
         saveParticipant(data);
     }
 
@@ -237,21 +266,20 @@ public class ParticipantManager {
         Long loginTimestamp = sessionStartTimes.remove(player.getUniqueId());
         if (loginTimestamp != null) {
             long durationSeconds = (System.currentTimeMillis() - loginTimestamp) / 1000;
-            addPlaytime(player.getUniqueId(), durationSeconds);
-
-            if (durationSeconds >= 600) {
-                LocalDateTime joinTime = LocalDateTime.ofInstant(Instant.ofEpochMilli(loginTimestamp), ZoneId.systemDefault());
-                addJoinHistory(player.getUniqueId(), joinTime);
+            if (durationSeconds > 0) {
+                addPlaytime(player.getUniqueId(), durationSeconds);
+                data.addPlaytimeToHistory(durationSeconds);
             }
         }
+
+        data.setLastQuitTime(LocalDateTime.now());
 
         ParticipantData.AccountInfo accountInfo = data.getAccounts().get(player.getUniqueId());
         if (accountInfo != null) {
             accountInfo.setOnline(false);
-            saveParticipant(data);
         }
+        saveParticipant(data);
     }
-
 
     public synchronized int resetAllStats() {
         int count = 0;
@@ -423,7 +451,6 @@ public class ParticipantManager {
 
         return Stream.concat(activeParticipants.values().stream(), dischargedParticipants.values().stream())
                 .filter(pData -> {
-                    // base_name, linked_name, そして accounts の中の全ての名前をチェック
                     if (pData.getBaseName() != null && pData.getBaseName().toLowerCase().contains(lowerCaseName)) return true;
                     if (pData.getLinkedName() != null && pData.getLinkedName().toLowerCase().contains(lowerCaseName)) return true;
                     for (ParticipantData.AccountInfo accountInfo : pData.getAccounts().values()) {

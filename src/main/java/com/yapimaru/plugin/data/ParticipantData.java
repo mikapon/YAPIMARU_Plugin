@@ -5,6 +5,7 @@ import org.bukkit.configuration.ConfigurationSection;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.stream.Collectors;
 
 public class ParticipantData {
     private String baseName;
@@ -12,6 +13,8 @@ public class ParticipantData {
     private final Map<UUID, AccountInfo> accounts = new HashMap<>();
     private final Map<String, Number> statistics = new HashMap<>();
     private final List<String> joinHistory = new ArrayList<>();
+    private String lastQuitTime = null;
+    private final List<Long> playtimeHistory = new ArrayList<>();
     private final List<String> photoshootHistory = new ArrayList<>();
 
     public static class AccountInfo {
@@ -66,7 +69,6 @@ public class ParticipantData {
             }
         }
 
-
         ConfigurationSection statsSection = config.getConfigurationSection("statistics");
         if (statsSection != null) {
             for (String key : statsSection.getKeys(false)) {
@@ -76,6 +78,8 @@ public class ParticipantData {
 
         this.joinHistory.addAll(config.getStringList("join-history"));
         this.photoshootHistory.addAll(config.getStringList("photoshoot-history"));
+        this.lastQuitTime = config.getString("last-quit-time", null);
+        this.playtimeHistory.addAll(config.getLongList("playtime-history"));
 
         initializeStats();
     }
@@ -117,6 +121,8 @@ public class ParticipantData {
         statistics.put("w_count", 0);
         joinHistory.clear();
         photoshootHistory.clear();
+        lastQuitTime = null;
+        playtimeHistory.clear();
         accounts.values().forEach(acc -> acc.setOnline(false));
     }
 
@@ -154,8 +160,22 @@ public class ParticipantData {
     public Map<String, Number> getStatistics() { return statistics; }
     public List<String> getJoinHistory() { return joinHistory; }
     public List<String> getPhotoshootHistory() { return photoshootHistory; }
+    public String getLastQuitTime() { return lastQuitTime; }
+    public List<Long> getPlaytimeHistory() { return playtimeHistory; }
+
     public boolean isOnline() {
         return accounts.values().stream().anyMatch(AccountInfo::isOnline);
+    }
+
+    public void setLastQuitTime(LocalDateTime timestamp) {
+        this.lastQuitTime = (timestamp != null) ? timestamp.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) : null;
+    }
+
+    public void addPlaytimeToHistory(long seconds) {
+        this.playtimeHistory.add(seconds);
+        if (this.playtimeHistory.size() > 10) {
+            this.playtimeHistory.remove(0);
+        }
     }
 
     public void addAccount(UUID uuid, String name) {

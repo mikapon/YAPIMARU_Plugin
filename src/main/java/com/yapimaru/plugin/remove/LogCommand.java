@@ -49,7 +49,6 @@ public class LogCommand implements CommandExecutor {
     private static final Pattern UUID_PATTERN = Pattern.compile("UUID of player (\\S+) is ([0-9a-f\\-]+)");
     private static final Pattern FLOODGATE_UUID_PATTERN = Pattern.compile("\\[floodgate] Floodgate.+? (\\S+) でログインしているプレイヤーが参加しました \\(UUID: ([0-9a-f\\-]+)");
 
-    // ログイン・ログアウトのパターンをより厳密に修正
     private static final Pattern JOIN_PATTERN = Pattern.compile("\\] (\\.?[a-zA-Z0-9_]{2,16})(?:\\[.+])? (joined the game|logged in|logged in with entity|がマッチングしました)");
     private static final Pattern LOST_CONNECTION_PATTERN = Pattern.compile("\\] (\\.?[a-zA-Z0-9_]{2,16}) lost connection:.*");
     private static final Pattern LEFT_GAME_PATTERN = Pattern.compile("\\] (\\.?[a-zA-Z0-9_]{2,16}) (left the game|が退出しました)");
@@ -72,9 +71,9 @@ public class LogCommand implements CommandExecutor {
     ));
 
 
-    private record LogLine(LocalDateTime timestamp, String content) {}
+    private record LogLine(LocalDateTime timestamp, String content, String fileName) {}
     private record ProcessResult(boolean hasError, List<String> errorLines) {}
-    private record PlayerSession(LocalDateTime loginTime) {}
+    private record PlayerSession(LocalDateTime actualLoginTime, String loginLogLine, String loginFileName) {}
 
 
     public LogCommand(YAPIMARU_Plugin plugin) {
@@ -148,7 +147,6 @@ public class LogCommand implements CommandExecutor {
                 List<LogLine> allLines = new ArrayList<>();
                 Map<String, UUID> nameToUuidFromLog = new HashMap<>();
 
-                // First pass: build name-UUID map from logs
                 for (File logFile : sessionFiles) {
                     try (BufferedReader reader = getReaderForFile(logFile)) {
                         String line;
@@ -171,7 +169,6 @@ public class LogCommand implements CommandExecutor {
                     }
                 }
 
-                // Second pass: read all lines with correct timestamps
                 LocalDate currentDate = null;
                 LocalTime lastTime = LocalTime.MIN;
                 for (File logFile : sessionFiles) {
@@ -189,7 +186,7 @@ public class LogCommand implements CommandExecutor {
                                     if (currentTime.isBefore(lastTime)) {
                                         currentDate = currentDate.plusDays(1);
                                     }
-                                    allLines.add(new LogLine(currentDate.atTime(currentTime), line));
+                                    allLines.add(new LogLine(currentDate.atTime(currentTime), line, logFile.getName()));
                                     lastTime = currentTime;
                                 } catch (DateTimeParseException ignored) {}
                             }
@@ -313,8 +310,29 @@ public class LogCommand implements CommandExecutor {
                 UUID uuid = findUuidForName(name, nameToUuidMap);
                 if (uuid != null) {
                     if (!openSessions.containsKey(uuid)) {
-                        openSessions.put(uuid, new PlayerSession(timestamp));
-                        participantManager.incrementJoins(uuid);
+                        ParticipantData data = participantManager.findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
+                        List<String> joinHistory = data.getJoinHistory();
+                        String lastJoinStr = joinHistory.isEmpty() ? null : joinHistory.get(joinHistory.size() - 1);
+                        LocalDateTime sessionStartTime = timestamp;
+                        boolean isNewSession = true;
+
+                        if (lastJoinStr != null) {
+                            try {
+                                LocalDateTime lastJoin = LocalDateTime.parse(lastJoinStr);
+                                if (Duration.between(lastJoin, timestamp).toMinutes() < 10) {
+                                    isNewSession = false;
+                                    sessionStartTime = lastJoin;
+                                }
+                            } catch (DateTimeParseException e) {
+                                // Ignore parse error in history
+                            }
+                        }
+
+                        if (isNewSession) {
+                            participantManager.incrementJoins(uuid);
+                            participantManager.addJoinHistory(uuid, timestamp);
+                        }
+                        openSessions.put(uuid, new PlayerSession(sessionStartTime, content, log.fileName()));
                     }
                 } else if (!NON_PLAYER_ENTITIES.contains(name)) {
                     unmappedNames.add(name);
@@ -328,8 +346,6 @@ public class LogCommand implements CommandExecutor {
                 UUID uuid = findUuidForName(name, nameToUuidMap);
                 if (uuid != null) {
                     endPlayerSession(uuid, timestamp, openSessions, errorLines, content);
-                } else if (!NON_PLAYER_ENTITIES.contains(name)) {
-                    unmappedNames.add(name);
                 }
                 continue;
             }
@@ -338,12 +354,8 @@ public class LogCommand implements CommandExecutor {
             if (leftGameMatcher.find()) {
                 String name = leftGameMatcher.group(1);
                 UUID uuid = findUuidForName(name, nameToUuidMap);
-                if(uuid != null) {
-                    if (openSessions.containsKey(uuid)) {
-                        endPlayerSession(uuid, timestamp, openSessions, errorLines, content);
-                    }
-                } else if (!NON_PLAYER_ENTITIES.contains(name)) {
-                    unmappedNames.add(name);
+                if(uuid != null && openSessions.containsKey(uuid)) {
+                    endPlayerSession(uuid, timestamp, openSessions, errorLines, content);
                 }
                 continue;
             }
@@ -351,13 +363,7 @@ public class LogCommand implements CommandExecutor {
             Matcher deathMatcher = DEATH_PATTERN.matcher(content);
             if (deathMatcher.find()) {
                 String potentialName = deathMatcher.group(1).trim();
-                if (content.contains("Entity") && (content.contains("died, message:") || content.contains("died:"))) {
-                    continue;
-                }
                 if (NON_PLAYER_ENTITIES.contains(potentialName)) {
-                    continue;
-                }
-                if (!potentialName.matches("\\.?[a-zA-Z0-9_]{2,16}")) {
                     continue;
                 }
                 UUID uuid = findUuidForName(potentialName, nameToUuidMap);
@@ -387,8 +393,6 @@ public class LogCommand implements CommandExecutor {
                     if (wCount > 0) {
                         participantManager.incrementWCount(uuid, wCount);
                     }
-                } else if (!NON_PLAYER_ENTITIES.contains(name)) {
-                    unmappedNames.add(name);
                 }
             }
         }
@@ -400,86 +404,45 @@ public class LogCommand implements CommandExecutor {
         if (!openSessions.isEmpty()) {
             for (Map.Entry<UUID, PlayerSession> entry : openSessions.entrySet()) {
                 UUID pUuid = entry.getKey();
+                PlayerSession session = entry.getValue();
                 String name = Bukkit.getOfflinePlayer(pUuid).getName();
                 if (name == null) name = pUuid.toString();
-                errorLines.add("Player '" + name + "' session was not closed at the end of the server session.");
+                errorLines.add("Player '" + name + "' session was not closed.");
+                errorLines.add("  Login detected in file '" + session.loginFileName() + "' with line: " + session.loginLogLine());
             }
         }
 
         return new ProcessResult(!errorLines.isEmpty(), errorLines);
     }
 
+    private void endPlayerSession(UUID uuid, LocalDateTime timestamp, Map<UUID, PlayerSession> openSessions, List<String> errorLines, String originalContent) {
+        PlayerSession session = openSessions.remove(uuid);
+        if (session != null) {
+            ParticipantData data = participantManager.getParticipant(uuid);
+            if (data == null) return;
+
+            long playTime = Duration.between(session.actualLoginTime(), timestamp).getSeconds();
+            if (playTime > 0) {
+                participantManager.addPlaytime(uuid, playTime);
+                data.addPlaytimeToHistory(playTime);
+            }
+            data.setLastQuitTime(timestamp);
+        } else {
+            // ログアウト記録はあるが、対応するログイン記録がセッション内にない場合
+            // これはエラーとして記録してもよいが、今回は無視して次の処理へ進む
+        }
+    }
+
     private UUID findUuidForName(String name, Map<String, UUID> nameToUuidMap) {
         String lowerCaseName = name.toLowerCase();
 
-        // 1. 完全一致（事前にビルドしたマップから）
         if (nameToUuidMap.containsKey(lowerCaseName)) {
             return nameToUuidMap.get(lowerCaseName);
         }
 
-        // 2. ログの名前を分解して照合
-        String[] nameParts = lowerCaseName.split("[\\s()\\[\\]]");
-        Map<ParticipantData, Integer> matchScores = new HashMap<>();
-
-        Stream.concat(participantManager.getActiveParticipants().stream(), participantManager.getDischargedParticipants().stream())
-                .forEach(pData -> {
-                    int score = 0;
-                    for(String part : nameParts) {
-                        if (part.isEmpty()) continue;
-
-                        if(pData.getBaseName() != null && pData.getBaseName().toLowerCase().contains(part)) score++;
-                        if(pData.getLinkedName() != null && pData.getLinkedName().toLowerCase().contains(part)) score++;
-                        if(pData.getUuidToNameMap() != null) {
-                            for(String storedName : pData.getUuidToNameMap().values()) {
-                                if(storedName != null && storedName.toLowerCase().contains(part)) score++;
-                            }
-                        }
-                    }
-                    if (score > 0) {
-                        matchScores.put(pData, score);
-                    }
-                });
-
-        if (!matchScores.isEmpty()) {
-            // 最もスコアが高い参加者を返す
-            return Collections.max(matchScores.entrySet(), Map.Entry.comparingByValue()).getKey()
-                    .getAssociatedUuids().stream().findFirst().orElse(null);
-        }
-
-        // 3. Bedrockプレフィックスを試す（フォールバック）
-        if (lowerCaseName.startsWith(".")) {
-            String strippedName = lowerCaseName.substring(1);
-            if (nameToUuidMap.containsKey(strippedName)) {
-                return nameToUuidMap.get(strippedName);
-            }
-        }
-
-        // 4. ParticipantManagerの検索機能を利用
         Optional<ParticipantData> foundParticipant = participantManager.findParticipantByAnyName(name);
-        if (foundParticipant.isPresent()) {
-            return foundParticipant.get().getAssociatedUuids().stream().findFirst().orElse(null);
-        }
-
-        return null; //
+        return foundParticipant.flatMap(pData -> pData.getAssociatedUuids().stream().findFirst()).orElse(null);
     }
-
-    private void endPlayerSession(UUID uuid, LocalDateTime timestamp, Map<UUID, PlayerSession> openSessions, List<String> errorLines, String originalContent) {
-        PlayerSession session = openSessions.remove(uuid);
-        if (session != null) {
-            long playTime = Duration.between(session.loginTime(), timestamp).getSeconds();
-            if (playTime > 0) {
-                participantManager.addPlaytime(uuid, playTime);
-            }
-            if (playTime >= 600) { // 10分以上
-                participantManager.addJoinHistory(uuid, session.loginTime());
-            }
-        } else {
-            String name = Bukkit.getOfflinePlayer(uuid).getName();
-            if (name == null) name = uuid.toString();
-            errorLines.add("Attempted to close a session for player '" + name + "' that was not open: " + originalContent);
-        }
-    }
-
 
     private List<List<File>> groupLogsByServerSession(File logDir) {
         File[] logFiles = logDir.listFiles((dir, name) -> name.endsWith(".log") || name.endsWith(".log.gz"));
@@ -487,7 +450,6 @@ public class LogCommand implements CommandExecutor {
             return Collections.emptyList();
         }
 
-        // Custom comparator for natural sorting of log files
         Comparator<File> logFileComparator = (f1, f2) -> {
             Pattern pattern = Pattern.compile("(\\d{4}-\\d{2}-\\d{2})-(\\d+)\\.log(\\.gz)?");
             Matcher m1 = pattern.matcher(f1.getName());
@@ -509,7 +471,6 @@ public class LogCommand implements CommandExecutor {
         };
 
         Arrays.sort(logFiles, logFileComparator);
-
 
         List<List<File>> sessions = new ArrayList<>();
         List<File> currentSessionFiles = new ArrayList<>();
@@ -535,17 +496,19 @@ public class LogCommand implements CommandExecutor {
             }
 
             if (isStart) {
-                if (inSession) {
-                    if (!currentSessionFiles.isEmpty()) {
-                        sessions.add(new ArrayList<>(currentSessionFiles));
-                    }
+                if (inSession && !currentSessionFiles.isEmpty()) {
+                    sessions.add(new ArrayList<>(currentSessionFiles));
                 }
                 currentSessionFiles.clear();
                 currentSessionFiles.add(currentFile);
                 inSession = true;
             } else if (inSession) {
                 currentSessionFiles.add(currentFile);
+            } else if (!currentSessionFiles.isEmpty()){
+                // セッション外のファイルも前のセッションに含める
+                sessions.get(sessions.size()-1).add(currentFile);
             }
+
 
             if (isStop && inSession) {
                 sessions.add(new ArrayList<>(currentSessionFiles));
@@ -554,10 +517,7 @@ public class LogCommand implements CommandExecutor {
             }
         }
 
-        if (inSession && !currentSessionFiles.isEmpty()) {
-            sessions.add(currentSessionFiles);
-        } else if (!inSession && !currentSessionFiles.isEmpty()){
-            // Add remaining files as a session if they were not part of any session.
+        if (!currentSessionFiles.isEmpty()) {
             sessions.add(currentSessionFiles);
         }
 
