@@ -11,6 +11,8 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 
+import java.time.LocalDateTime;
+
 public class PhotographingCommand implements CommandExecutor {
     private final YAPIMARU_Plugin plugin;
     private final ParticipantManager participantManager;
@@ -29,8 +31,9 @@ public class PhotographingCommand implements CommandExecutor {
 
         if (args.length == 1 && args[0].equalsIgnoreCase("on")) {
             int count = 0;
+            LocalDateTime now = LocalDateTime.now();
             for (Player player : Bukkit.getOnlinePlayers()) {
-                participantManager.incrementPhotoshootParticipations(player.getUniqueId());
+                participantManager.incrementPhotoshootParticipations(player.getUniqueId(), now);
                 count++;
             }
             plugin.getAdventure().sender(sender).sendMessage(Component.text("オンラインの " + count + " 人の撮影参加回数を+1しました。", NamedTextColor.GREEN));

@@ -63,6 +63,8 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
         registerListeners();
         registerCommands();
 
+        participantManager.handleServerStartup();
+
         for (Player player : Bukkit.getOnlinePlayers()) {
             participantManager.recordLoginTime(player);
             nameManager.updatePlayerName(player);

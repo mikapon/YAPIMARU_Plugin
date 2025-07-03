@@ -1,6 +1,7 @@
 package com.yapimaru.plugin.remove;
 
 import com.yapimaru.plugin.YAPIMARU_Plugin;
+import com.yapimaru.plugin.data.ParticipantData;
 import com.yapimaru.plugin.managers.ParticipantManager;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -13,9 +14,11 @@ import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -28,6 +31,7 @@ import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class LogCommand implements CommandExecutor {
 
@@ -44,11 +48,12 @@ public class LogCommand implements CommandExecutor {
     private static final Pattern DEATH_PATTERN = Pattern.compile(
             "(\\S+?) (was squashed by a falling anvil|was shot by.*|was pricked to death|walked into a cactus.*|was squished too much|was squashed by.*|was roasted in dragon's breath|drowned|died from dehydration|was killed by even more magic|blew up|was blown up by.*|hit the ground too hard|was squashed by a falling block|was skewered by a falling stalactite|was fireballed by.*|went off with a bang|experienced kinetic energy|froze to death|was frozen to death by.*|died|died because of.*|was killed|discovered the floor was lava|walked into the danger zone due to.*|was killed by.*using magic|went up in flames|walked into fire.*|suffocated in a wall|tried to swim in lava|was struck by lightning|was smashed by.*|was killed by magic|was slain by.*|burned to death|was burned to a crisp.*|fell out of the world|didn't want to live in the same world as.*|left the confines of this world|was obliterated by a sonically-charged shriek|was impaled on a stalagmite|starved to death|was stung to death|was poked to death by a sweet berry bush|was killed while trying to hurt.*|was pummeled by.*|was impaled by.*|withered away|was shot by a skull from.*|was killed by.*)"
     );
-
+    private static final Pattern PHOTOGRAPHING_PATTERN = Pattern.compile(".*issued server command: /photographing on");
     private static final Pattern CHAT_PATTERN = Pattern.compile("<(\\S+)> (.*)");
 
     private record LogLine(LocalDateTime timestamp, String content) {}
     private record ProcessResult(boolean hasError, List<String> errorLines) {}
+    private record SessionInfo(LocalDateTime firstLogin, Set<UUID> onlineUuids) {}
 
     public LogCommand(YAPIMARU_Plugin plugin) {
         this.plugin = plugin;
@@ -106,7 +111,6 @@ public class LogCommand implements CommandExecutor {
             return;
         }
 
-        // Sort the groups chronologically
         List<Map.Entry<String, List<File>>> sortedGroups = new ArrayList<>(groupedLogFiles.entrySet());
         sortedGroups.sort(Comparator.comparing(entry -> entry.getKey(), (key1, key2) -> {
             Pattern keyPattern = Pattern.compile("(\\d{4}-\\d{2}-\\d{2})-(\\d+)");
@@ -125,8 +129,26 @@ public class LogCommand implements CommandExecutor {
                 }
                 return Integer.compare(num1, num2);
             }
-            return key1.compareTo(key2); // Fallback for non-matching keys
+            return key1.compareTo(key2);
         }));
+
+        Map<String, UUID> nameToUuidFromYml = new HashMap<>();
+        Stream.concat(
+                participantManager.getActiveParticipants().stream(),
+                participantManager.getDischargedParticipants().stream()
+        ).forEach(data -> {
+            if (!data.getAssociatedUuids().isEmpty()) {
+                data.getAssociatedUuids().forEach(uuid -> {
+                    nameToUuidFromYml.put(data.getBaseName(), uuid);
+                    if (data.getLinkedName() != null && !data.getLinkedName().isEmpty()) {
+                        nameToUuidFromYml.put(data.getLinkedName(), uuid);
+                    }
+                    if (data.getUuidToNameMap() != null) {
+                        data.getUuidToNameMap().forEach((u, name) -> nameToUuidFromYml.put(name, u));
+                    }
+                });
+            }
+        });
 
         int totalFilesProcessed = 0;
         for (Map.Entry<String, List<File>> entry : sortedGroups) {
@@ -137,7 +159,7 @@ public class LogCommand implements CommandExecutor {
 
             try {
                 List<LogLine> allLines = new ArrayList<>();
-                Map<String, UUID> nameToUuidMap = new HashMap<>();
+                Map<String, UUID> nameToUuidFromLog = new HashMap<>();
                 LocalDate baseDate = null;
 
                 for (File logFile : fileGroup) {
@@ -147,7 +169,7 @@ public class LogCommand implements CommandExecutor {
                         if (uuidMatcher.find()) {
                             try {
                                 UUID uuid = UUID.fromString(uuidMatcher.group(2));
-                                nameToUuidMap.put(uuidMatcher.group(1), uuid);
+                                nameToUuidFromLog.put(uuidMatcher.group(1), uuid);
                             } catch (IllegalArgumentException ignored) {}
                         }
                     });
@@ -174,20 +196,34 @@ public class LogCommand implements CommandExecutor {
                     }
                 }
 
+                Map<String, UUID> finalNameToUuidMap = new HashMap<>(nameToUuidFromYml);
+                finalNameToUuidMap.putAll(nameToUuidFromLog);
+
                 if (allLines.isEmpty()) {
                     moveFilesTo(fileGroup, processedDir);
                     continue;
                 }
 
-                ProcessResult result = processLogGroup(allLines, nameToUuidMap);
+                ProcessResult result = processLogGroup(allLines, finalNameToUuidMap);
 
                 if (result.hasError()) {
                     moveFilesTo(fileGroup, errorDir);
                     plugin.getAdventure().sender(sender).sendMessage(Component.text("グループ " + groupName + " に不整合があったためErrorフォルダに移動しました。", NamedTextColor.RED));
-                    plugin.getAdventure().sender(sender).sendMessage(Component.text("原因となった可能性のある行:", NamedTextColor.RED));
-                    for (String errorLine : result.errorLines()) {
-                        plugin.getAdventure().sender(sender).sendMessage(Component.text("  " + errorLine, NamedTextColor.YELLOW));
+
+                    File errorLogFile = new File(errorDir, "error.txt");
+                    List<String> outputLines = new ArrayList<>();
+                    outputLines.add(groupName);
+                    outputLines.add("原因となった可能性のある行:");
+                    outputLines.addAll(result.errorLines().stream().map(s -> "  " + s).toList());
+                    outputLines.add("");
+
+                    try {
+                        Files.write(errorLogFile.toPath(), outputLines, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                        plugin.getAdventure().sender(sender).sendMessage(Component.text("詳細は " + errorLogFile.getPath() + " に追記しました。", NamedTextColor.GRAY));
+                    } catch (IOException e) {
+                        logger.log(Level.SEVERE, "エラーログファイルの書き込みに失敗: " + errorLogFile.getName(), e);
                     }
+
                 } else {
                     moveFilesTo(fileGroup, processedDir);
                     totalFilesProcessed += fileGroup.size();
@@ -212,7 +248,7 @@ public class LogCommand implements CommandExecutor {
 
 
     private ProcessResult processLogGroup(List<LogLine> allLines, Map<String, UUID> nameToUuidMap) {
-        Map<UUID, LocalDateTime> openSessions = new HashMap<>();
+        Map<ParticipantData, SessionInfo> openSessions = new HashMap<>();
         List<String> errorLines = new ArrayList<>();
         Map<UUID, LocalDateTime> lastJoinEventTimes = new HashMap<>();
         Map<UUID, LocalDateTime> lastLeaveEventTimes = new HashMap<>();
@@ -220,13 +256,19 @@ public class LogCommand implements CommandExecutor {
         for (LogLine log : allLines) {
             Matcher joinMatcher = JOIN_PATTERN.matcher(log.content());
             if (joinMatcher.find()) {
-                UUID uuid = nameToUuidMap.get(joinMatcher.group(1));
+                String name = joinMatcher.group(1);
+                UUID uuid = nameToUuidMap.get(name);
                 if (uuid != null) {
+                    ParticipantData data = participantManager.findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
+                    if(data == null) continue;
+
                     LocalDateTime lastEvent = lastJoinEventTimes.get(uuid);
                     if (lastEvent == null || Duration.between(lastEvent, log.timestamp()).getSeconds() > 10) {
-                        participantManager.findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
-                        participantManager.incrementJoins(uuid);
-                        openSessions.putIfAbsent(uuid, log.timestamp());
+                        SessionInfo session = openSessions.computeIfAbsent(data, k -> new SessionInfo(log.timestamp(), new HashSet<>()));
+                        if(session.onlineUuids().isEmpty()) {
+                            participantManager.incrementJoins(uuid);
+                        }
+                        session.onlineUuids().add(uuid);
                         lastJoinEventTimes.put(uuid, log.timestamp());
                     }
                 }
@@ -235,14 +277,26 @@ public class LogCommand implements CommandExecutor {
 
             Matcher leaveMatcher = LEAVE_PATTERN.matcher(log.content());
             if (leaveMatcher.find()) {
-                UUID uuid = nameToUuidMap.get(leaveMatcher.group(1));
+                String name = leaveMatcher.group(1);
+                UUID uuid = nameToUuidMap.get(name);
                 if (uuid != null) {
+                    ParticipantData data = participantManager.getParticipant(uuid);
+                    if (data == null) continue;
+
                     LocalDateTime lastEvent = lastLeaveEventTimes.get(uuid);
                     if (lastEvent == null || Duration.between(lastEvent, log.timestamp()).getSeconds() > 10) {
-                        if (openSessions.containsKey(uuid)) {
-                            LocalDateTime joinTime = openSessions.remove(uuid);
-                            long playTime = Duration.between(joinTime, log.timestamp()).getSeconds();
-                            if (playTime > 0) participantManager.addPlaytime(uuid, playTime);
+                        SessionInfo session = openSessions.get(data);
+                        if (session != null && session.onlineUuids().contains(uuid)) {
+                            session.onlineUuids().remove(uuid);
+                            if(session.onlineUuids().isEmpty()){
+                                LocalDateTime joinTime = session.firstLogin();
+                                long playTime = Duration.between(joinTime, log.timestamp()).getSeconds();
+                                if (playTime > 0) participantManager.addPlaytime(uuid, playTime);
+                                if (playTime >= 600) {
+                                    participantManager.addJoinHistory(uuid, joinTime);
+                                }
+                                openSessions.remove(data);
+                            }
                         } else {
                             errorLines.add(log.content());
                         }
@@ -254,7 +308,8 @@ public class LogCommand implements CommandExecutor {
 
             Matcher deathMatcher = DEATH_PATTERN.matcher(log.content());
             if (deathMatcher.find()) {
-                UUID uuid = nameToUuidMap.get(deathMatcher.group(1));
+                String name = deathMatcher.group(1);
+                UUID uuid = nameToUuidMap.get(name);
                 if (uuid != null) {
                     participantManager.findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
                     participantManager.incrementDeaths(uuid);
@@ -262,9 +317,21 @@ public class LogCommand implements CommandExecutor {
                 continue;
             }
 
+            Matcher photoMatcher = PHOTOGRAPHING_PATTERN.matcher(log.content());
+            if (photoMatcher.find()) {
+                LocalDateTime timestamp = log.timestamp();
+                openSessions.keySet().forEach(data -> {
+                    data.getAssociatedUuids().forEach(uuid -> {
+                        participantManager.incrementPhotoshootParticipations(uuid, timestamp);
+                    });
+                });
+                continue;
+            }
+
             Matcher chatMatcher = CHAT_PATTERN.matcher(log.content());
             if (chatMatcher.find()) {
-                UUID uuid = nameToUuidMap.get(chatMatcher.group(1));
+                String name = chatMatcher.group(1);
+                UUID uuid = nameToUuidMap.get(name);
                 if (uuid != null) {
                     participantManager.findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
                     participantManager.incrementChats(uuid);
@@ -276,10 +343,15 @@ public class LogCommand implements CommandExecutor {
 
         if (!allLines.isEmpty()) {
             LocalDateTime lastLogTimestamp = allLines.get(allLines.size() - 1).timestamp();
-            for (Map.Entry<UUID, LocalDateTime> session : openSessions.entrySet()) {
-                long playTime = Duration.between(session.getValue(), lastLogTimestamp).getSeconds();
+            for (Map.Entry<ParticipantData, SessionInfo> entry : openSessions.entrySet()) {
+                UUID representativeUuid = entry.getKey().getAssociatedUuids().iterator().next();
+                LocalDateTime joinTime = entry.getValue().firstLogin();
+                long playTime = Duration.between(joinTime, lastLogTimestamp).getSeconds();
                 if (playTime > 0) {
-                    participantManager.addPlaytime(session.getKey(), playTime);
+                    participantManager.addPlaytime(representativeUuid, playTime);
+                }
+                if (playTime >= 600) {
+                    participantManager.addJoinHistory(representativeUuid, joinTime);
                 }
             }
         }

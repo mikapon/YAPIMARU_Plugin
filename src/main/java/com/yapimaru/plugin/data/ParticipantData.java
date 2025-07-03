@@ -2,6 +2,8 @@ package com.yapimaru.plugin.data;
 
 import org.bukkit.configuration.ConfigurationSection;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 public class ParticipantData {
@@ -10,6 +12,10 @@ public class ParticipantData {
     private final Set<UUID> associatedUuids = new HashSet<>();
     private final Map<String, Number> statistics = new HashMap<>();
     private final Map<UUID, String> uuidToNameMap = new HashMap<>();
+    private final List<String> joinHistory = new ArrayList<>();
+    private final List<String> photoshootHistory = new ArrayList<>();
+    private boolean isOnline = false;
+
 
     public ParticipantData(String baseName, String linkedName) {
         this.baseName = baseName;
@@ -36,6 +42,10 @@ public class ParticipantData {
             }
         }
 
+        this.joinHistory.addAll(config.getStringList("join-history"));
+        this.photoshootHistory.addAll(config.getStringList("photoshoot-history"));
+        this.isOnline = config.getBoolean("is-online", false);
+
         initializeStats();
     }
 
@@ -48,6 +58,25 @@ public class ParticipantData {
         statistics.putIfAbsent("w_count", 0);
     }
 
+    public void addHistoryEvent(String type, LocalDateTime timestamp) {
+        List<String> historyList;
+        if ("join".equalsIgnoreCase(type)) {
+            historyList = this.joinHistory;
+        } else if ("photoshoot".equalsIgnoreCase(type)) {
+            historyList = this.photoshootHistory;
+        } else {
+            return;
+        }
+
+        historyList.add(timestamp.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+        historyList.sort(Comparator.naturalOrder());
+
+        while (historyList.size() > 10) {
+            historyList.remove(0);
+        }
+    }
+
+
     public void resetStats() {
         statistics.put("total_deaths", 0);
         statistics.put("total_joins", 0);
@@ -55,6 +84,8 @@ public class ParticipantData {
         statistics.put("photoshoot_participations", 0);
         statistics.put("total_chats", 0);
         statistics.put("w_count", 0);
+        joinHistory.clear();
+        photoshootHistory.clear();
     }
 
     public String getParticipantId() {
@@ -84,6 +115,13 @@ public class ParticipantData {
     public Set<UUID> getAssociatedUuids() { return associatedUuids; }
     public Map<String, Number> getStatistics() { return statistics; }
     public Map<UUID, String> getUuidToNameMap() { return uuidToNameMap; }
+    public List<String> getJoinHistory() { return joinHistory; }
+    public List<String> getPhotoshootHistory() { return photoshootHistory; }
+    public boolean isOnline() { return isOnline; }
+
+    // Setters
+    public void setOnline(boolean online) { isOnline = online; }
+
 
     public void addAssociatedUuid(UUID uuid) {
         this.associatedUuids.add(uuid);

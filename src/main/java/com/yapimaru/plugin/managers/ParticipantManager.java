@@ -12,9 +12,15 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class ParticipantManager {
 
@@ -23,12 +29,12 @@ public class ParticipantManager {
     private final File activeDir;
     private final File dischargedDir;
 
-    private final Map<String, ParticipantData> activeParticipants = new HashMap<>(); // Key: participantId
+    private final Map<String, ParticipantData> activeParticipants = new HashMap<>();
     private final Map<UUID, ParticipantData> uuidToParticipantMap = new HashMap<>();
     private final Map<String, ParticipantData> dischargedParticipants = new HashMap<>();
 
-    private final Map<UUID, Long> loginTimestamps = new HashMap<>();
-    private final Map<UUID, Long> lastQuitTimestamps = new HashMap<>();
+    private final Map<ParticipantData, Long> sessionStartTimes = new ConcurrentHashMap<>();
+    private final Map<ParticipantData, Set<UUID>> onlineAccounts = new ConcurrentHashMap<>();
 
     public ParticipantManager(YAPIMARU_Plugin plugin) {
         this.plugin = plugin;
@@ -41,33 +47,27 @@ public class ParticipantManager {
 
         migrateOldFiles();
         loadAllParticipants();
-
-        // ★★★ この行をコンストラクタの最後に追加 ★★★
-        startPeriodicPlaytimeSaver();
     }
 
-    // ★★★ このメソッドを新たに追加 ★★★
-    private void startPeriodicPlaytimeSaver() {
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                // 現在オンラインの全プレイヤーに対して処理
-                for (Player player : Bukkit.getOnlinePlayers()) {
-                    UUID uuid = player.getUniqueId();
-                    if (loginTimestamps.containsKey(uuid)) {
-                        long loginTime = loginTimestamps.get(uuid);
-                        long currentTime = System.currentTimeMillis();
-                        long durationSeconds = (currentTime - loginTime) / 1000;
+    public void handleServerStartup() {
+        LocalDateTime startupTime = LocalDateTime.now();
+        Stream.concat(activeParticipants.values().stream(), dischargedParticipants.values().stream())
+                .filter(ParticipantData::isOnline)
+                .forEach(data -> {
+                    plugin.getLogger().warning("Player " + data.getDisplayName() + " was marked as online during startup. Correcting session data.");
 
-                        if (durationSeconds > 0) {
-                            addPlaytime(uuid, durationSeconds);
-                            // 次の計算のために、現在の時刻を新しいログイン時刻として記録
-                            loginTimestamps.put(uuid, currentTime);
+                    Long loginTimestamp = sessionStartTimes.remove(data);
+                    if (loginTimestamp != null) {
+                        LocalDateTime quitTime = startupTime.minusMinutes(2);
+                        long playTime = Duration.between(LocalDateTime.ofInstant(Instant.ofEpochMilli(loginTimestamp), ZoneId.systemDefault()), quitTime).getSeconds();
+                        if (playTime > 0) {
+                            addPlaytime(data.getAssociatedUuids().iterator().next(), playTime);
                         }
                     }
-                }
-            }
-        }.runTaskTimerAsynchronously(plugin, 20L * 60 * 5, 20L * 60 * 5); // 5分ごと (5 * 60 * 20 ticks)
+
+                    data.setOnline(false);
+                    saveParticipant(data);
+                });
     }
 
 
@@ -89,7 +89,7 @@ public class ParticipantManager {
                 loadParticipantFromFile(file, dischargedParticipants);
             }
         }
-        plugin.getLogger().info("Loaded " + activeParticipants.size() + " active and " + dischargedParticipants.size() + " discharged participant data files.");
+        plugin.getLogger().info("Loaded " + activeParticipants.size() + " active and " + dischargedParticipants.size() + " participant data files.");
     }
 
     private void loadParticipantFromFile(File file, Map<String, ParticipantData> map) {
@@ -127,14 +127,15 @@ public class ParticipantManager {
 
     public ParticipantData findOrCreateParticipant(OfflinePlayer player) {
         if (player == null) return null;
-        if (uuidToParticipantMap.containsKey(player.getUniqueId())) {
-            return uuidToParticipantMap.get(player.getUniqueId());
+        ParticipantData data = getParticipant(player.getUniqueId());
+        if (data != null) {
+            return data;
         }
 
         String baseName = player.getName() != null ? player.getName() : player.getUniqueId().toString();
         String linkedName = "";
 
-        ParticipantData data = new ParticipantData(baseName, linkedName);
+        data = new ParticipantData(baseName, linkedName);
         data.addAssociatedUuid(player.getUniqueId());
 
         registerNewParticipant(data);
@@ -170,13 +171,10 @@ public class ParticipantManager {
 
         String statsPath = "statistics";
         config.createSection(statsPath, data.getStatistics());
-        config.setComments(statsPath, List.of("統計情報"));
-        config.setComments(statsPath + ".total_deaths", List.of("デス合計"));
-        config.setComments(statsPath + ".total_joins", List.of("サーバー入室合計回数"));
-        config.setComments(statsPath + ".total_playtime_seconds", List.of("サーバー参加合計時間"));
-        config.setComments(statsPath + ".photoshoot_participations", List.of("撮影参加合計回数"));
-        config.setComments(statsPath + ".total_chats", List.of("チャット合計回数"));
-        config.setComments(statsPath + ".w_count", List.of("w合計数"));
+
+        config.set("join-history", data.getJoinHistory());
+        config.set("photoshoot-history", data.getPhotoshootHistory());
+        config.set("is-online", data.isOnline());
 
         try {
             config.save(file);
@@ -193,6 +191,114 @@ public class ParticipantManager {
         for (UUID uuid : data.getAssociatedUuids()) {
             uuidToParticipantMap.put(uuid, data);
         }
+        saveParticipant(data);
+    }
+
+    public void recordLoginTime(Player player) {
+        ParticipantData data = findOrCreateParticipant(player);
+        if (data == null) return;
+
+        Set<UUID> currentlyOnline = onlineAccounts.computeIfAbsent(data, k -> new HashSet<>());
+        if (currentlyOnline.isEmpty()) {
+            sessionStartTimes.put(data, System.currentTimeMillis());
+            data.setOnline(true);
+            data.incrementStat("total_joins");
+            saveParticipant(data);
+        }
+        currentlyOnline.add(player.getUniqueId());
+    }
+
+    public void recordQuitTime(Player player) {
+        ParticipantData data = getParticipant(player.getUniqueId());
+        if (data == null) return;
+
+        Set<UUID> currentlyOnline = onlineAccounts.get(data);
+        if (currentlyOnline != null) {
+            currentlyOnline.remove(player.getUniqueId());
+
+            if (currentlyOnline.isEmpty()) {
+                Long loginTimestamp = sessionStartTimes.remove(data);
+                if (loginTimestamp != null) {
+                    long durationSeconds = (System.currentTimeMillis() - loginTimestamp) / 1000;
+                    addPlaytime(player.getUniqueId(), durationSeconds);
+
+                    if (durationSeconds >= 600) { // 10 minutes
+                        LocalDateTime joinTime = LocalDateTime.ofInstant(Instant.ofEpochMilli(loginTimestamp), ZoneId.systemDefault());
+                        addJoinHistory(player.getUniqueId(), joinTime);
+                    }
+                }
+                data.setOnline(false);
+                saveParticipant(data);
+                onlineAccounts.remove(data);
+            }
+        }
+    }
+
+
+    public int resetAllStats() {
+        int count = 0;
+        for (ParticipantData data : activeParticipants.values()) {
+            data.resetStats();
+            saveParticipant(data);
+            count++;
+        }
+        for (ParticipantData data : dischargedParticipants.values()) {
+            data.resetStats();
+            saveParticipant(data);
+            count++;
+        }
+        return count;
+    }
+
+    public void addPlaytime(UUID uuid, long secondsToAdd) {
+        ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
+        if (data == null) return;
+        long currentPlaytime = data.getStatistics().getOrDefault("total_playtime_seconds", 0L).longValue();
+        data.getStatistics().put("total_playtime_seconds", currentPlaytime + secondsToAdd);
+        saveParticipant(data);
+    }
+
+    public void addJoinHistory(UUID uuid, LocalDateTime joinTime) {
+        ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
+        if (data == null) return;
+        data.addHistoryEvent("join", joinTime);
+        saveParticipant(data);
+    }
+
+    public void incrementPhotoshootParticipations(UUID uuid, LocalDateTime timestamp) {
+        ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
+        if (data == null) return;
+        data.incrementStat("photoshoot_participations");
+        data.addHistoryEvent("photoshoot", timestamp);
+        saveParticipant(data);
+    }
+
+    public void incrementDeaths(UUID uuid) {
+        ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
+        if (data == null) return;
+        data.incrementStat("total_deaths");
+        saveParticipant(data);
+    }
+
+    public void incrementJoins(UUID uuid) {
+        ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
+        if (data == null) return;
+        data.incrementStat("total_joins");
+    }
+
+    public void incrementChats(UUID uuid) {
+        ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
+        if (data == null) return;
+        data.incrementStat("total_chats");
+        saveParticipant(data);
+    }
+
+    public void incrementWCount(UUID uuid, int amount) {
+        if (amount == 0) return;
+        ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
+        if (data == null) return;
+        long currentWCount = data.getStatistics().getOrDefault("w_count", 0L).longValue();
+        data.getStatistics().put("w_count", currentWCount + amount);
         saveParticipant(data);
     }
 
@@ -240,99 +346,6 @@ public class ParticipantManager {
         return uuidToParticipantMap.keySet();
     }
 
-    public Set<UUID> getAssociatedUuidsFromDischarged() {
-        return dischargedParticipants.values().stream()
-                .flatMap(p -> p.getAssociatedUuids().stream())
-                .collect(Collectors.toSet());
-    }
-
-    public int resetAllStats() {
-        int count = 0;
-        for (ParticipantData data : activeParticipants.values()) {
-            data.resetStats();
-            saveParticipant(data);
-            count++;
-        }
-        for (ParticipantData data : dischargedParticipants.values()) {
-            data.resetStats();
-            saveParticipant(data);
-            count++;
-        }
-        return count;
-    }
-
-    // --- Statistics Methods ---
-    public void incrementDeaths(UUID uuid) {
-        ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
-        if (data == null) return;
-        data.incrementStat("total_deaths");
-        saveParticipant(data);
-    }
-
-    public void incrementJoins(UUID uuid) {
-        long currentTime = System.currentTimeMillis();
-        if (lastQuitTimestamps.containsKey(uuid)) {
-            long lastQuit = lastQuitTimestamps.get(uuid);
-            if (currentTime - lastQuit < 10 * 60 * 1000) {
-                return;
-            }
-        }
-
-        ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
-        if (data == null) return;
-        data.incrementStat("total_joins");
-        saveParticipant(data);
-    }
-
-    public void addPlaytime(UUID uuid, long secondsToAdd) {
-        ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
-        if (data == null) return;
-        long currentPlaytime = data.getStatistics().getOrDefault("total_playtime_seconds", 0L).longValue();
-        data.getStatistics().put("total_playtime_seconds", currentPlaytime + secondsToAdd);
-        saveParticipant(data);
-    }
-
-    public void incrementPhotoshootParticipations(UUID uuid) {
-        ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
-        if (data == null) return;
-        data.incrementStat("photoshoot_participations");
-        saveParticipant(data);
-    }
-
-    public void incrementChats(UUID uuid) {
-        ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
-        if (data == null) return;
-        data.incrementStat("total_chats");
-        saveParticipant(data);
-    }
-
-    public void incrementWCount(UUID uuid, int amount) {
-        if (amount == 0) return;
-        ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
-        if (data == null) return;
-        long currentWCount = data.getStatistics().getOrDefault("w_count", 0L).longValue();
-        data.getStatistics().put("w_count", currentWCount + amount);
-        saveParticipant(data);
-    }
-
-    // --- Join/Quit Time Tracking ---
-    public void recordLoginTime(Player player) {
-        loginTimestamps.put(player.getUniqueId(), System.currentTimeMillis());
-        findOrCreateParticipant(player);
-    }
-
-    public void recordQuitTime(Player player) {
-        UUID uuid = player.getUniqueId();
-        lastQuitTimestamps.put(uuid, System.currentTimeMillis());
-
-        if (loginTimestamps.containsKey(uuid)) {
-            long loginTime = loginTimestamps.remove(uuid);
-            long durationMillis = System.currentTimeMillis() - loginTime;
-            addPlaytime(uuid, durationMillis / 1000);
-        }
-    }
-
-    // --- Name Management Logic ---
     public boolean changePlayerName(UUID uuid, String newBaseName, String newLinkedName) {
         ParticipantData oldData = getParticipant(uuid);
         if (oldData == null) return false;
