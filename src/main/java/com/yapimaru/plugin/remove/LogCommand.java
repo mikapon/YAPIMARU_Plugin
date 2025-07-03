@@ -53,6 +53,7 @@ public class LogCommand implements CommandExecutor {
     private static final Pattern JOIN_PATTERN = Pattern.compile("] (.+?)(?:\\[.*])? (joined the game|logged in|logged in with entity|がマッチングしました)");
     private static final Pattern LOST_CONNECTION_PATTERN = Pattern.compile("] (.+?) lost connection:.*");
     private static final Pattern LEFT_GAME_PATTERN = Pattern.compile("] (.+?) (left the game|が退出しました)");
+    private static final Pattern WHITELIST_KICK_PATTERN = Pattern.compile("You are not whitelisted on this server!");
 
 
     private static final Pattern DEATH_PATTERN = Pattern.compile(
@@ -301,6 +302,11 @@ public class LogCommand implements CommandExecutor {
         for (LogLine log : allLines) {
             LocalDateTime timestamp = log.timestamp();
             String content = log.content();
+
+            // Whitelist kick check
+            if (WHITELIST_KICK_PATTERN.matcher(content).find()) {
+                continue; // Skip this line
+            }
 
             Matcher joinMatcher = JOIN_PATTERN.matcher(content);
             if (joinMatcher.find()) {

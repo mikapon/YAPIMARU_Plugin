@@ -70,16 +70,18 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
             nameManager.updatePlayerName(player);
         }
 
-        getLogger().info("YAPIMARU Plugin has been enabled!");
-    }
-
-    @Override
-    public void onDisable() {
+        // Reset player names when the plugin is enabled
         if (nameManager != null) {
             for (Player player : Bukkit.getOnlinePlayers()) {
                 nameManager.resetPlayerName(player);
             }
         }
+
+        getLogger().info("YAPIMARU Plugin has been enabled!");
+    }
+
+    @Override
+    public void onDisable() {
         if (timerManager != null) timerManager.forceStop(true);
 
         if (participantManager != null) {
