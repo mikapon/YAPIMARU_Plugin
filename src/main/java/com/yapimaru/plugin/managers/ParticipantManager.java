@@ -49,7 +49,7 @@ public class ParticipantManager {
         loadAllParticipants();
     }
 
-    public void handleServerStartup() {
+    public synchronized void handleServerStartup() {
         LocalDateTime startupTime = LocalDateTime.now();
         Stream.concat(activeParticipants.values().stream(), dischargedParticipants.values().stream())
                 .filter(ParticipantData::isOnline)
@@ -72,7 +72,7 @@ public class ParticipantManager {
     }
 
 
-    private void loadAllParticipants() {
+    private synchronized void loadAllParticipants() {
         activeParticipants.clear();
         uuidToParticipantMap.clear();
         dischargedParticipants.clear();
@@ -107,7 +107,7 @@ public class ParticipantManager {
         plugin.getLogger().info("Loaded " + activeParticipants.size() + " active and " + dischargedParticipants.size() + " discharged participant data files.");
     }
 
-    private void loadParticipantFromFile(File file, Map<String, ParticipantData> map) {
+    private synchronized void loadParticipantFromFile(File file, Map<String, ParticipantData> map) {
         YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
         ParticipantData data = new ParticipantData(config);
         map.put(data.getParticipantId(), data);
@@ -118,29 +118,29 @@ public class ParticipantManager {
         }
     }
 
-    public void reloadAllParticipants() {
+    public synchronized void reloadAllParticipants() {
         plugin.getLogger().info("Reloading all participant data...");
         loadAllParticipants();
     }
 
-    public ParticipantData getParticipant(UUID uuid) {
+    public synchronized ParticipantData getParticipant(UUID uuid) {
         return uuidToParticipantMap.get(uuid);
     }
 
-    public ParticipantData getParticipant(String participantId) {
+    public synchronized ParticipantData getParticipant(String participantId) {
         return activeParticipants.get(participantId);
     }
 
 
-    public Collection<ParticipantData> getActiveParticipants() {
-        return Collections.unmodifiableCollection(activeParticipants.values());
+    public synchronized Collection<ParticipantData> getActiveParticipants() {
+        return Collections.unmodifiableCollection(new ArrayList<>(activeParticipants.values()));
     }
 
-    public Collection<ParticipantData> getDischargedParticipants() {
-        return Collections.unmodifiableCollection(dischargedParticipants.values());
+    public synchronized Collection<ParticipantData> getDischargedParticipants() {
+        return Collections.unmodifiableCollection(new ArrayList<>(dischargedParticipants.values()));
     }
 
-    public ParticipantData findOrCreateParticipant(OfflinePlayer player) {
+    public synchronized ParticipantData findOrCreateParticipant(OfflinePlayer player) {
         if (player == null) return null;
         ParticipantData data = getParticipant(player.getUniqueId());
         if (data != null) {
@@ -157,7 +157,7 @@ public class ParticipantManager {
         return data;
     }
 
-    public void saveParticipant(ParticipantData data) {
+    public synchronized void saveParticipant(ParticipantData data) {
         if (data == null) return;
 
         boolean isDischarged = dischargedParticipants.containsKey(data.getParticipantId());
@@ -214,7 +214,7 @@ public class ParticipantManager {
         }
     }
 
-    public void registerNewParticipant(ParticipantData data) {
+    public synchronized void registerNewParticipant(ParticipantData data) {
         if (data == null || data.getParticipantId() == null || data.getParticipantId().isEmpty()) {
             return;
         }
@@ -225,7 +225,7 @@ public class ParticipantManager {
         saveParticipant(data);
     }
 
-    public void recordLoginTime(Player player) {
+    public synchronized void recordLoginTime(Player player) {
         ParticipantData data = findOrCreateParticipant(player);
         if (data == null) return;
 
@@ -233,12 +233,13 @@ public class ParticipantManager {
         if (currentlyOnline.isEmpty()) {
             sessionStartTimes.put(data, System.currentTimeMillis());
             data.setOnline(true);
-            incrementJoins(player.getUniqueId());
+            // incrementJoins(player.getUniqueId()); // Join event already handles this
         }
         currentlyOnline.add(player.getUniqueId());
+        saveParticipant(data);
     }
 
-    public void recordQuitTime(Player player) {
+    public synchronized void recordQuitTime(Player player) {
         ParticipantData data = getParticipant(player.getUniqueId());
         if (data == null) return;
 
@@ -265,7 +266,7 @@ public class ParticipantManager {
     }
 
 
-    public int resetAllStats() {
+    public synchronized int resetAllStats() {
         int count = 0;
         for (ParticipantData data : activeParticipants.values()) {
             data.resetStats();
@@ -280,7 +281,7 @@ public class ParticipantManager {
         return count;
     }
 
-    public void addPlaytime(UUID uuid, long secondsToAdd) {
+    public synchronized void addPlaytime(UUID uuid, long secondsToAdd) {
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data == null) return;
         long currentPlaytime = data.getStatistics().getOrDefault("total_playtime_seconds", 0L).longValue();
@@ -288,14 +289,14 @@ public class ParticipantManager {
         saveParticipant(data);
     }
 
-    public void addJoinHistory(UUID uuid, LocalDateTime joinTime) {
+    public synchronized void addJoinHistory(UUID uuid, LocalDateTime joinTime) {
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data == null) return;
         data.addHistoryEvent("join", joinTime);
         saveParticipant(data);
     }
 
-    public void incrementPhotoshootParticipations(UUID uuid, LocalDateTime timestamp) {
+    public synchronized void incrementPhotoshootParticipations(UUID uuid, LocalDateTime timestamp) {
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data == null) return;
         data.incrementStat("photoshoot_participations");
@@ -303,28 +304,28 @@ public class ParticipantManager {
         saveParticipant(data);
     }
 
-    public void incrementDeaths(UUID uuid) {
+    public synchronized void incrementDeaths(UUID uuid) {
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data == null) return;
         data.incrementStat("total_deaths");
         saveParticipant(data);
     }
 
-    public void incrementJoins(UUID uuid) {
+    public synchronized void incrementJoins(UUID uuid) {
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data == null) return;
         data.incrementStat("total_joins");
         saveParticipant(data);
     }
 
-    public void incrementChats(UUID uuid) {
+    public synchronized void incrementChats(UUID uuid) {
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data == null) return;
         data.incrementStat("total_chats");
         saveParticipant(data);
     }
 
-    public void incrementWCount(UUID uuid, int amount) {
+    public synchronized void incrementWCount(UUID uuid, int amount) {
         if (amount == 0) return;
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data == null) return;
@@ -333,7 +334,7 @@ public class ParticipantManager {
         saveParticipant(data);
     }
 
-    public boolean moveParticipantToActive(String participantId) {
+    public synchronized boolean moveParticipantToActive(String participantId) {
         ParticipantData data = dischargedParticipants.remove(participantId);
         if (data == null) return false;
 
@@ -353,7 +354,7 @@ public class ParticipantManager {
         }
     }
 
-    public boolean moveParticipantToDischarged(String participantId) {
+    public synchronized boolean moveParticipantToDischarged(String participantId) {
         ParticipantData data = activeParticipants.remove(participantId);
         if (data == null) return false;
 
@@ -373,11 +374,11 @@ public class ParticipantManager {
         }
     }
 
-    public Set<UUID> getAllAssociatedUuidsFromActive() {
-        return uuidToParticipantMap.keySet();
+    public synchronized Set<UUID> getAllAssociatedUuidsFromActive() {
+        return new HashSet<>(uuidToParticipantMap.keySet());
     }
 
-    public boolean changePlayerName(UUID uuid, String newBaseName, String newLinkedName) {
+    public synchronized boolean changePlayerName(UUID uuid, String newBaseName, String newLinkedName) {
         ParticipantData oldData = getParticipant(uuid);
         if (oldData == null) return false;
 
