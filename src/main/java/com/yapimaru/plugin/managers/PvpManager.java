@@ -648,7 +648,6 @@ public class PvpManager {
         return Bukkit.getOnlinePlayers().stream().filter(p -> getPlayerTeamTag(p) != null).collect(Collectors.toList());
     }
 
-    @SuppressWarnings("deprecation")
     public void updatePlayerScoreboard(Player player) {
         if (!player.isOnline()) return;
 
@@ -675,8 +674,6 @@ public class PvpManager {
             }
 
             pvpBoardTeam.setColor(mainBoardTeam.getColor());
-            // ★★★ 修正箇所 ★★★
-            // setPrefix/setSuffixを使用
             pvpBoardTeam.setPrefix(mainBoardTeam.getPrefix());
             pvpBoardTeam.setSuffix(mainBoardTeam.getSuffix());
             pvpBoardTeam.setOption(Team.Option.NAME_TAG_VISIBILITY, mainBoardTeam.getOption(Team.Option.NAME_TAG_VISIBILITY));

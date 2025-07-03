@@ -93,7 +93,7 @@ public class NameManager {
         }
 
         ChatColor teamColor = team.getColor();
-        if (teamColor == ChatColor.RESET) {
+        if (teamColor == null || teamColor == ChatColor.RESET) {
             teamColor = ChatColor.WHITE;
         }
 
@@ -102,11 +102,11 @@ public class NameManager {
 
         String listName;
         if (linkedName != null && !linkedName.isEmpty()) {
-            listName = teamColor + displayName + ChatColor.RESET;
+            listName = teamColor + displayName;
             team.setPrefix(prefix + teamColor + linkedName + ChatColor.GRAY + "(");
             team.setSuffix(ChatColor.GRAY + ")");
         } else {
-            listName = teamColor + displayName + ChatColor.RESET;
+            listName = teamColor + displayName;
             team.setPrefix(prefix + teamColor);
             team.setSuffix("");
         }
@@ -127,7 +127,6 @@ public class NameManager {
             team.setColor(ChatColor.WHITE);
         } else {
             ChatColor chatColor = mapWoolColorToChatColor(colorName);
-            if(chatColor == null) return false;
             team.setColor(chatColor);
         }
 

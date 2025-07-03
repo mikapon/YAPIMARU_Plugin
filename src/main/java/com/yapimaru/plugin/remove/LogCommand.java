@@ -340,7 +340,9 @@ public class LogCommand implements CommandExecutor {
 
             Matcher photoMatcher = PHOTOGRAPHING_PATTERN.matcher(content);
             if (photoMatcher.find()) {
-                openSessions.keySet().forEach(pUuid -> participantManager.incrementPhotoshootParticipations(pUuid, timestamp));
+                for (UUID pUuid : openSessions.keySet()) {
+                    participantManager.incrementPhotoshootParticipations(pUuid, timestamp);
+                }
                 continue;
             }
 
@@ -377,7 +379,6 @@ public class LogCommand implements CommandExecutor {
         return new ProcessResult(!errorLines.isEmpty(), errorLines);
     }
 
-    // --- 修正箇所 ---
     private UUID findUuidForName(String name, Map<String, UUID> nameToUuidMap) {
         // 1. マップから直接検索
         UUID uuid = nameToUuidMap.get(name);
@@ -395,7 +396,6 @@ public class LogCommand implements CommandExecutor {
                 .flatMap(pData -> pData.getAssociatedUuids().stream().findFirst())
                 .orElse(null);
     }
-    // --- 修正ここまで ---
 
     private void endPlayerSession(UUID uuid, LocalDateTime timestamp, Map<UUID, PlayerSession> openSessions, List<String> errorLines, String originalContent) {
         PlayerSession session = openSessions.remove(uuid);
