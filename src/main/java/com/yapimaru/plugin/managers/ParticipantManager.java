@@ -33,7 +33,6 @@ public class ParticipantManager {
     private final Map<UUID, ParticipantData> uuidToParticipantMap = new HashMap<>();
     private final Map<String, ParticipantData> dischargedParticipants = new HashMap<>();
 
-    // ★★★ 修正点 ★★★: アカウント単位のオンライン状態を管理するマップを追加
     private final Map<ParticipantData, Long> sessionStartTimes = new ConcurrentHashMap<>();
     private final Map<ParticipantData, Set<UUID>> onlineAccounts = new ConcurrentHashMap<>();
 
@@ -57,10 +56,9 @@ public class ParticipantManager {
                 .forEach(data -> {
                     plugin.getLogger().warning("Player " + data.getDisplayName() + " was marked as online during startup. Correcting session data.");
 
-                    // ★★★ 修正点 ★★★: 新しいアカウント管理方法に合わせて修正
                     Long loginTimestamp = sessionStartTimes.remove(data);
                     if (loginTimestamp != null) {
-                        LocalDateTime quitTime = startupTime.minusMinutes(2); // サーバーが落ちる2分前に切断したと仮定
+                        LocalDateTime quitTime = startupTime.minusMinutes(2);
                         long playTime = Duration.between(LocalDateTime.ofInstant(Instant.ofEpochMilli(loginTimestamp), ZoneId.systemDefault()), quitTime).getSeconds();
                         if (playTime > 0) {
                             addPlaytime(data.getAssociatedUuids().iterator().next(), playTime);
@@ -70,7 +68,6 @@ public class ParticipantManager {
                     data.setOnline(false);
                     saveParticipant(data);
                 });
-        // ★★★ 修正点 ★★★: 起動時にオンラインアカウント情報をクリア
         onlineAccounts.clear();
     }
 
@@ -80,20 +77,34 @@ public class ParticipantManager {
         uuidToParticipantMap.clear();
         dischargedParticipants.clear();
 
-        File[] activeFiles = activeDir.listFiles((dir, name) -> name.endsWith(".yml"));
-        if (activeFiles != null) {
-            for (File file : activeFiles) {
-                loadParticipantFromFile(file, activeParticipants);
-            }
-        }
+        // 指定されたディレクトリ内の全ymlファイルを処理するヘルパー
+        java.util.function.Consumer<File> processDirectory = (directory) -> {
+            File[] files = directory.listFiles((dir, name) -> name.endsWith(".yml"));
+            if (files == null) return;
 
-        File[] dischargedFiles = dischargedDir.listFiles((dir, name) -> name.endsWith(".yml"));
-        if (dischargedFiles != null) {
-            for (File file : dischargedFiles) {
-                loadParticipantFromFile(file, dischargedParticipants);
+            Map<String, ParticipantData> map = (directory.equals(activeDir)) ? activeParticipants : dischargedParticipants;
+
+            for (File file : files) {
+                YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
+                // データ移行ロジック: 古い 'associated-uuids' キーがあれば削除して保存
+                if (config.isList("associated-uuids")) {
+                    config.set("associated-uuids", null);
+                    try {
+                        config.save(file);
+                        plugin.getLogger().info("Migrated participant file: " + file.getName());
+                    } catch (IOException e) {
+                        plugin.getLogger().log(Level.SEVERE, "Failed to save migrated participant file: " + file.getName(), e);
+                    }
+                }
+                // ファイルからデータを読み込む
+                loadParticipantFromFile(file, map);
             }
-        }
-        plugin.getLogger().info("Loaded " + activeParticipants.size() + " active and " + dischargedParticipants.size() + " participant data files.");
+        };
+
+        processDirectory.accept(activeDir);
+        processDirectory.accept(dischargedDir);
+
+        plugin.getLogger().info("Loaded " + activeParticipants.size() + " active and " + dischargedParticipants.size() + " discharged participant data files.");
     }
 
     private void loadParticipantFromFile(File file, Map<String, ParticipantData> map) {
@@ -158,11 +169,9 @@ public class ParticipantManager {
         config.set("base_name", data.getBaseName());
         config.set("linked_name", data.getLinkedName());
 
-        List<String> uuidStrings = data.getAssociatedUuids().stream().map(UUID::toString).collect(Collectors.toList());
-        config.set("associated-uuids", uuidStrings);
-
+        // uuid-to-nameセクションを保存
         Map<String, String> uuidNameMap = new HashMap<>();
-        for(UUID uuid : data.getAssociatedUuids()) {
+        for (UUID uuid : data.getAssociatedUuids()) {
             OfflinePlayer p = Bukkit.getOfflinePlayer(uuid);
             if (p.getName() != null) {
                 uuidNameMap.put(uuid.toString(), p.getName());
@@ -173,12 +182,30 @@ public class ParticipantManager {
         config.createSection("uuid-to-name", uuidNameMap);
         config.setComments("uuid-to-name", List.of("紐付けられたUUIDと、その時点でのプレイヤー名の記録"));
 
-        String statsPath = "statistics";
-        config.createSection(statsPath, data.getStatistics());
+        // statisticsセクションをコメント付きで保存
+        Map<String, Number> stats = data.getStatistics();
+        config.set("statistics.total_deaths", stats.get("total_deaths"));
+        config.setComments("statistics.total_deaths", List.of("デス合計数"));
+        config.set("statistics.total_playtime_seconds", stats.get("total_playtime_seconds"));
+        config.setComments("statistics.total_playtime_seconds", List.of("サーバー参加合計時間"));
+        config.set("statistics.total_joins", stats.get("total_joins"));
+        config.setComments("statistics.total_joins", List.of("サーバー入室合計回数"));
+        config.set("statistics.photoshoot_participations", stats.get("photoshoot_participations"));
+        config.setComments("statistics.photoshoot_participations", List.of("撮影参加合計回数"));
+        config.set("statistics.total_chats", stats.get("total_chats"));
+        config.setComments("statistics.total_chats", List.of("チャット合計回数"));
+        config.set("statistics.w_count", stats.get("w_count"));
+        config.setComments("statistics.w_count", List.of("w合計数"));
 
+        // 履歴リストをコメント付きで保存
         config.set("join-history", data.getJoinHistory());
+        config.setComments("join-history", List.of("参加履歴"));
         config.set("photoshoot-history", data.getPhotoshootHistory());
+        config.setComments("photoshoot-history", List.of("撮影参加履歴"));
+
+        // オンライン状態をコメント付きで保存
         config.set("is-online", data.isOnline());
+        config.setComments("is-online", List.of("オンライン状態"));
 
         try {
             config.save(file);
@@ -198,23 +225,19 @@ public class ParticipantManager {
         saveParticipant(data);
     }
 
-    // ★★★ 修正点 ★★★: アカウント単位のログイン処理に変更
     public void recordLoginTime(Player player) {
         ParticipantData data = findOrCreateParticipant(player);
         if (data == null) return;
 
         Set<UUID> currentlyOnline = onlineAccounts.computeIfAbsent(data, k -> new HashSet<>());
         if (currentlyOnline.isEmpty()) {
-            // この人物として初めてのアカウントがログインした
             sessionStartTimes.put(data, System.currentTimeMillis());
             data.setOnline(true);
-            incrementJoins(player.getUniqueId()); // 参加回数のインクリメントを呼び出す
-            // saveParticipantはincrementJoins内で行われる
+            incrementJoins(player.getUniqueId());
         }
         currentlyOnline.add(player.getUniqueId());
     }
 
-    // ★★★ 修正点 ★★★: アカウント単位のログアウト処理に変更
     public void recordQuitTime(Player player) {
         ParticipantData data = getParticipant(player.getUniqueId());
         if (data == null) return;
@@ -224,13 +247,12 @@ public class ParticipantManager {
             currentlyOnline.remove(player.getUniqueId());
 
             if (currentlyOnline.isEmpty()) {
-                // この人物の最後のアカウントがログアウトした
                 Long loginTimestamp = sessionStartTimes.remove(data);
                 if (loginTimestamp != null) {
                     long durationSeconds = (System.currentTimeMillis() - loginTimestamp) / 1000;
                     addPlaytime(player.getUniqueId(), durationSeconds);
 
-                    if (durationSeconds >= 600) { // 10分以上
+                    if (durationSeconds >= 600) {
                         LocalDateTime joinTime = LocalDateTime.ofInstant(Instant.ofEpochMilli(loginTimestamp), ZoneId.systemDefault());
                         addJoinHistory(player.getUniqueId(), joinTime);
                     }
@@ -292,7 +314,7 @@ public class ParticipantManager {
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data == null) return;
         data.incrementStat("total_joins");
-        saveParticipant(data); // この行を修正・追加
+        saveParticipant(data);
     }
 
     public void incrementChats(UUID uuid) {

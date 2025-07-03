@@ -14,7 +14,7 @@ public class ParticipantData {
     private final Map<UUID, String> uuidToNameMap = new HashMap<>();
     private final List<String> joinHistory = new ArrayList<>();
     private final List<String> photoshootHistory = new ArrayList<>();
-    private boolean isOnline = false; // ★★★ 修正点 ★★★: このフラグは、紐づくアカウントのいずれかがオンラインであるかを示す
+    private boolean isOnline = false;
 
 
     public ParticipantData(String baseName, String linkedName) {
@@ -26,19 +26,36 @@ public class ParticipantData {
     public ParticipantData(ConfigurationSection config) {
         this.baseName = config.getString("base_name", "");
         this.linkedName = config.getString("linked_name", "");
-        config.getStringList("associated-uuids").forEach(uuidStr -> associatedUuids.add(UUID.fromString(uuidStr)));
+
+        // uuid-to-name マップのキーからUUIDを読み込む新しい方法
+        ConfigurationSection uuidNameSection = config.getConfigurationSection("uuid-to-name");
+        if (uuidNameSection != null) {
+            for (String uuidStr : uuidNameSection.getKeys(false)) {
+                try {
+                    UUID uuid = UUID.fromString(uuidStr);
+                    this.associatedUuids.add(uuid);
+                    this.uuidToNameMap.put(uuid, uuidNameSection.getString(uuidStr));
+                } catch (IllegalArgumentException e) {
+                    // 不正なUUID文字列は無視
+                }
+            }
+        }
+
+        // 古いファイル形式（associated-uuidsリスト）のための後方互換性処理
+        if (this.associatedUuids.isEmpty() && config.isList("associated-uuids")) {
+            config.getStringList("associated-uuids").forEach(uuidStr -> {
+                try {
+                    associatedUuids.add(UUID.fromString(uuidStr));
+                } catch (IllegalArgumentException e) {
+                    // 不正なUUID文字列は無視
+                }
+            });
+        }
 
         ConfigurationSection statsSection = config.getConfigurationSection("statistics");
         if (statsSection != null) {
             for (String key : statsSection.getKeys(false)) {
                 statistics.put(key, (Number) statsSection.get(key));
-            }
-        }
-
-        ConfigurationSection uuidNameSection = config.getConfigurationSection("uuid-to-name");
-        if (uuidNameSection != null) {
-            for (String uuidStr : uuidNameSection.getKeys(false)) {
-                uuidToNameMap.put(UUID.fromString(uuidStr), uuidNameSection.getString(uuidStr));
             }
         }
 
@@ -86,6 +103,7 @@ public class ParticipantData {
         statistics.put("w_count", 0);
         joinHistory.clear();
         photoshootHistory.clear();
+        this.isOnline = false; // is-onlineをfalseにリセット
     }
 
     public String getParticipantId() {
