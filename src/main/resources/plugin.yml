@@ -32,6 +32,7 @@ commands:
   name:
     description: 偽名と名前の色を管理します。
     usage: /<command> [subcommand] [args]
+    permission: yapimaru.admin
   creator:
     description: 便利な管理GUIを開きます。
     usage: /<command> [subcommand] [args]
