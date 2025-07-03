@@ -46,20 +46,20 @@ public class LogCommand implements CommandExecutor {
 
     // Log line patterns
     private static final Pattern LOG_LINE_PATTERN = Pattern.compile("^\\[(\\d{2}:\\d{2}:\\d{2})].*");
-    private static final Pattern UUID_PATTERN = Pattern.compile("UUID of player (\\S+) is (\\S+)");
+    private static final Pattern UUID_PATTERN = Pattern.compile("UUID of player ([\\w.-]+) is ([0-9a-f\\-]+)");
     private static final Pattern FLOODGATE_UUID_PATTERN = Pattern.compile("\\[floodgate] Floodgate.+? ([\\w.-]+) でログインしているプレイヤーが参加しました \\(UUID: ([0-9a-f\\-]+)");
 
     // ログイン・ログアウトのパターンをより厳密に修正
-    private static final Pattern JOIN_PATTERN = Pattern.compile("] (\\S+?)(?:\\[.*])? (joined the game|logged in|logged in with entity|がマッチングしました)");
-    private static final Pattern LOST_CONNECTION_PATTERN = Pattern.compile("] (\\S+?) lost connection:.*");
-    private static final Pattern LEFT_GAME_PATTERN = Pattern.compile("] (\\S+?) (left the game|が退出しました)");
+    private static final Pattern JOIN_PATTERN = Pattern.compile("] ([\\w.-]+?)(?:\\[.*])? (joined the game|logged in|logged in with entity|がマッチングしました)");
+    private static final Pattern LOST_CONNECTION_PATTERN = Pattern.compile("] ([\\w.-]+?) lost connection:.*");
+    private static final Pattern LEFT_GAME_PATTERN = Pattern.compile("] ([\\w.-]+?) (left the game|が退出しました)");
 
 
     private static final Pattern DEATH_PATTERN = Pattern.compile(
-            "(\\S+?) (was squashed by a falling anvil|was shot by.*|was pricked to death|walked into a cactus.*|was squished too much|was squashed by.*|was roasted in dragon's breath|drowned|died from dehydration|was killed by even more magic|blew up|was blown up by.*|hit the ground too hard|was squashed by a falling block|was skewered by a falling stalactite|was fireballed by.*|went off with a bang|experienced kinetic energy|froze to death|was frozen to death by.*|died|died because of.*|was killed|discovered the floor was lava|walked into the danger zone due to.*|was killed by.*using magic|went up in flames|walked into fire.*|suffocated in a wall|tried to swim in lava|was struck by lightning|was smashed by.*|was killed by magic|was slain by.*|burned to death|was burned to a crisp.*|fell out of the world|didn't want to live in the same world as.*|left the confines of this world|was obliterated by a sonically-charged shriek|was impaled on a stalagmite|starved to death|was stung to death|was poked to death by a sweet berry bush|was killed while trying to hurt.*|was pummeled by.*|was impaled by.*|withered away|was shot by a skull from.*|was killed by.*)"
+            "([\\w.-]+?) (was squashed by a falling anvil|was shot by.*|was pricked to death|walked into a cactus.*|was squished too much|was squashed by.*|was roasted in dragon's breath|drowned|died from dehydration|was killed by even more magic|blew up|was blown up by.*|hit the ground too hard|was squashed by a falling block|was skewered by a falling stalactite|was fireballed by.*|went off with a bang|experienced kinetic energy|froze to death|was frozen to death by.*|died|died because of.*|was killed|discovered the floor was lava|walked into the danger zone due to.*|was killed by.*using magic|went up in flames|walked into fire.*|suffocated in a wall|tried to swim in lava|was struck by lightning|was smashed by.*|was killed by magic|was slain by.*|burned to death|was burned to a crisp.*|fell out of the world|didn't want to live in the same world as.*|left the confines of this world|was obliterated by a sonically-charged shriek|was impaled on a stalagmite|starved to death|was stung to death|was poked to death by a sweet berry bush|was killed while trying to hurt.*|was pummeled by.*|was impaled by.*|withered away|was shot by a skull from.*|was killed by.*)"
     );
     private static final Pattern PHOTOGRAPHING_PATTERN = Pattern.compile(".*issued server command: /photographing on");
-    private static final Pattern CHAT_PATTERN = Pattern.compile("<(\\S+)> (.*)");
+    private static final Pattern CHAT_PATTERN = Pattern.compile("<([\\w.-]+)> (.*)");
 
     // Server state patterns
     private static final Pattern SERVER_START_PATTERN = Pattern.compile("Starting minecraft server version");
@@ -294,7 +294,7 @@ public class LogCommand implements CommandExecutor {
             Matcher joinMatcher = JOIN_PATTERN.matcher(content);
             if (joinMatcher.find()) {
                 String name = joinMatcher.group(1);
-                UUID uuid = nameToUuidMap.get(name);
+                UUID uuid = findUuidForName(name, nameToUuidMap);
                 if (uuid != null) {
                     if (!openSessions.containsKey(uuid)) {
                         openSessions.put(uuid, new PlayerSession(timestamp));
@@ -309,7 +309,7 @@ public class LogCommand implements CommandExecutor {
             Matcher lostConnectionMatcher = LOST_CONNECTION_PATTERN.matcher(content);
             if (lostConnectionMatcher.find()) {
                 String name = lostConnectionMatcher.group(1);
-                UUID uuid = nameToUuidMap.get(name);
+                UUID uuid = findUuidForName(name, nameToUuidMap);
                 if(uuid != null) {
                     endPlayerSession(uuid, timestamp, openSessions, errorLines, content);
                 } else {
@@ -321,7 +321,7 @@ public class LogCommand implements CommandExecutor {
             Matcher leftGameMatcher = LEFT_GAME_PATTERN.matcher(content);
             if (leftGameMatcher.find()) {
                 String name = leftGameMatcher.group(1);
-                UUID uuid = nameToUuidMap.get(name);
+                UUID uuid = findUuidForName(name, nameToUuidMap);
                 if(uuid != null) {
                     endPlayerSession(uuid, timestamp, openSessions, errorLines, content);
                 } else {
@@ -333,7 +333,7 @@ public class LogCommand implements CommandExecutor {
             Matcher deathMatcher = DEATH_PATTERN.matcher(content);
             if (deathMatcher.find()) {
                 String name = deathMatcher.group(1);
-                UUID uuid = nameToUuidMap.get(name);
+                UUID uuid = findUuidForName(name, nameToUuidMap);
                 if (uuid != null) {
                     participantManager.incrementDeaths(uuid);
                 } else {
@@ -384,21 +384,32 @@ public class LogCommand implements CommandExecutor {
     }
 
     private UUID findUuidForName(String name, Map<String, UUID> nameToUuidMap) {
-        // 1. マップから直接検索
-        UUID uuid = nameToUuidMap.get(name);
-        if (uuid != null) {
-            return uuid;
+        // 1. Direct match first
+        if (nameToUuidMap.containsKey(name)) {
+            return nameToUuidMap.get(name);
         }
 
-        // 2. 参加者データから表示名またはベース名で検索
-        return Stream.concat(
-                        participantManager.getActiveParticipants().stream(),
-                        participantManager.getDischargedParticipants().stream()
-                )
-                .filter(pData -> name.equals(pData.getDisplayName()) || name.equals(pData.getBaseName()))
-                .findFirst()
-                .flatMap(pData -> pData.getAssociatedUuids().stream().findFirst())
-                .orElse(null);
+        // 2. Strip decorations and try again
+        String strippedName = name.replaceAll("[(\\[].*?[)\\]]", "").replace("\"", "");
+        if (nameToUuidMap.containsKey(strippedName)) {
+            return nameToUuidMap.get(strippedName);
+        }
+
+        // 3. Check participant data display names and base names
+        List<ParticipantData> allParticipants = Stream.concat(
+                participantManager.getActiveParticipants().stream(),
+                participantManager.getDischargedParticipants().stream()
+        ).collect(Collectors.toList());
+
+        for (ParticipantData pData : allParticipants) {
+            if (name.equals(pData.getDisplayName()) || name.equals(pData.getBaseName())) {
+                return pData.getAssociatedUuids().stream().findFirst().orElse(null);
+            }
+            if (strippedName.equals(pData.getDisplayName()) || strippedName.equals(pData.getBaseName())) {
+                return pData.getAssociatedUuids().stream().findFirst().orElse(null);
+            }
+        }
+        return null;
     }
 
     private void endPlayerSession(UUID uuid, LocalDateTime timestamp, Map<UUID, PlayerSession> openSessions, List<String> errorLines, String originalContent) {
