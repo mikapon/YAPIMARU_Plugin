@@ -286,14 +286,12 @@ public class ParticipantManager {
         if (data == null) return;
         long currentPlaytime = data.getStatistics().getOrDefault("total_playtime_seconds", 0L).longValue();
         data.getStatistics().put("total_playtime_seconds", currentPlaytime + secondsToAdd);
-        saveParticipant(data);
     }
 
     public synchronized void addJoinHistory(UUID uuid, LocalDateTime joinTime) {
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data == null) return;
         data.addHistoryEvent("join", joinTime);
-        saveParticipant(data);
     }
 
     public synchronized void incrementPhotoshootParticipations(UUID uuid, LocalDateTime timestamp) {
@@ -301,28 +299,24 @@ public class ParticipantManager {
         if (data == null) return;
         data.incrementStat("photoshoot_participations");
         data.addHistoryEvent("photoshoot", timestamp);
-        saveParticipant(data);
     }
 
     public synchronized void incrementDeaths(UUID uuid) {
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data == null) return;
         data.incrementStat("total_deaths");
-        saveParticipant(data);
     }
 
     public synchronized void incrementJoins(UUID uuid) {
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data == null) return;
         data.incrementStat("total_joins");
-        saveParticipant(data);
     }
 
     public synchronized void incrementChats(UUID uuid) {
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data == null) return;
         data.incrementStat("total_chats");
-        saveParticipant(data);
     }
 
     public synchronized void incrementWCount(UUID uuid, int amount) {
@@ -331,7 +325,6 @@ public class ParticipantManager {
         if (data == null) return;
         long currentWCount = data.getStatistics().getOrDefault("w_count", 0L).longValue();
         data.getStatistics().put("w_count", currentWCount + amount);
-        saveParticipant(data);
     }
 
     public synchronized boolean moveParticipantToActive(String participantId) {
@@ -424,4 +417,16 @@ public class ParticipantManager {
             plugin.getLogger().info("Moved " + count + " files.");
         }
     }
+
+    // --- 追加したメソッド ---
+    public synchronized void saveAllParticipantData() {
+        for (ParticipantData data : activeParticipants.values()) {
+            saveParticipant(data);
+        }
+        for (ParticipantData data : dischargedParticipants.values()) {
+            saveParticipant(data);
+        }
+        plugin.getLogger().info("Saved all participant data to files.");
+    }
+    // --- 追加ここまで ---
 }

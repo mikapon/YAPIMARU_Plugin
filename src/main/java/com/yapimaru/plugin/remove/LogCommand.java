@@ -7,7 +7,7 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.apache.commons.lang3.StringUtils;
 import org.bukkit.Bukkit;
-import org.bukkit.OfflinePlayer; // この行を追加しました
+import org.bukkit.OfflinePlayer;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -50,7 +50,7 @@ public class LogCommand implements CommandExecutor {
     private static final Pattern FLOODGATE_UUID_PATTERN = Pattern.compile("\\[floodgate] Floodgate.+? ([\\w.-]+) でログインしているプレイヤーが参加しました \\(UUID: ([0-9a-f\\-]+)");
 
     // ログイン・ログアウトのパターンをより厳密に修正
-    private static final Pattern JOIN_PATTERN = Pattern.compile("] (\\S+?)(?:\\[.*])? (joined the game|logged in with entity|がマッチングしました)");
+    private static final Pattern JOIN_PATTERN = Pattern.compile("] (\\S+?)(?:\\[.*])? (joined the game|logged in|logged in with entity|がマッチングしました)");
     private static final Pattern LOST_CONNECTION_PATTERN = Pattern.compile("] (\\S+?) lost connection:.*");
     private static final Pattern LEFT_GAME_PATTERN = Pattern.compile("] (\\S+?) (left the game|が退出しました)");
 
@@ -68,8 +68,7 @@ public class LogCommand implements CommandExecutor {
 
     private record LogLine(LocalDateTime timestamp, String content) {}
     private record ProcessResult(boolean hasError, List<String> errorLines) {}
-    // SessionInfoをプレイヤー名（String）で管理するように変更
-    private record PlayerSession(LocalDateTime loginTime, UUID playerUuid) {}
+    private record PlayerSession(LocalDateTime loginTime) {}
 
 
     public LogCommand(YAPIMARU_Plugin plugin) {
@@ -131,6 +130,8 @@ public class LogCommand implements CommandExecutor {
         Map<String, UUID> nameToUuidFromYml = buildComprehensiveNameMap();
 
         int totalFilesProcessed = 0;
+        int sessionsWithError = 0;
+
         for (List<File> sessionFiles : serverSessions) {
             if (sessionFiles.isEmpty()) continue;
 
@@ -201,6 +202,7 @@ public class LogCommand implements CommandExecutor {
                 ProcessResult result = processSessionGroup(allLines, finalNameToUuidMap);
 
                 if (result.hasError()) {
+                    sessionsWithError++;
                     moveFilesTo(sessionFiles, errorDir);
                     plugin.getAdventure().sender(sender).sendMessage(Component.text("セッション " + sessionName + " に不整合があったためErrorフォルダに移動しました。", NamedTextColor.RED));
 
@@ -214,7 +216,6 @@ public class LogCommand implements CommandExecutor {
 
                     try {
                         Files.write(errorLogFile.toPath(), outputLines, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-                        plugin.getAdventure().sender(sender).sendMessage(Component.text("詳細は " + errorLogFile.getPath() + " に追記しました。", NamedTextColor.RED));
                     } catch (IOException e) {
                         logger.log(Level.SEVERE, "エラーログファイルの書き込みに失敗: " + errorLogFile.getName(), e);
                     }
@@ -230,14 +231,23 @@ public class LogCommand implements CommandExecutor {
             }
         }
 
+        participantManager.saveAllParticipantData();
+
+
         if (totalFilesProcessed > 0) {
             plugin.getAdventure().sender(sender).sendMessage(
-                    Component.text("全てのログ処理が完了しました！", NamedTextColor.GREEN)
+                    Component.text("ログ処理が完了しました！", NamedTextColor.GREEN)
                             .append(Component.newline())
-                            .append(Component.text("合計処理ファイル数: " + totalFilesProcessed + "件", NamedTextColor.AQUA))
+                            .append(Component.text("正常に処理されたファイル数: " + totalFilesProcessed + "件", NamedTextColor.AQUA))
             );
+        } else if (sessionsWithError > 0) {
+            plugin.getAdventure().sender(sender).sendMessage(Component.text("正常に処理されたログセッションはありませんでした。", NamedTextColor.YELLOW));
         } else {
-            plugin.getAdventure().sender(sender).sendMessage(Component.text("正常に処理されたログセッションはありませんでした。", NamedTextColor.GREEN));
+            plugin.getAdventure().sender(sender).sendMessage(Component.text("処理対象のログファイルが見つかりませんでした。", NamedTextColor.GREEN));
+        }
+
+        if (sessionsWithError > 0) {
+            plugin.getAdventure().sender(sender).sendMessage(Component.text(sessionsWithError + " 件のセッションでエラーが検出されました。詳細はErrorフォルダを確認してください。", NamedTextColor.RED));
         }
     }
 
@@ -247,22 +257,31 @@ public class LogCommand implements CommandExecutor {
                 participantManager.getActiveParticipants().stream(),
                 participantManager.getDischargedParticipants().stream()
         ).forEach(data -> {
-            data.getAssociatedUuids().forEach(uuid -> {
+            String primaryName = data.getBaseName();
+            if (primaryName == null || primaryName.isEmpty()) {
+                primaryName = data.getDisplayName();
+            }
+
+            for (UUID uuid : data.getAssociatedUuids()) {
                 OfflinePlayer player = Bukkit.getOfflinePlayer(uuid);
-                if (player.getName() != null) {
-                    nameMap.put(player.getName(), uuid);
+                String mcName = player.getName();
+                if (mcName != null) {
+                    nameMap.put(mcName, uuid);
                 }
-            });
-            if (data.getBaseName() != null && !data.getBaseName().isEmpty()) nameMap.put(data.getBaseName(), data.getAssociatedUuids().stream().findFirst().orElse(null));
-            if (data.getDisplayName() != null && !data.getDisplayName().isEmpty()) nameMap.put(data.getDisplayName(), data.getAssociatedUuids().stream().findFirst().orElse(null));
+            }
+            if (primaryName != null && !primaryName.isEmpty()) {
+                // Find a primary UUID to associate with the base name
+                data.getAssociatedUuids().stream().findFirst().ifPresent(uuid -> nameMap.put(primaryName, uuid));
+            }
         });
         return nameMap;
     }
 
+
     private ProcessResult processSessionGroup(List<LogLine> allLines, Map<String, UUID> nameToUuidMap) {
-        Map<String, PlayerSession> openSessions = new HashMap<>();
+        Map<UUID, PlayerSession> openSessions = new HashMap<>();
         List<String> errorLines = new ArrayList<>();
-        Set<UUID> photoshootParticipants = new HashSet<>();
+        Set<String> unmappedNames = new HashSet<>();
 
         for (LogLine log : allLines) {
             LocalDateTime timestamp = log.timestamp();
@@ -273,10 +292,12 @@ public class LogCommand implements CommandExecutor {
                 String name = joinMatcher.group(1);
                 UUID uuid = nameToUuidMap.get(name);
                 if (uuid != null) {
-                    if (!openSessions.containsKey(name)) {
-                        openSessions.put(name, new PlayerSession(timestamp, uuid));
+                    if (!openSessions.containsKey(uuid)) {
+                        openSessions.put(uuid, new PlayerSession(timestamp));
                         participantManager.incrementJoins(uuid);
                     }
+                } else {
+                    unmappedNames.add(name);
                 }
                 continue;
             }
@@ -284,14 +305,24 @@ public class LogCommand implements CommandExecutor {
             Matcher lostConnectionMatcher = LOST_CONNECTION_PATTERN.matcher(content);
             if (lostConnectionMatcher.find()) {
                 String name = lostConnectionMatcher.group(1);
-                endPlayerSession(name, timestamp, openSessions, errorLines, content);
+                UUID uuid = nameToUuidMap.get(name);
+                if(uuid != null) {
+                    endPlayerSession(uuid, timestamp, openSessions, errorLines, content);
+                } else {
+                    unmappedNames.add(name);
+                }
                 continue;
             }
 
             Matcher leftGameMatcher = LEFT_GAME_PATTERN.matcher(content);
             if (leftGameMatcher.find()) {
                 String name = leftGameMatcher.group(1);
-                endPlayerSession(name, timestamp, openSessions, errorLines, content);
+                UUID uuid = nameToUuidMap.get(name);
+                if(uuid != null) {
+                    endPlayerSession(uuid, timestamp, openSessions, errorLines, content);
+                } else {
+                    unmappedNames.add(name);
+                }
                 continue;
             }
 
@@ -299,49 +330,46 @@ public class LogCommand implements CommandExecutor {
             if (deathMatcher.find()) {
                 String name = deathMatcher.group(1);
                 UUID uuid = nameToUuidMap.get(name);
-                if (uuid == null) {
-                    // もしUUIDが見つからなければ、表示名から探す
-                    ParticipantData data = participantManager.getParticipant(name); // name is participantId
-                    if (data != null) {
-                        uuid = data.getAssociatedUuids().stream().findFirst().orElse(null);
-                    }
-                }
                 if (uuid != null) {
                     participantManager.incrementDeaths(uuid);
+                } else {
+                    unmappedNames.add(name);
                 }
                 continue;
             }
 
             Matcher photoMatcher = PHOTOGRAPHING_PATTERN.matcher(content);
             if (photoMatcher.find()) {
-                photoshootParticipants.clear();
-                openSessions.values().forEach(session -> photoshootParticipants.add(session.playerUuid()));
-                photoshootParticipants.forEach(uuid -> participantManager.incrementPhotoshootParticipations(uuid, timestamp));
+                openSessions.keySet().forEach(pUuid -> participantManager.incrementPhotoshootParticipations(pUuid, timestamp));
                 continue;
             }
 
             Matcher chatMatcher = CHAT_PATTERN.matcher(content);
             if (chatMatcher.find()) {
-                String displayName = chatMatcher.group(1);
-                UUID uuid = null;
-                // 表示名からUUIDを探す
-                for (ParticipantData pData : participantManager.getActiveParticipants()) {
-                    if (pData.getDisplayName().equals(displayName)) {
-                        uuid = pData.getAssociatedUuids().stream().findFirst().orElse(null);
-                        break;
-                    }
-                }
+                String name = chatMatcher.group(1);
+                UUID uuid = findUuidForName(name, nameToUuidMap);
 
                 if (uuid != null) {
                     participantManager.incrementChats(uuid);
                     int wCount = StringUtils.countMatches(chatMatcher.group(2), 'w');
-                    if (wCount > 0) participantManager.incrementWCount(uuid, wCount);
+                    if (wCount > 0) {
+                        participantManager.incrementWCount(uuid, wCount);
+                    }
+                } else {
+                    unmappedNames.add(name);
                 }
             }
         }
 
+        if (!unmappedNames.isEmpty()) {
+            logger.warning("以下のプレイヤー名をUUIDにマッピングできませんでした: " + String.join(", ", unmappedNames));
+        }
+
+
         if (!openSessions.isEmpty()) {
-            openSessions.forEach((name, session) -> {
+            openSessions.forEach((pUuid, session) -> {
+                String name = Bukkit.getOfflinePlayer(pUuid).getName();
+                if (name == null) name = pUuid.toString();
                 errorLines.add("Player '" + name + "' session was not closed at the end of the server session.");
             });
         }
@@ -349,54 +377,40 @@ public class LogCommand implements CommandExecutor {
         return new ProcessResult(!errorLines.isEmpty(), errorLines);
     }
 
-    private void endPlayerSession(String name, LocalDateTime timestamp, Map<String, PlayerSession> openSessions, List<String> errorLines, String originalContent) {
-        PlayerSession session = openSessions.remove(name);
+    // --- 修正箇所 ---
+    private UUID findUuidForName(String name, Map<String, UUID> nameToUuidMap) {
+        // 1. マップから直接検索
+        UUID uuid = nameToUuidMap.get(name);
+        if (uuid != null) {
+            return uuid;
+        }
+
+        // 2. 参加者データから表示名またはベース名で検索
+        return Stream.concat(
+                        participantManager.getActiveParticipants().stream(),
+                        participantManager.getDischargedParticipants().stream()
+                )
+                .filter(pData -> name.equals(pData.getDisplayName()) || name.equals(pData.getBaseName()))
+                .findFirst()
+                .flatMap(pData -> pData.getAssociatedUuids().stream().findFirst())
+                .orElse(null);
+    }
+    // --- 修正ここまで ---
+
+    private void endPlayerSession(UUID uuid, LocalDateTime timestamp, Map<UUID, PlayerSession> openSessions, List<String> errorLines, String originalContent) {
+        PlayerSession session = openSessions.remove(uuid);
         if (session != null) {
             long playTime = Duration.between(session.loginTime(), timestamp).getSeconds();
             if (playTime > 0) {
-                participantManager.addPlaytime(session.playerUuid(), playTime);
+                participantManager.addPlaytime(uuid, playTime);
             }
-            if (playTime >= 600) {
-                participantManager.addJoinHistory(session.playerUuid(), session.loginTime());
+            if (playTime >= 600) { // 10分以上
+                participantManager.addJoinHistory(uuid, session.loginTime());
             }
         } else {
-            // Find participant data by display name if not found by raw name
-            ParticipantData data = null;
-            for(ParticipantData p : participantManager.getActiveParticipants()){
-                if(p.getDisplayName().equals(name)){
-                    data = p;
-                    break;
-                }
-            }
-            if (data == null) {
-                for(ParticipantData p : participantManager.getDischargedParticipants()){
-                    if(p.getDisplayName().equals(name)){
-                        data = p;
-                        break;
-                    }
-                }
-            }
-
-            String originalPlayerName = name;
-            if (data != null) {
-                OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(data.getAssociatedUuids().stream().findFirst().get());
-                originalPlayerName = offlinePlayer.getName();
-            }
-
-
-            // If there's an open session with the original name, close it.
-            PlayerSession originalNameSession = openSessions.remove(originalPlayerName);
-            if(originalNameSession != null){
-                long playTime = Duration.between(originalNameSession.loginTime(), timestamp).getSeconds();
-                if (playTime > 0) {
-                    participantManager.addPlaytime(originalNameSession.playerUuid(), playTime);
-                }
-                if (playTime >= 600) {
-                    participantManager.addJoinHistory(originalNameSession.playerUuid(), originalNameSession.loginTime());
-                }
-            } else {
-                errorLines.add("Attempted to close a session for player '" + name + "' that was not open: " + originalContent);
-            }
+            String name = Bukkit.getOfflinePlayer(uuid).getName();
+            if (name == null) name = uuid.toString();
+            errorLines.add("Attempted to close a session for player '" + name + "' that was not open: " + originalContent);
         }
     }
 
@@ -498,6 +512,7 @@ public class LogCommand implements CommandExecutor {
     private void handleResetCommand(CommandSender sender) {
         plugin.getAdventure().sender(sender).sendMessage(Component.text("全参加者の統計情報をリセットしています...", NamedTextColor.GREEN));
         int count = participantManager.resetAllStats();
+        participantManager.saveAllParticipantData(); // リセット後も保存
         plugin.getAdventure().sender(sender).sendMessage(Component.text(count + " 人の参加者の統計情報をリセットしました。", NamedTextColor.GREEN));
     }
 
