@@ -208,8 +208,8 @@ public class ParticipantManager {
             // この人物として初めてのアカウントがログインした
             sessionStartTimes.put(data, System.currentTimeMillis());
             data.setOnline(true);
-            data.incrementStat("total_joins");
-            saveParticipant(data);
+            incrementJoins(player.getUniqueId()); // 参加回数のインクリメントを呼び出す
+            // saveParticipantはincrementJoins内で行われる
         }
         currentlyOnline.add(player.getUniqueId());
     }
@@ -292,6 +292,7 @@ public class ParticipantManager {
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data == null) return;
         data.incrementStat("total_joins");
+        saveParticipant(data); // この行を修正・追加
     }
 
     public void incrementChats(UUID uuid) {
