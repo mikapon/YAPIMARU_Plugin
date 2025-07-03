@@ -19,6 +19,7 @@ public class SkinListCommand implements CommandExecutor {
         SKIN_LIST_MAP.put("micro", "ミクロ");
         SKIN_LIST_MAP.put("Miloka", "ミロカ");
         SKIN_LIST_MAP.put("YAPIMARU", "やぴまる");
+        SKIN_LIST_MAP.put("Yuchi", "ゆーちぃ");
         SKIN_LIST_MAP.put("8bit", "8ビット");
         SKIN_LIST_MAP.put("Amber", "アンバー");
         SKIN_LIST_MAP.put("Angelo", "アンジェロ");

@@ -28,7 +28,6 @@ import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 public class LogCommand implements CommandExecutor {
 
@@ -42,10 +41,14 @@ public class LogCommand implements CommandExecutor {
     private static final Pattern JOIN_PATTERN = Pattern.compile("(\\S+?) (joined the game|logged in with entity|がマッチングしました)");
     private static final Pattern LEAVE_PATTERN = Pattern.compile("(\\S+?) (left the game|lost connection: Disconnected|が退出しました)");
 
-    private static final Pattern DEATH_PATTERN = Pattern.compile("(\\S+) (was slain by|was shot by|was pricked to death|walked into a cactus whilst trying to escape|drowned|experienced kinetic energy|blew up|was blown up by|was killed by \\[Intentional Game Design\\]|hit the ground too hard|fell from a high place|fell off a ladder|fell off some vines|fell out of the water|fell into a patch of fire|fell into a patch of cacti|was squashed by a falling anvil|was squashed by a falling block|went up in flames|burned to death|was burnt to a crisp whilst fighting|walked into fire whilst fighting|froze to death|starved to death|suffocated in a wall|withered away|died|left the confines of this world|was poked to death by a sweet berry bush|was killed trying to hurt|tried to swim in lava)");
+    private static final Pattern DEATH_PATTERN = Pattern.compile(
+            "(\\S+?) (was squashed by a falling anvil|was shot by.*|was pricked to death|walked into a cactus.*|was squished too much|was squashed by.*|was roasted in dragon's breath|drowned|died from dehydration|was killed by even more magic|blew up|was blown up by.*|hit the ground too hard|was squashed by a falling block|was skewered by a falling stalactite|was fireballed by.*|went off with a bang|experienced kinetic energy|froze to death|was frozen to death by.*|died|died because of.*|was killed|discovered the floor was lava|walked into the danger zone due to.*|was killed by.*using magic|went up in flames|walked into fire.*|suffocated in a wall|tried to swim in lava|was struck by lightning|was smashed by.*|was killed by magic|was slain by.*|burned to death|was burned to a crisp.*|fell out of the world|didn't want to live in the same world as.*|left the confines of this world|was obliterated by a sonically-charged shriek|was impaled on a stalagmite|starved to death|was stung to death|was poked to death by a sweet berry bush|was killed while trying to hurt.*|was pummeled by.*|was impaled by.*|withered away|was shot by a skull from.*|was killed by.*)"
+    );
+
     private static final Pattern CHAT_PATTERN = Pattern.compile("<(\\S+)> (.*)");
 
     private record LogLine(LocalDateTime timestamp, String content) {}
+    private record ProcessResult(boolean hasError, List<String> errorLines) {}
 
     public LogCommand(YAPIMARU_Plugin plugin) {
         this.plugin = plugin;
@@ -103,8 +106,30 @@ public class LogCommand implements CommandExecutor {
             return;
         }
 
+        // Sort the groups chronologically
+        List<Map.Entry<String, List<File>>> sortedGroups = new ArrayList<>(groupedLogFiles.entrySet());
+        sortedGroups.sort(Comparator.comparing(entry -> entry.getKey(), (key1, key2) -> {
+            Pattern keyPattern = Pattern.compile("(\\d{4}-\\d{2}-\\d{2})-(\\d+)");
+            Matcher m1 = keyPattern.matcher(key1);
+            Matcher m2 = keyPattern.matcher(key2);
+
+            if (m1.matches() && m2.matches()) {
+                LocalDate date1 = LocalDate.parse(m1.group(1));
+                int num1 = Integer.parseInt(m1.group(2));
+                LocalDate date2 = LocalDate.parse(m2.group(1));
+                int num2 = Integer.parseInt(m2.group(2));
+
+                int dateCompare = date1.compareTo(date2);
+                if (dateCompare != 0) {
+                    return dateCompare;
+                }
+                return Integer.compare(num1, num2);
+            }
+            return key1.compareTo(key2); // Fallback for non-matching keys
+        }));
+
         int totalFilesProcessed = 0;
-        for (Map.Entry<String, List<File>> entry : groupedLogFiles.entrySet()) {
+        for (Map.Entry<String, List<File>> entry : sortedGroups) {
             String groupName = entry.getKey();
             List<File> fileGroup = entry.getValue();
 
@@ -154,12 +179,15 @@ public class LogCommand implements CommandExecutor {
                     continue;
                 }
 
-                // Process the collected lines for the group
-                boolean hasError = processLogGroup(allLines, nameToUuidMap);
+                ProcessResult result = processLogGroup(allLines, nameToUuidMap);
 
-                if (hasError) {
+                if (result.hasError()) {
                     moveFilesTo(fileGroup, errorDir);
                     plugin.getAdventure().sender(sender).sendMessage(Component.text("グループ " + groupName + " に不整合があったためErrorフォルダに移動しました。", NamedTextColor.RED));
+                    plugin.getAdventure().sender(sender).sendMessage(Component.text("原因となった可能性のある行:", NamedTextColor.RED));
+                    for (String errorLine : result.errorLines()) {
+                        plugin.getAdventure().sender(sender).sendMessage(Component.text("  " + errorLine, NamedTextColor.YELLOW));
+                    }
                 } else {
                     moveFilesTo(fileGroup, processedDir);
                     totalFilesProcessed += fileGroup.size();
@@ -183,9 +211,9 @@ public class LogCommand implements CommandExecutor {
     }
 
 
-    private boolean processLogGroup(List<LogLine> allLines, Map<String, UUID> nameToUuidMap) {
+    private ProcessResult processLogGroup(List<LogLine> allLines, Map<String, UUID> nameToUuidMap) {
         Map<UUID, LocalDateTime> openSessions = new HashMap<>();
-        Set<UUID> errorPlayers = new HashSet<>();
+        List<String> errorLines = new ArrayList<>();
         Map<UUID, LocalDateTime> lastJoinEventTimes = new HashMap<>();
         Map<UUID, LocalDateTime> lastLeaveEventTimes = new HashMap<>();
 
@@ -216,7 +244,7 @@ public class LogCommand implements CommandExecutor {
                             long playTime = Duration.between(joinTime, log.timestamp()).getSeconds();
                             if (playTime > 0) participantManager.addPlaytime(uuid, playTime);
                         } else {
-                            errorPlayers.add(uuid);
+                            errorLines.add(log.content());
                         }
                         lastLeaveEventTimes.put(uuid, log.timestamp());
                     }
@@ -246,15 +274,17 @@ public class LogCommand implements CommandExecutor {
             }
         }
 
-        LocalDateTime lastLogTimestamp = allLines.get(allLines.size() - 1).timestamp();
-        for (Map.Entry<UUID, LocalDateTime> session : openSessions.entrySet()) {
-            long playTime = Duration.between(session.getValue(), lastLogTimestamp).getSeconds();
-            if (playTime > 0) {
-                participantManager.addPlaytime(session.getKey(), playTime);
+        if (!allLines.isEmpty()) {
+            LocalDateTime lastLogTimestamp = allLines.get(allLines.size() - 1).timestamp();
+            for (Map.Entry<UUID, LocalDateTime> session : openSessions.entrySet()) {
+                long playTime = Duration.between(session.getValue(), lastLogTimestamp).getSeconds();
+                if (playTime > 0) {
+                    participantManager.addPlaytime(session.getKey(), playTime);
+                }
             }
         }
 
-        return !errorPlayers.isEmpty();
+        return new ProcessResult(!errorLines.isEmpty(), errorLines);
     }
 
 
@@ -274,12 +304,10 @@ public class LogCommand implements CommandExecutor {
                 String groupKey = matcher.group(1);
                 groupedFiles.computeIfAbsent(groupKey, k -> new ArrayList<>()).add(file);
             } else {
-                // ファイル名がパターンにマッチしない場合、ファイル名をキーとしてグループ化
                 groupedFiles.computeIfAbsent(file.getName(), k -> new ArrayList<>()).add(file);
             }
         }
 
-        // 各グループ内のファイルを名前でソート
         groupedFiles.values().forEach(list -> list.sort(Comparator.comparing(File::getName)));
 
         return groupedFiles;
