@@ -309,8 +309,13 @@ public class LogCommand implements CommandExecutor {
                                 openSessions.remove(data);
                             }
                         } else {
-                            // This is where the error was detected. If a player leaves but was never in an open session.
-                            errorLines.add(log.content());
+                            if (data.isOnline()) {
+                                logger.warning("Player " + data.getDisplayName() + " left without a join record in this session, but was marked as online. Treating as a session continuation.");
+                                data.setOnline(false);
+                                participantManager.saveParticipant(data);
+                            } else {
+                                errorLines.add(log.content());
+                            }
                         }
                         lastLeaveEventTimes.put(uuid, log.timestamp());
                     }

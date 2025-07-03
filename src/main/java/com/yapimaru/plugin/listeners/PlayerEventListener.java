@@ -56,7 +56,7 @@ public class PlayerEventListener implements Listener {
     public void onPlayerPreLogin(AsyncPlayerPreLoginEvent event) {
         String kickMessage = whitelistManager.checkLogin(event.getUniqueId());
         if (kickMessage != null) {
-            // ★★★ 最終修正箇所 ★★★
+            // ★★★ ここを修正 ★★★
             // event.disallow には Component ではなく String を渡す
             event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_WHITELIST, kickMessage);
         }
