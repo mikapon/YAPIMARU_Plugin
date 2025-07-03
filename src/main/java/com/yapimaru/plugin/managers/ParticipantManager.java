@@ -418,7 +418,6 @@ public class ParticipantManager {
         }
     }
 
-    // --- 追加したメソッド ---
     public synchronized void saveAllParticipantData() {
         for (ParticipantData data : activeParticipants.values()) {
             saveParticipant(data);
@@ -428,5 +427,26 @@ public class ParticipantManager {
         }
         plugin.getLogger().info("Saved all participant data to files.");
     }
-    // --- 追加ここまで ---
+
+    public synchronized Optional<ParticipantData> findParticipantByAnyName(String name) {
+        String lowerCaseName = name.toLowerCase();
+        String strippedName = lowerCaseName.startsWith(".") ? lowerCaseName.substring(1) : lowerCaseName;
+
+        return Stream.concat(activeParticipants.values().stream(), dischargedParticipants.values().stream())
+                .filter(pData -> {
+                    if (pData.getBaseName() != null && pData.getBaseName().equalsIgnoreCase(name)) return true;
+                    if (pData.getLinkedName() != null && pData.getLinkedName().equalsIgnoreCase(name)) return true;
+                    if (pData.getBaseName() != null && pData.getBaseName().equalsIgnoreCase(strippedName)) return true;
+                    if (pData.getLinkedName() != null && pData.getLinkedName().equalsIgnoreCase(strippedName)) return true;
+                    if (pData.getUuidToNameMap() != null) {
+                        for (String storedName : pData.getUuidToNameMap().values()) {
+                            if (storedName.equalsIgnoreCase(name) || storedName.equalsIgnoreCase(strippedName)) {
+                                return true;
+                            }
+                        }
+                    }
+                    return false;
+                })
+                .findFirst();
+    }
 }

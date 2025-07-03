@@ -50,16 +50,16 @@ public class LogCommand implements CommandExecutor {
     private static final Pattern FLOODGATE_UUID_PATTERN = Pattern.compile("\\[floodgate] Floodgate.+? ([\\w.-]+) でログインしているプレイヤーが参加しました \\(UUID: ([0-9a-f\\-]+)");
 
     // ログイン・ログアウトのパターンをより厳密に修正
-    private static final Pattern JOIN_PATTERN = Pattern.compile("] ([\\w.-]+?)(?:\\[.*])? (joined the game|logged in|logged in with entity|がマッチングしました)");
-    private static final Pattern LOST_CONNECTION_PATTERN = Pattern.compile("] ([\\w.-]+?) lost connection:.*");
-    private static final Pattern LEFT_GAME_PATTERN = Pattern.compile("] ([\\w.-]+?) (left the game|が退出しました)");
+    private static final Pattern JOIN_PATTERN = Pattern.compile("] (\\.?\\S+?)(?:\\[.*])? (joined the game|logged in|logged in with entity|がマッチングしました)");
+    private static final Pattern LOST_CONNECTION_PATTERN = Pattern.compile("] (\\.?\\S+?) lost connection:.*");
+    private static final Pattern LEFT_GAME_PATTERN = Pattern.compile("] (\\.?\\S+?) (left the game|が退出しました)");
 
 
     private static final Pattern DEATH_PATTERN = Pattern.compile(
             "([\\w.-]+?) (was squashed by a falling anvil|was shot by.*|was pricked to death|walked into a cactus.*|was squished too much|was squashed by.*|was roasted in dragon's breath|drowned|died from dehydration|was killed by even more magic|blew up|was blown up by.*|hit the ground too hard|was squashed by a falling block|was skewered by a falling stalactite|was fireballed by.*|went off with a bang|experienced kinetic energy|froze to death|was frozen to death by.*|died|died because of.*|was killed|discovered the floor was lava|walked into the danger zone due to.*|was killed by.*using magic|went up in flames|walked into fire.*|suffocated in a wall|tried to swim in lava|was struck by lightning|was smashed by.*|was killed by magic|was slain by.*|burned to death|was burned to a crisp.*|fell out of the world|didn't want to live in the same world as.*|left the confines of this world|was obliterated by a sonically-charged shriek|was impaled on a stalagmite|starved to death|was stung to death|was poked to death by a sweet berry bush|was killed while trying to hurt.*|was pummeled by.*|was impaled by.*|withered away|was shot by a skull from.*|was killed by.*)"
     );
     private static final Pattern PHOTOGRAPHING_PATTERN = Pattern.compile(".*issued server command: /photographing on");
-    private static final Pattern CHAT_PATTERN = Pattern.compile("<([\\w.-]+)> (.*)");
+    private static final Pattern CHAT_PATTERN = Pattern.compile("<(\\S+)> (.*)");
 
     // Server state patterns
     private static final Pattern SERVER_START_PATTERN = Pattern.compile("Starting minecraft server version");
@@ -156,14 +156,14 @@ public class LogCommand implements CommandExecutor {
                             if (uuidMatcher.find()) {
                                 try {
                                     UUID uuid = UUID.fromString(uuidMatcher.group(2));
-                                    nameToUuidFromLog.put(uuidMatcher.group(1), uuid);
+                                    nameToUuidFromLog.put(uuidMatcher.group(1).toLowerCase(), uuid);
                                 } catch (IllegalArgumentException ignored) {}
                             }
                             Matcher floodgateMatcher = FLOODGATE_UUID_PATTERN.matcher(line);
                             if (floodgateMatcher.find()) {
                                 try {
                                     UUID uuid = UUID.fromString(floodgateMatcher.group(2));
-                                    nameToUuidFromLog.put(floodgateMatcher.group(1), uuid);
+                                    nameToUuidFromLog.put(floodgateMatcher.group(1).toLowerCase(), uuid);
                                 } catch (IllegalArgumentException ignored) {}
                             }
                         }
@@ -264,22 +264,28 @@ public class LogCommand implements CommandExecutor {
         ).collect(Collectors.toList());
 
         for (ParticipantData data : allParticipants) {
-            String primaryName = data.getBaseName();
-            if (primaryName == null || primaryName.isEmpty()) {
-                primaryName = data.getDisplayName();
+            UUID representativeUuid = data.getAssociatedUuids().stream().findFirst().orElse(null);
+            if (representativeUuid == null) continue;
+
+            if (data.getBaseName() != null && !data.getBaseName().isEmpty()) {
+                nameMap.put(data.getBaseName().toLowerCase(), representativeUuid);
+            }
+            if (data.getLinkedName() != null && !data.getLinkedName().isEmpty()) {
+                nameMap.put(data.getLinkedName().toLowerCase(), representativeUuid);
             }
 
             for (UUID uuid : data.getAssociatedUuids()) {
                 OfflinePlayer player = Bukkit.getOfflinePlayer(uuid);
                 String mcName = player.getName();
                 if (mcName != null) {
-                    nameMap.put(mcName, uuid);
+                    nameMap.put(mcName.toLowerCase(), representativeUuid);
                 }
             }
-            if (primaryName != null && !primaryName.isEmpty()) {
-                Optional<UUID> firstUuid = data.getAssociatedUuids().stream().findFirst();
-                if (firstUuid.isPresent()) {
-                    nameMap.put(primaryName, firstUuid.get());
+            if(data.getUuidToNameMap() != null){
+                for(String name : data.getUuidToNameMap().values()){
+                    if(name != null){
+                        nameMap.put(name.toLowerCase(), representativeUuid);
+                    }
                 }
             }
         }
@@ -400,31 +406,26 @@ public class LogCommand implements CommandExecutor {
     }
 
     private UUID findUuidForName(String name, Map<String, UUID> nameToUuidMap) {
-        // 1. Direct match first
-        if (nameToUuidMap.containsKey(name)) {
-            return nameToUuidMap.get(name);
+        String lowerCaseName = name.toLowerCase();
+
+        // 1. Direct case-insensitive match from pre-built map
+        if (nameToUuidMap.containsKey(lowerCaseName)) {
+            return nameToUuidMap.get(lowerCaseName);
         }
 
-        // 2. Strip decorations and try again
-        String strippedName = name.replaceAll("[(\\[].*?[)\\]]", "").replace("\"", "");
+        // 2. Bedrock prefix stripping and lookup
+        String strippedName = lowerCaseName.startsWith(".") ? lowerCaseName.substring(1) : lowerCaseName;
         if (nameToUuidMap.containsKey(strippedName)) {
             return nameToUuidMap.get(strippedName);
         }
 
-        // 3. Check participant data display names and base names
-        List<ParticipantData> allParticipants = Stream.concat(
-                participantManager.getActiveParticipants().stream(),
-                participantManager.getDischargedParticipants().stream()
-        ).collect(Collectors.toList());
-
-        for (ParticipantData pData : allParticipants) {
-            if (name.equals(pData.getDisplayName()) || name.equals(pData.getBaseName())) {
-                return pData.getAssociatedUuids().stream().findFirst().orElse(null);
-            }
-            if (strippedName.equals(pData.getDisplayName()) || strippedName.equals(pData.getBaseName())) {
-                return pData.getAssociatedUuids().stream().findFirst().orElse(null);
-            }
+        // 3. Last resort: iterate through all participant data for a match (more expensive)
+        Optional<ParticipantData> foundParticipant = participantManager.findParticipantByAnyName(name);
+        if (foundParticipant.isPresent()) {
+            return foundParticipant.get().getAssociatedUuids().stream().findFirst().orElse(null);
         }
+
+        logger.fine("Could not find UUID for name: '" + name + "' (stripped: '" + strippedName + "')");
         return null;
     }
 
