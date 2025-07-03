@@ -4,6 +4,7 @@ import com.yapimaru.plugin.YAPIMARU_Plugin;
 import com.yapimaru.plugin.data.ParticipantData;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 
@@ -32,8 +33,7 @@ public class ParticipantManager {
     private final Map<UUID, ParticipantData> uuidToParticipantMap = new HashMap<>();
     private final Map<String, ParticipantData> dischargedParticipants = new HashMap<>();
 
-    private final Map<ParticipantData, Long> sessionStartTimes = new ConcurrentHashMap<>();
-    private final Map<ParticipantData, Set<UUID>> onlineAccounts = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> sessionStartTimes = new ConcurrentHashMap<>();
 
     public ParticipantManager(YAPIMARU_Plugin plugin) {
         this.plugin = plugin;
@@ -51,23 +51,29 @@ public class ParticipantManager {
     public synchronized void handleServerStartup() {
         LocalDateTime startupTime = LocalDateTime.now();
         Stream.concat(activeParticipants.values().stream(), dischargedParticipants.values().stream())
-                .filter(ParticipantData::isOnline)
                 .forEach(data -> {
-                    plugin.getLogger().warning("Player " + data.getDisplayName() + " was marked as online during startup. Correcting session data.");
+                    boolean wasModified = false;
+                    for (Map.Entry<UUID, ParticipantData.AccountInfo> entry : data.getAccounts().entrySet()) {
+                        if (entry.getValue().isOnline()) {
+                            plugin.getLogger().warning("Player " + entry.getValue().getName() + " was marked as online during startup. Correcting session data.");
 
-                    Long loginTimestamp = sessionStartTimes.remove(data);
-                    if (loginTimestamp != null) {
-                        LocalDateTime quitTime = startupTime.minusMinutes(2);
-                        long playTime = Duration.between(LocalDateTime.ofInstant(Instant.ofEpochMilli(loginTimestamp), ZoneId.systemDefault()), quitTime).getSeconds();
-                        if (playTime > 0) {
-                            addPlaytime(data.getAssociatedUuids().iterator().next(), playTime);
+                            Long loginTimestamp = sessionStartTimes.remove(entry.getKey());
+                            if (loginTimestamp != null) {
+                                LocalDateTime quitTime = startupTime.minusMinutes(2); // Assume a 2-minute session if server crashed
+                                long playTime = Duration.between(LocalDateTime.ofInstant(Instant.ofEpochMilli(loginTimestamp), ZoneId.systemDefault()), quitTime).getSeconds();
+                                if (playTime > 0) {
+                                    addPlaytime(entry.getKey(), playTime);
+                                }
+                            }
+                            entry.getValue().setOnline(false);
+                            wasModified = true;
                         }
                     }
-
-                    data.setOnline(false);
-                    saveParticipant(data);
+                    if(wasModified) {
+                        saveParticipant(data);
+                    }
                 });
-        onlineAccounts.clear();
+        sessionStartTimes.clear();
     }
 
 
@@ -76,7 +82,6 @@ public class ParticipantManager {
         uuidToParticipantMap.clear();
         dischargedParticipants.clear();
 
-        // 指定されたディレクトリ内の全ymlファイルを処理するヘルパー
         java.util.function.Consumer<File> processDirectory = (directory) -> {
             File[] files = directory.listFiles((dir, name) -> name.endsWith(".yml"));
             if (files == null) return;
@@ -84,17 +89,6 @@ public class ParticipantManager {
             Map<String, ParticipantData> map = (directory.equals(activeDir)) ? activeParticipants : dischargedParticipants;
 
             for (File file : files) {
-                YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
-                // データ移行ロジック: 古い 'associated-uuids' キーがあれば削除して保存
-                if (config.isList("associated-uuids")) {
-                    config.set("associated-uuids", null);
-                    try {
-                        config.save(file);
-                        plugin.getLogger().info("Migrated participant file: " + file.getName());
-                    } catch (IOException e) {
-                        plugin.getLogger().log(Level.SEVERE, "Failed to save migrated participant file: " + file.getName(), e);
-                    }
-                }
                 // ファイルからデータを読み込む
                 loadParticipantFromFile(file, map);
             }
@@ -150,7 +144,7 @@ public class ParticipantManager {
         String linkedName = "";
 
         data = new ParticipantData(baseName, linkedName);
-        data.addAssociatedUuid(player.getUniqueId());
+        data.addAccount(player.getUniqueId(), player.getName());
 
         registerNewParticipant(data);
         return data;
@@ -168,18 +162,13 @@ public class ParticipantManager {
         config.set("base_name", data.getBaseName());
         config.set("linked_name", data.getLinkedName());
 
-        // uuid-to-nameセクションを保存
-        Map<String, String> uuidNameMap = new HashMap<>();
-        for (UUID uuid : data.getAssociatedUuids()) {
-            OfflinePlayer p = Bukkit.getOfflinePlayer(uuid);
-            if (p.getName() != null) {
-                uuidNameMap.put(uuid.toString(), p.getName());
-            } else if (data.getUuidToNameMap().containsKey(uuid)) {
-                uuidNameMap.put(uuid.toString(), data.getUuidToNameMap().get(uuid));
-            }
+        // accounts セクションを保存
+        config.setComments("accounts", List.of("紐付けられたUUIDと、その時点でのプレイヤー名の記録、オンライン状況"));
+        for (Map.Entry<UUID, ParticipantData.AccountInfo> entry : data.getAccounts().entrySet()) {
+            String uuidStr = entry.getKey().toString();
+            config.set("accounts." + uuidStr + ".name", entry.getValue().getName());
+            config.set("accounts." + uuidStr + ".online", entry.getValue().isOnline());
         }
-        config.createSection("uuid-to-name", uuidNameMap);
-        config.setComments("uuid-to-name", List.of("紐付けられたUUIDと、その時点でのプレイヤー名の記録"));
 
         // statisticsセクションをコメント付きで保存
         Map<String, Number> stats = data.getStatistics();
@@ -204,7 +193,7 @@ public class ParticipantManager {
 
         // オンライン状態をコメント付きで保存
         config.set("is-online", data.isOnline());
-        config.setComments("is-online", List.of("オンライン状態"));
+        config.setComments("is-online", List.of("この参加者に紐づくアカウントのいずれかがオンラインか"));
 
         try {
             config.save(file);
@@ -228,13 +217,16 @@ public class ParticipantManager {
         ParticipantData data = findOrCreateParticipant(player);
         if (data == null) return;
 
-        Set<UUID> currentlyOnline = onlineAccounts.computeIfAbsent(data, k -> new HashSet<>());
-        if (currentlyOnline.isEmpty()) {
-            sessionStartTimes.put(data, System.currentTimeMillis());
-            data.setOnline(true);
-            // incrementJoins(player.getUniqueId()); // Join event already handles this
+        sessionStartTimes.put(player.getUniqueId(), System.currentTimeMillis());
+
+        ParticipantData.AccountInfo accountInfo = data.getAccounts().get(player.getUniqueId());
+        if (accountInfo != null) {
+            accountInfo.setOnline(true);
+        } else {
+            // This case should ideally not happen if findOrCreateParticipant works correctly
+            data.addAccount(player.getUniqueId(), player.getName());
+            data.getAccounts().get(player.getUniqueId()).setOnline(true);
         }
-        currentlyOnline.add(player.getUniqueId());
         saveParticipant(data);
     }
 
@@ -242,25 +234,21 @@ public class ParticipantManager {
         ParticipantData data = getParticipant(player.getUniqueId());
         if (data == null) return;
 
-        Set<UUID> currentlyOnline = onlineAccounts.get(data);
-        if (currentlyOnline != null) {
-            currentlyOnline.remove(player.getUniqueId());
+        Long loginTimestamp = sessionStartTimes.remove(player.getUniqueId());
+        if (loginTimestamp != null) {
+            long durationSeconds = (System.currentTimeMillis() - loginTimestamp) / 1000;
+            addPlaytime(player.getUniqueId(), durationSeconds);
 
-            if (currentlyOnline.isEmpty()) {
-                Long loginTimestamp = sessionStartTimes.remove(data);
-                if (loginTimestamp != null) {
-                    long durationSeconds = (System.currentTimeMillis() - loginTimestamp) / 1000;
-                    addPlaytime(player.getUniqueId(), durationSeconds);
-
-                    if (durationSeconds >= 600) {
-                        LocalDateTime joinTime = LocalDateTime.ofInstant(Instant.ofEpochMilli(loginTimestamp), ZoneId.systemDefault());
-                        addJoinHistory(player.getUniqueId(), joinTime);
-                    }
-                }
-                data.setOnline(false);
-                saveParticipant(data);
-                onlineAccounts.remove(data);
+            if (durationSeconds >= 600) {
+                LocalDateTime joinTime = LocalDateTime.ofInstant(Instant.ofEpochMilli(loginTimestamp), ZoneId.systemDefault());
+                addJoinHistory(player.getUniqueId(), joinTime);
             }
+        }
+
+        ParticipantData.AccountInfo accountInfo = data.getAccounts().get(player.getUniqueId());
+        if (accountInfo != null) {
+            accountInfo.setOnline(false);
+            saveParticipant(data);
         }
     }
 
@@ -435,14 +423,12 @@ public class ParticipantManager {
 
         return Stream.concat(activeParticipants.values().stream(), dischargedParticipants.values().stream())
                 .filter(pData -> {
-                    // base_name, linked_name, そして uuid-to-name の中の全ての名前をチェック
+                    // base_name, linked_name, そして accounts の中の全ての名前をチェック
                     if (pData.getBaseName() != null && pData.getBaseName().toLowerCase().contains(lowerCaseName)) return true;
                     if (pData.getLinkedName() != null && pData.getLinkedName().toLowerCase().contains(lowerCaseName)) return true;
-                    if (pData.getUuidToNameMap() != null) {
-                        for (String storedName : pData.getUuidToNameMap().values()) {
-                            if (storedName != null && storedName.toLowerCase().contains(lowerCaseName)) {
-                                return true;
-                            }
+                    for (ParticipantData.AccountInfo accountInfo : pData.getAccounts().values()) {
+                        if (accountInfo.getName() != null && accountInfo.getName().toLowerCase().contains(lowerCaseName)) {
+                            return true;
                         }
                     }
                     return false;

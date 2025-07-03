@@ -49,15 +49,15 @@ public class LogCommand implements CommandExecutor {
     private static final Pattern UUID_PATTERN = Pattern.compile("UUID of player (\\S+) is ([0-9a-f\\-]+)");
     private static final Pattern FLOODGATE_UUID_PATTERN = Pattern.compile("\\[floodgate] Floodgate.+? (\\S+) でログインしているプレイヤーが参加しました \\(UUID: ([0-9a-f\\-]+)");
 
-    // ログイン・ログアウトのパターンをより柔軟に修正
-    private static final Pattern JOIN_PATTERN = Pattern.compile("] (.+?)(?:\\[.*])? (joined the game|logged in|logged in with entity|がマッチングしました)");
-    private static final Pattern LOST_CONNECTION_PATTERN = Pattern.compile("] (.+?) lost connection:.*");
-    private static final Pattern LEFT_GAME_PATTERN = Pattern.compile("] (.+?) (left the game|が退出しました)");
+    // ログイン・ログアウトのパターンをより厳密に修正
+    private static final Pattern JOIN_PATTERN = Pattern.compile("\\] (\\.?[a-zA-Z0-9_]{2,16})(?:\\[.+])? (joined the game|logged in|logged in with entity|がマッチングしました)");
+    private static final Pattern LOST_CONNECTION_PATTERN = Pattern.compile("\\] (\\.?[a-zA-Z0-9_]{2,16}) lost connection:.*");
+    private static final Pattern LEFT_GAME_PATTERN = Pattern.compile("\\] (\\.?[a-zA-Z0-9_]{2,16}) (left the game|が退出しました)");
     private static final Pattern WHITELIST_KICK_PATTERN = Pattern.compile("You are not whitelisted on this server!");
 
 
     private static final Pattern DEATH_PATTERN = Pattern.compile(
-            "(.+?) (was squashed by a falling anvil|was shot by.*|was pricked to death|walked into a cactus.*|was squished too much|was squashed by.*|was roasted in dragon's breath|drowned|died from dehydration|was killed by even more magic|blew up|was blown up by.*|hit the ground too hard|was squashed by a falling block|was skewered by a falling stalactite|was fireballed by.*|went off with a bang|experienced kinetic energy|froze to death|was frozen to death by.*|died|died because of.*|was killed|discovered the floor was lava|walked into the danger zone due to.*|was killed by.*using magic|went up in flames|walked into fire.*|suffocated in a wall|tried to swim in lava|was struck by lightning|was smashed by.*|was killed by magic|was slain by.*|burned to death|was burned to a crisp.*|fell out of the world|didn't want to live in the same world as.*|left the confines of this world|was obliterated by a sonically-charged shriek|was impaled on a stalagmite|starved to death|was stung to death|was poked to death by a sweet berry bush|was killed while trying to hurt.*|was pummeled by.*|was impaled by.*|withered away|was shot by a skull from.*|was killed by.*)"
+            "(\\.?[a-zA-Z0-9_]{2,16}) (was squashed by a falling anvil|was shot by.*|was pricked to death|walked into a cactus.*|was squished too much|was squashed by.*|was roasted in dragon's breath|drowned|died from dehydration|was killed by even more magic|blew up|was blown up by.*|hit the ground too hard|was squashed by a falling block|was skewered by a falling stalactite|was fireballed by.*|went off with a bang|experienced kinetic energy|froze to death|was frozen to death by.*|died|died because of.*|was killed|discovered the floor was lava|walked into the danger zone due to.*|was killed by.*using magic|went up in flames|walked into fire.*|suffocated in a wall|tried to swim in lava|was struck by lightning|was smashed by.*|was killed by magic|was slain by.*|burned to death|was burned to a crisp.*|fell out of the world|didn't want to live in the same world as.*|left the confines of this world|was obliterated by a sonically-charged shriek|was impaled on a stalagmite|starved to death|was stung to death|was poked to death by a sweet berry bush|was killed while trying to hurt.*|was pummeled by.*|was impaled by.*|withered away|was shot by a skull from.*|was killed by.*)"
     );
     private static final Pattern PHOTOGRAPHING_PATTERN = Pattern.compile(".*issued server command: /photographing on");
     private static final Pattern CHAT_PATTERN = Pattern.compile("<(.+?)> (.*)");
@@ -303,9 +303,8 @@ public class LogCommand implements CommandExecutor {
             LocalDateTime timestamp = log.timestamp();
             String content = log.content();
 
-            // Whitelist kick check
             if (WHITELIST_KICK_PATTERN.matcher(content).find()) {
-                continue; // Skip this line
+                continue;
             }
 
             Matcher joinMatcher = JOIN_PATTERN.matcher(content);
@@ -327,7 +326,7 @@ public class LogCommand implements CommandExecutor {
             if (lostConnectionMatcher.find()) {
                 String name = lostConnectionMatcher.group(1);
                 UUID uuid = findUuidForName(name, nameToUuidMap);
-                if(uuid != null) {
+                if (uuid != null) {
                     endPlayerSession(uuid, timestamp, openSessions, errorLines, content);
                 } else if (!NON_PLAYER_ENTITIES.contains(name)) {
                     unmappedNames.add(name);
@@ -340,7 +339,9 @@ public class LogCommand implements CommandExecutor {
                 String name = leftGameMatcher.group(1);
                 UUID uuid = findUuidForName(name, nameToUuidMap);
                 if(uuid != null) {
-                    endPlayerSession(uuid, timestamp, openSessions, errorLines, content);
+                    if (openSessions.containsKey(uuid)) {
+                        endPlayerSession(uuid, timestamp, openSessions, errorLines, content);
+                    }
                 } else if (!NON_PLAYER_ENTITIES.contains(name)) {
                     unmappedNames.add(name);
                 }
@@ -349,18 +350,16 @@ public class LogCommand implements CommandExecutor {
 
             Matcher deathMatcher = DEATH_PATTERN.matcher(content);
             if (deathMatcher.find()) {
-                String potentialName = deathMatcher.group(1);
-
+                String potentialName = deathMatcher.group(1).trim();
                 if (content.contains("Entity") && (content.contains("died, message:") || content.contains("died:"))) {
                     continue;
                 }
                 if (NON_PLAYER_ENTITIES.contains(potentialName)) {
                     continue;
                 }
-                if (StringUtils.isNumeric(potentialName.replace("+", ""))) {
+                if (!potentialName.matches("\\.?[a-zA-Z0-9_]{2,16}")) {
                     continue;
                 }
-
                 UUID uuid = findUuidForName(potentialName, nameToUuidMap);
                 if (uuid != null) {
                     participantManager.incrementDeaths(uuid);
@@ -382,7 +381,6 @@ public class LogCommand implements CommandExecutor {
             if (chatMatcher.find()) {
                 String name = chatMatcher.group(1);
                 UUID uuid = findUuidForName(name, nameToUuidMap);
-
                 if (uuid != null) {
                     participantManager.incrementChats(uuid);
                     int wCount = StringUtils.countMatches(chatMatcher.group(2), 'w');

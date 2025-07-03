@@ -9,13 +9,24 @@ import java.util.*;
 public class ParticipantData {
     private String baseName;
     private String linkedName;
-    private final Set<UUID> associatedUuids = new HashSet<>();
+    private final Map<UUID, AccountInfo> accounts = new HashMap<>();
     private final Map<String, Number> statistics = new HashMap<>();
-    private final Map<UUID, String> uuidToNameMap = new HashMap<>();
     private final List<String> joinHistory = new ArrayList<>();
     private final List<String> photoshootHistory = new ArrayList<>();
-    private boolean isOnline = false;
 
+    public static class AccountInfo {
+        private final String name;
+        private boolean isOnline;
+
+        public AccountInfo(String name, boolean isOnline) {
+            this.name = name;
+            this.isOnline = isOnline;
+        }
+
+        public String getName() { return name; }
+        public boolean isOnline() { return isOnline; }
+        public void setOnline(boolean online) { isOnline = online; }
+    }
 
     public ParticipantData(String baseName, String linkedName) {
         this.baseName = baseName;
@@ -27,30 +38,34 @@ public class ParticipantData {
         this.baseName = config.getString("base_name", "");
         this.linkedName = config.getString("linked_name", "");
 
-        // uuid-to-name マップのキーからUUIDを読み込む新しい方法
-        ConfigurationSection uuidNameSection = config.getConfigurationSection("uuid-to-name");
-        if (uuidNameSection != null) {
-            for (String uuidStr : uuidNameSection.getKeys(false)) {
+        ConfigurationSection accountsSection = config.getConfigurationSection("accounts");
+        if (accountsSection != null) {
+            for (String uuidStr : accountsSection.getKeys(false)) {
                 try {
                     UUID uuid = UUID.fromString(uuidStr);
-                    this.associatedUuids.add(uuid);
-                    this.uuidToNameMap.put(uuid, uuidNameSection.getString(uuidStr));
+                    String name = accountsSection.getString(uuidStr + ".name");
+                    boolean online = accountsSection.getBoolean(uuidStr + ".online", false);
+                    this.accounts.put(uuid, new AccountInfo(name, online));
                 } catch (IllegalArgumentException e) {
-                    // 不正なUUID文字列は無視
+                    // Invalid UUID, ignore
+                }
+            }
+        } else {
+            // --- Backward Compatibility ---
+            ConfigurationSection uuidNameSection = config.getConfigurationSection("uuid-to-name");
+            if (uuidNameSection != null) {
+                for (String uuidStr : uuidNameSection.getKeys(false)) {
+                    try {
+                        UUID uuid = UUID.fromString(uuidStr);
+                        String name = uuidNameSection.getString(uuidStr);
+                        this.accounts.put(uuid, new AccountInfo(name, config.getBoolean("is-online", false)));
+                    } catch (IllegalArgumentException e) {
+                        // Invalid UUID, ignore
+                    }
                 }
             }
         }
 
-        // 古いファイル形式（associated-uuidsリスト）のための後方互換性処理
-        if (this.associatedUuids.isEmpty() && config.isList("associated-uuids")) {
-            config.getStringList("associated-uuids").forEach(uuidStr -> {
-                try {
-                    associatedUuids.add(UUID.fromString(uuidStr));
-                } catch (IllegalArgumentException e) {
-                    // 不正なUUID文字列は無視
-                }
-            });
-        }
 
         ConfigurationSection statsSection = config.getConfigurationSection("statistics");
         if (statsSection != null) {
@@ -61,7 +76,6 @@ public class ParticipantData {
 
         this.joinHistory.addAll(config.getStringList("join-history"));
         this.photoshootHistory.addAll(config.getStringList("photoshoot-history"));
-        this.isOnline = config.getBoolean("is-online", false);
 
         initializeStats();
     }
@@ -103,7 +117,7 @@ public class ParticipantData {
         statistics.put("w_count", 0);
         joinHistory.clear();
         photoshootHistory.clear();
-        this.isOnline = false; // is-onlineをfalseにリセット
+        accounts.values().forEach(acc -> acc.setOnline(false));
     }
 
     public String getParticipantId() {
@@ -130,22 +144,25 @@ public class ParticipantData {
     // Getters
     public String getBaseName() { return baseName; }
     public String getLinkedName() { return linkedName; }
-    public Set<UUID> getAssociatedUuids() { return associatedUuids; }
+    public Map<UUID, AccountInfo> getAccounts() { return accounts; }
+    public Set<UUID> getAssociatedUuids() { return accounts.keySet(); }
+    public Map<UUID, String> getUuidToNameMap() {
+        Map<UUID, String> map = new HashMap<>();
+        accounts.forEach((uuid, accountInfo) -> map.put(uuid, accountInfo.getName()));
+        return map;
+    }
     public Map<String, Number> getStatistics() { return statistics; }
-    public Map<UUID, String> getUuidToNameMap() { return uuidToNameMap; }
     public List<String> getJoinHistory() { return joinHistory; }
     public List<String> getPhotoshootHistory() { return photoshootHistory; }
-    public boolean isOnline() { return isOnline; }
+    public boolean isOnline() {
+        return accounts.values().stream().anyMatch(AccountInfo::isOnline);
+    }
 
-    // Setters
-    public void setOnline(boolean online) { isOnline = online; }
-
-
-    public void addAssociatedUuid(UUID uuid) {
-        this.associatedUuids.add(uuid);
+    public void addAccount(UUID uuid, String name) {
+        this.accounts.put(uuid, new AccountInfo(name, false));
     }
     public void removeAssociatedUuid(UUID uuid) {
-        this.associatedUuids.remove(uuid);
+        this.accounts.remove(uuid);
     }
 
     public void incrementStat(String key) {
