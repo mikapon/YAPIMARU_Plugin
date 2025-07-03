@@ -49,8 +49,6 @@ public class LogCommand implements CommandExecutor {
     private static final Pattern UUID_PATTERN = Pattern.compile("UUID of player (\\S+) is ([0-9a-f\\-]+)");
     private static final Pattern FLOODGATE_UUID_PATTERN = Pattern.compile("\\[floodgate] Floodgate.+? (\\S+) でログインしているプレイヤーが参加しました \\(UUID: ([0-9a-f\\-]+)");
 
-    // ★★★ 以下の定義を修正 ★★★
-    // "logged in" という汎用的な単語を削除し、より具体的なパターンのみを残す
     private static final Pattern JOIN_PATTERN = Pattern.compile("\\] (\\.?[a-zA-Z0-9_]{2,16})(?:\\[.+])? (joined the game|logged in with entity|がマッチングしました)");
     private static final Pattern LOST_CONNECTION_PATTERN = Pattern.compile("\\] (\\.?[a-zA-Z0-9_]{2,16}) lost connection:.*");
     private static final Pattern LEFT_GAME_PATTERN = Pattern.compile("\\] (\\.?[a-zA-Z0-9_]{2,16}) (left the game|が退出しました)");
@@ -388,6 +386,13 @@ public class LogCommand implements CommandExecutor {
             Matcher chatMatcher = CHAT_PATTERN.matcher(content);
             if (chatMatcher.find()) {
                 String name = chatMatcher.group(1);
+
+                // ★★★ 修正箇所 ★★★
+                // 名前が数字のみで構成されている場合は、プレイヤーのチャットとして扱わない
+                if (name.matches("^\\d+$")) {
+                    continue;
+                }
+
                 UUID uuid = findUuidForName(name, nameToUuidMap);
                 if (uuid != null) {
                     participantManager.incrementChats(uuid);
