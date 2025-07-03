@@ -33,6 +33,7 @@ public class ParticipantManager {
     private final Map<UUID, ParticipantData> uuidToParticipantMap = new HashMap<>();
     private final Map<String, ParticipantData> dischargedParticipants = new HashMap<>();
 
+    // ★★★ 修正点 ★★★: アカウント単位のオンライン状態を管理するマップを追加
     private final Map<ParticipantData, Long> sessionStartTimes = new ConcurrentHashMap<>();
     private final Map<ParticipantData, Set<UUID>> onlineAccounts = new ConcurrentHashMap<>();
 
@@ -56,9 +57,10 @@ public class ParticipantManager {
                 .forEach(data -> {
                     plugin.getLogger().warning("Player " + data.getDisplayName() + " was marked as online during startup. Correcting session data.");
 
+                    // ★★★ 修正点 ★★★: 新しいアカウント管理方法に合わせて修正
                     Long loginTimestamp = sessionStartTimes.remove(data);
                     if (loginTimestamp != null) {
-                        LocalDateTime quitTime = startupTime.minusMinutes(2);
+                        LocalDateTime quitTime = startupTime.minusMinutes(2); // サーバーが落ちる2分前に切断したと仮定
                         long playTime = Duration.between(LocalDateTime.ofInstant(Instant.ofEpochMilli(loginTimestamp), ZoneId.systemDefault()), quitTime).getSeconds();
                         if (playTime > 0) {
                             addPlaytime(data.getAssociatedUuids().iterator().next(), playTime);
@@ -68,6 +70,8 @@ public class ParticipantManager {
                     data.setOnline(false);
                     saveParticipant(data);
                 });
+        // ★★★ 修正点 ★★★: 起動時にオンラインアカウント情報をクリア
+        onlineAccounts.clear();
     }
 
 
@@ -194,12 +198,14 @@ public class ParticipantManager {
         saveParticipant(data);
     }
 
+    // ★★★ 修正点 ★★★: アカウント単位のログイン処理に変更
     public void recordLoginTime(Player player) {
         ParticipantData data = findOrCreateParticipant(player);
         if (data == null) return;
 
         Set<UUID> currentlyOnline = onlineAccounts.computeIfAbsent(data, k -> new HashSet<>());
         if (currentlyOnline.isEmpty()) {
+            // この人物として初めてのアカウントがログインした
             sessionStartTimes.put(data, System.currentTimeMillis());
             data.setOnline(true);
             data.incrementStat("total_joins");
@@ -208,6 +214,7 @@ public class ParticipantManager {
         currentlyOnline.add(player.getUniqueId());
     }
 
+    // ★★★ 修正点 ★★★: アカウント単位のログアウト処理に変更
     public void recordQuitTime(Player player) {
         ParticipantData data = getParticipant(player.getUniqueId());
         if (data == null) return;
@@ -217,12 +224,13 @@ public class ParticipantManager {
             currentlyOnline.remove(player.getUniqueId());
 
             if (currentlyOnline.isEmpty()) {
+                // この人物の最後のアカウントがログアウトした
                 Long loginTimestamp = sessionStartTimes.remove(data);
                 if (loginTimestamp != null) {
                     long durationSeconds = (System.currentTimeMillis() - loginTimestamp) / 1000;
                     addPlaytime(player.getUniqueId(), durationSeconds);
 
-                    if (durationSeconds >= 600) { // 10 minutes
+                    if (durationSeconds >= 600) { // 10分以上
                         LocalDateTime joinTime = LocalDateTime.ofInstant(Instant.ofEpochMilli(loginTimestamp), ZoneId.systemDefault());
                         addJoinHistory(player.getUniqueId(), joinTime);
                     }

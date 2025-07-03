@@ -63,6 +63,7 @@ public class LogCommand implements CommandExecutor {
 
     private record LogLine(LocalDateTime timestamp, String content) {}
     private record ProcessResult(boolean hasError, List<String> errorLines) {}
+    // ★★★ 修正点 ★★★: セッション情報をアカウント単位で管理するように変更
     private record SessionInfo(LocalDateTime firstLogin, Set<UUID> onlineUuids) {}
 
     public LogCommand(YAPIMARU_Plugin plugin) {
@@ -262,6 +263,9 @@ public class LogCommand implements CommandExecutor {
         Map<ParticipantData, SessionInfo> openSessions = new HashMap<>();
         List<String> errorLines = new ArrayList<>();
 
+        // ★★★ 修正点 ★★★: 二重退出ログ防止のための記録用マップ
+        Map<String, LocalDateTime> lastLeaveTime = new HashMap<>();
+
         for (LogLine log : allLines) {
             LocalDateTime timestamp = log.timestamp();
             String content = log.content();
@@ -287,6 +291,7 @@ public class LogCommand implements CommandExecutor {
                 if (uuid != null) {
                     ParticipantData data = participantManager.findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
                     if (data != null) {
+                        // ★★★ 修正点 ★★★: アカウント単位のセッション管理
                         SessionInfo session = openSessions.computeIfAbsent(data, k -> new SessionInfo(timestamp, new HashSet<>()));
                         if (session.onlineUuids().isEmpty()) {
                             participantManager.incrementJoins(uuid);
@@ -301,14 +306,21 @@ public class LogCommand implements CommandExecutor {
             Matcher leaveMatcher = LEAVE_PATTERN.matcher(content);
             if (leaveMatcher.find()) {
                 String name = leaveMatcher.group(1);
+
+                // ★★★ 修正点 ★★★: 二重退出ログの防止処理
+                if (lastLeaveTime.containsKey(name) && Duration.between(lastLeaveTime.get(name), timestamp).getSeconds() < 1) {
+                    continue; // 1秒以内に同じプレイヤーの退出ログがあればスキップ
+                }
+                lastLeaveTime.put(name, timestamp);
+
                 UUID uuid = nameToUuidMap.get(name);
                 if (uuid == null) continue;
 
                 ParticipantData data = participantManager.getParticipant(uuid);
                 if (data == null) continue;
 
-                // Check if player has an open session
                 SessionInfo session = openSessions.get(data);
+                // ★★★ 修正点 ★★★: アカウント単位のセッション管理
                 if (session != null && session.onlineUuids().contains(uuid)) {
                     session.onlineUuids().remove(uuid);
                     if (session.onlineUuids().isEmpty()) {
@@ -318,17 +330,14 @@ public class LogCommand implements CommandExecutor {
                         openSessions.remove(data);
                     }
                 } else if (pendingAuthentications.containsKey(name)) {
-                    // Player authenticated but did not join, and left within 1 minute (e.g., whitelist kick)
                     LocalDateTime authTime = pendingAuthentications.get(name);
                     if (Duration.between(authTime, timestamp).getSeconds() <= 60) {
                         pendingAuthentications.remove(name); // Valid failed login, ignore.
                     } else {
-                        // Left long after authenticating without joining -> Error
                         errorLines.add("Player '" + name + "' left long after authenticating without joining: " + content);
                         pendingAuthentications.remove(name);
                     }
                 } else {
-                    // Left without join or recent auth -> Error
                     errorLines.add("Player '" + name + "' left without a join/auth record in this session: " + content);
                 }
                 continue;

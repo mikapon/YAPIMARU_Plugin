@@ -14,7 +14,7 @@ public class ParticipantData {
     private final Map<UUID, String> uuidToNameMap = new HashMap<>();
     private final List<String> joinHistory = new ArrayList<>();
     private final List<String> photoshootHistory = new ArrayList<>();
-    private boolean isOnline = false;
+    private boolean isOnline = false; // ★★★ 修正点 ★★★: このフラグは、紐づくアカウントのいずれかがオンラインであるかを示す
 
 
     public ParticipantData(String baseName, String linkedName) {
