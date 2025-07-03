@@ -20,14 +20,11 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.logging.Level;
@@ -72,8 +69,24 @@ public class LogCommand implements CommandExecutor {
 
 
     private record LogLine(LocalDateTime timestamp, String content, String fileName) {}
-    private record ProcessResult(boolean hasError, List<String> errorLines) {}
     private record PlayerSession(LocalDateTime loginTime, String loginLogLine, String loginFileName) {}
+
+    private record PlayerUpdates(
+            long totalPlaytime,
+            int totalJoins,
+            int totalDeaths,
+            int totalChats,
+            int totalWCount,
+            int totalPhotoSessions,
+            List<LocalDateTime> joinHistory,
+            List<Long> playtimeHistory,
+            List<LocalDateTime> photoHistory,
+            LocalDateTime lastQuitTime
+    ) {
+        PlayerUpdates() {
+            this(0L, 0, 0, 0, 0, 0, new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), null);
+        }
+    }
 
 
     public LogCommand(YAPIMARU_Plugin plugin) {
@@ -133,8 +146,7 @@ public class LogCommand implements CommandExecutor {
         }
 
         Map<String, UUID> nameToUuidFromYml = buildComprehensiveNameMap();
-
-        int totalFilesProcessed = 0;
+        Map<UUID, PlayerUpdates> aggregatedUpdates = new HashMap<>();
         int sessionsWithError = 0;
 
         for (List<File> sessionFiles : serverSessions) {
@@ -202,43 +214,57 @@ public class LogCommand implements CommandExecutor {
                     continue;
                 }
 
-                ProcessResult result = processSessionGroup(allLines, finalNameToUuidMap);
-
-                if (result.hasError()) {
-                    sessionsWithError++;
-                    moveFilesTo(sessionFiles, errorDir);
-                    plugin.getAdventure().sender(sender).sendMessage(Component.text("セッション " + sessionName + " に不整合があったためErrorフォルダに移動しました。", NamedTextColor.RED));
-
-                    File errorLogFile = new File(errorDir, "error_details_" + sessionFiles.get(0).getName().replace(".log.gz", "").replace(".log", "") + ".txt");
-                    List<String> outputLines = new ArrayList<>();
-                    outputLines.add("Error in session: " + sessionName);
-                    outputLines.add("Reason: Inconsistent session data (e.g., player left without joining).");
-                    outputLines.add("Problematic lines:");
-                    outputLines.addAll(result.errorLines().stream().map(s -> "  " + s).toList());
-                    outputLines.add("");
-
-                    try {
-                        Files.write(errorLogFile.toPath(), outputLines, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-                    } catch (IOException e) {
-                        logger.log(Level.SEVERE, "エラーログファイルの書き込みに失敗: " + errorLogFile.getName(), e);
-                    }
-
-                } else {
-                    moveFilesTo(sessionFiles, processedDir);
-                    totalFilesProcessed += sessionFiles.size();
-                }
+                processSessionGroup(allLines, finalNameToUuidMap, aggregatedUpdates);
+                moveFilesTo(sessionFiles, processedDir);
 
             } catch (IOException e) {
                 logger.log(Level.SEVERE, "セッション " + sessionName + " の処理中にエラーが発生しました。", e);
                 plugin.getAdventure().sender(sender).sendMessage(Component.text("エラー: " + sessionName + " の処理に失敗しました。次のセッションに進みます。", NamedTextColor.RED));
+                moveFilesTo(sessionFiles, errorDir);
+                sessionsWithError++;
             }
         }
 
-        plugin.getAdventure().sender(sender).sendMessage(Component.text("ログ処理が完了しました。", NamedTextColor.GREEN));
+        // ★★★ 修正箇所 ★★★
+        // ラムダ式で利用するために、変更されないfinalな変数に値をコピーする
+        final int finalSessionsWithError = sessionsWithError;
 
-        if (sessionsWithError > 0) {
-            plugin.getAdventure().sender(sender).sendMessage(Component.text(sessionsWithError + " 件のセッションでエラーが検出されました。詳細はErrorフォルダを確認してください。", NamedTextColor.RED));
-        }
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            plugin.getAdventure().sender(sender).sendMessage(Component.text("ログ解析完了。全プレイヤーデータの更新と保存を開始します...", NamedTextColor.AQUA));
+            int updatedPlayers = 0;
+            for(Map.Entry<UUID, PlayerUpdates> entry : aggregatedUpdates.entrySet()) {
+                UUID uuid = entry.getKey();
+                PlayerUpdates updates = entry.getValue();
+                ParticipantData data = participantManager.findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
+
+                if (data != null) {
+                    data.addPlaytime(updates.totalPlaytime());
+                    for(int i = 0; i < updates.totalJoins(); i++) data.incrementStat("total_joins");
+                    for(int i = 0; i < updates.totalDeaths(); i++) data.incrementStat("total_deaths");
+                    for(int i = 0; i < updates.totalChats(); i++) data.incrementStat("total_chats");
+                    if(updates.totalWCount() > 0) {
+                        long currentWCount = data.getStatistics().getOrDefault("w_count", 0L).longValue();
+                        data.getStatistics().put("w_count", currentWCount + updates.totalWCount());
+                    }
+                    for(int i = 0; i < updates.totalPhotoSessions(); i++) data.incrementStat("photoshoot_participations");
+
+                    updates.joinHistory().forEach(ts -> data.addHistoryEvent("join", ts));
+                    updates.playtimeHistory().forEach(data::addPlaytimeToHistory);
+                    updates.photoHistory().forEach(ts -> data.addHistoryEvent("photoshoot", ts));
+
+                    if(updates.lastQuitTime() != null) data.setLastQuitTime(updates.lastQuitTime());
+
+                    participantManager.saveParticipant(data);
+                    updatedPlayers++;
+                }
+            }
+
+            plugin.getAdventure().sender(sender).sendMessage(Component.text(updatedPlayers + "人のプレイヤーデータを更新し、保存しました。", NamedTextColor.GREEN));
+
+            if (finalSessionsWithError > 0) {
+                plugin.getAdventure().sender(sender).sendMessage(Component.text(finalSessionsWithError + " 件のセッションでエラーが検出されました。詳細はErrorフォルダを確認してください。", NamedTextColor.RED));
+            }
+        });
     }
 
     private Map<String, UUID> buildComprehensiveNameMap() {
@@ -278,18 +304,15 @@ public class LogCommand implements CommandExecutor {
     }
 
 
-    private ProcessResult processSessionGroup(List<LogLine> allLines, Map<String, UUID> nameToUuidMap) {
+    private void processSessionGroup(List<LogLine> allLines, Map<String, UUID> nameToUuidMap, Map<UUID, PlayerUpdates> aggregatedUpdates) {
         Map<UUID, PlayerSession> openSessions = new HashMap<>();
-        List<String> errorLines = new ArrayList<>();
         Set<String> unmappedNames = new HashSet<>();
 
         for (LogLine log : allLines) {
             LocalDateTime timestamp = log.timestamp();
             String content = log.content();
 
-            if (WHITELIST_KICK_PATTERN.matcher(content).find()) {
-                continue;
-            }
+            if (WHITELIST_KICK_PATTERN.matcher(content).find()) continue;
 
             Matcher joinMatcher = JOIN_PATTERN.matcher(content);
             if (joinMatcher.find()) {
@@ -297,9 +320,6 @@ public class LogCommand implements CommandExecutor {
                 UUID uuid = findUuidForName(name, nameToUuidMap);
                 if (uuid != null) {
                     if (!openSessions.containsKey(uuid)) {
-                        ParticipantData data = participantManager.findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
-                        data.recordLogin(uuid, timestamp);
-                        participantManager.saveParticipant(data);
                         openSessions.put(uuid, new PlayerSession(timestamp, content, log.fileName()));
                     }
                 } else if (!NON_PLAYER_ENTITIES.contains(name)) {
@@ -313,7 +333,7 @@ public class LogCommand implements CommandExecutor {
                 String name = lostConnectionMatcher.group(1);
                 UUID uuid = findUuidForName(name, nameToUuidMap);
                 if (uuid != null) {
-                    endPlayerSession(uuid, timestamp, openSessions);
+                    endPlayerSession(uuid, timestamp, openSessions, aggregatedUpdates);
                 }
                 continue;
             }
@@ -323,7 +343,7 @@ public class LogCommand implements CommandExecutor {
                 String name = leftGameMatcher.group(1);
                 UUID uuid = findUuidForName(name, nameToUuidMap);
                 if(uuid != null && openSessions.containsKey(uuid)) {
-                    endPlayerSession(uuid, timestamp, openSessions);
+                    endPlayerSession(uuid, timestamp, openSessions, aggregatedUpdates);
                 }
                 continue;
             }
@@ -331,16 +351,11 @@ public class LogCommand implements CommandExecutor {
             Matcher deathMatcher = DEATH_PATTERN.matcher(content);
             if (deathMatcher.find()) {
                 String potentialName = deathMatcher.group(1).trim();
-                if (NON_PLAYER_ENTITIES.contains(potentialName)) {
-                    continue;
-                }
+                if (NON_PLAYER_ENTITIES.contains(potentialName)) continue;
                 UUID uuid = findUuidForName(potentialName, nameToUuidMap);
                 if (uuid != null) {
-                    ParticipantData data = participantManager.getParticipant(uuid);
-                    if (data != null) {
-                        data.incrementStat("total_deaths");
-                        participantManager.saveParticipant(data);
-                    }
+                    PlayerUpdates u = aggregatedUpdates.computeIfAbsent(uuid, k -> new PlayerUpdates());
+                    aggregatedUpdates.put(uuid, new PlayerUpdates(u.totalPlaytime(), u.totalJoins(), u.totalDeaths() + 1, u.totalChats(), u.totalWCount(), u.totalPhotoSessions(), u.joinHistory(), u.playtimeHistory(), u.photoHistory(), u.lastQuitTime()));
                 } else {
                     unmappedNames.add(potentialName);
                 }
@@ -350,12 +365,9 @@ public class LogCommand implements CommandExecutor {
             Matcher photoMatcher = PHOTOGRAPHING_PATTERN.matcher(content);
             if (photoMatcher.find()) {
                 for (UUID pUuid : openSessions.keySet()) {
-                    ParticipantData data = participantManager.getParticipant(pUuid);
-                    if (data != null) {
-                        data.incrementStat("photoshoot_participations");
-                        data.addHistoryEvent("photoshoot", timestamp);
-                        participantManager.saveParticipant(data);
-                    }
+                    PlayerUpdates u = aggregatedUpdates.computeIfAbsent(pUuid, k -> new PlayerUpdates());
+                    u.photoHistory().add(timestamp);
+                    aggregatedUpdates.put(pUuid, new PlayerUpdates(u.totalPlaytime(), u.totalJoins(), u.totalDeaths(), u.totalChats(), u.totalWCount(), u.totalPhotoSessions() + 1, u.joinHistory(), u.playtimeHistory(), u.photoHistory(), u.lastQuitTime()));
                 }
                 continue;
             }
@@ -363,54 +375,62 @@ public class LogCommand implements CommandExecutor {
             Matcher chatMatcher = CHAT_PATTERN.matcher(content);
             if (chatMatcher.find()) {
                 String name = chatMatcher.group(1);
-
-                if (name.matches("^\\d+$")) {
-                    continue;
-                }
-
+                if (name.matches("^\\d+$")) continue;
                 UUID uuid = findUuidForName(name, nameToUuidMap);
                 if (uuid != null) {
-                    ParticipantData data = participantManager.getParticipant(uuid);
-                    if (data != null) {
-                        data.incrementStat("total_chats");
-                        int wCount = StringUtils.countMatches(chatMatcher.group(2), 'w');
-                        if (wCount > 0) {
-                            long currentWCount = data.getStatistics().getOrDefault("w_count", 0L).longValue();
-                            data.getStatistics().put("w_count", currentWCount + wCount);
-                        }
-                        participantManager.saveParticipant(data);
-                    }
+                    PlayerUpdates u = aggregatedUpdates.computeIfAbsent(uuid, k -> new PlayerUpdates());
+                    int wCount = StringUtils.countMatches(chatMatcher.group(2), 'w');
+                    aggregatedUpdates.put(uuid, new PlayerUpdates(u.totalPlaytime(), u.totalJoins(), u.totalDeaths(), u.totalChats() + 1, u.totalWCount() + wCount, u.totalPhotoSessions(), u.joinHistory(), u.playtimeHistory(), u.photoHistory(), u.lastQuitTime()));
                 }
             }
         }
-
         if (!unmappedNames.isEmpty()) {
             logger.warning("[YAPIMARU_Plugin] 以下のプレイヤー名をUUIDにマッピングできませんでした: " + String.join(", ", unmappedNames));
         }
-
-        if (!openSessions.isEmpty()) {
-            for (Map.Entry<UUID, PlayerSession> entry : openSessions.entrySet()) {
-                UUID pUuid = entry.getKey();
-                PlayerSession session = entry.getValue();
-                String name = Bukkit.getOfflinePlayer(pUuid).getName();
-                if (name == null) name = pUuid.toString();
-                errorLines.add("Player '" + name + "' session was not closed.");
-                errorLines.add("  Login detected in file '" + session.loginFileName() + "' with line: " + session.loginLogLine());
-            }
-        }
-
-        return new ProcessResult(!errorLines.isEmpty(), errorLines);
     }
 
-    private void endPlayerSession(UUID uuid, LocalDateTime timestamp, Map<UUID, PlayerSession> openSessions) {
+    private void endPlayerSession(UUID uuid, LocalDateTime timestamp, Map<UUID, PlayerSession> openSessions, Map<UUID, PlayerUpdates> aggregatedUpdates) {
         PlayerSession session = openSessions.remove(uuid);
         if (session != null) {
-            ParticipantData data = participantManager.getParticipant(uuid);
-            if (data == null) return;
+            PlayerUpdates u = aggregatedUpdates.computeIfAbsent(uuid, k -> new PlayerUpdates());
+
+            boolean isNewJoin = true;
+
+            List<LocalDateTime> allJoinHistory = new ArrayList<>();
+            ParticipantData existingData = participantManager.getParticipant(uuid);
+            if (existingData != null) {
+                existingData.getJoinHistory().forEach(s -> {
+                    try { allJoinHistory.add(LocalDateTime.parse(s)); } catch (DateTimeParseException e) {/*ignore*/}
+                });
+            }
+            allJoinHistory.addAll(u.joinHistory());
+            allJoinHistory.sort(Comparator.naturalOrder());
+
+            if(!allJoinHistory.isEmpty()){
+                LocalDateTime lastJoin = allJoinHistory.get(allJoinHistory.size() - 1);
+                if(Duration.between(lastJoin, session.loginTime()).toMinutes() < 10) {
+                    isNewJoin = false;
+                }
+            }
 
             long playTime = Duration.between(session.loginTime(), timestamp).getSeconds();
-            data.recordLogout(uuid, timestamp, playTime);
-            participantManager.saveParticipant(data);
+            u.playtimeHistory().add(playTime);
+
+            aggregatedUpdates.put(uuid, new PlayerUpdates(
+                    u.totalPlaytime() + playTime,
+                    isNewJoin ? u.totalJoins() + 1 : u.totalJoins(),
+                    u.totalDeaths(),
+                    u.totalChats(),
+                    u.totalWCount(),
+                    u.totalPhotoSessions(),
+                    u.joinHistory(),
+                    u.playtimeHistory(),
+                    u.photoHistory(),
+                    timestamp
+            ));
+            if(isNewJoin) {
+                u.joinHistory().add(session.loginTime());
+            }
         }
     }
 
@@ -486,7 +506,6 @@ public class LogCommand implements CommandExecutor {
             } else if (inSession) {
                 currentSessionFiles.add(currentFile);
             } else if (!currentSessionFiles.isEmpty()){
-                // セッション外のファイルも前のセッションに含める
                 sessions.get(sessions.size()-1).add(currentFile);
             }
 

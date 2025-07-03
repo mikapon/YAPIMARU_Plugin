@@ -16,7 +16,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
@@ -254,7 +253,6 @@ public class ParticipantManager {
         return count;
     }
 
-    // ★★★ ここから下に必要なメソッドを再追加 ★★★
     public synchronized void incrementDeaths(UUID uuid) {
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data != null) {
@@ -289,8 +287,6 @@ public class ParticipantManager {
             saveParticipant(data);
         }
     }
-    // ★★★ ここまで ★★★
-
 
     public synchronized boolean moveParticipantToActive(String participantId) {
         ParticipantData data = dischargedParticipants.remove(participantId);
