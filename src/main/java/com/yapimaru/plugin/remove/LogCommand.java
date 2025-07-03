@@ -49,7 +49,7 @@ public class LogCommand implements CommandExecutor {
     private static final Pattern FLOODGATE_UUID_PATTERN = Pattern.compile("\\[floodgate] Floodgate.+? ([\\w.-]+) でログインしているプレイヤーが参加しました \\(UUID: ([0-9a-f\\-]+)");
 
     private static final Pattern JOIN_PATTERN = Pattern.compile("(\\S+?) (joined the game|logged in with entity|がマッチングしました)");
-    private static final Pattern LEAVE_PATTERN = Pattern.compile("(\\S+?) (left the game|lost connection: Disconnected|が退出しました)");
+    private static final Pattern LEAVE_PATTERN = Pattern.compile("(\\S+?) (left the game|lost connection:.*|が退出しました)");
     private static final Pattern DEATH_PATTERN = Pattern.compile(
             "(\\S+?) (was squashed by a falling anvil|was shot by.*|was pricked to death|walked into a cactus.*|was squished too much|was squashed by.*|was roasted in dragon's breath|drowned|died from dehydration|was killed by even more magic|blew up|was blown up by.*|hit the ground too hard|was squashed by a falling block|was skewered by a falling stalactite|was fireballed by.*|went off with a bang|experienced kinetic energy|froze to death|was frozen to death by.*|died|died because of.*|was killed|discovered the floor was lava|walked into the danger zone due to.*|was killed by.*using magic|went up in flames|walked into fire.*|suffocated in a wall|tried to swim in lava|was struck by lightning|was smashed by.*|was killed by magic|was slain by.*|burned to death|was burned to a crisp.*|fell out of the world|didn't want to live in the same world as.*|left the confines of this world|was obliterated by a sonically-charged shriek|was impaled on a stalagmite|starved to death|was stung to death|was poked to death by a sweet berry bush|was killed while trying to hurt.*|was pummeled by.*|was impaled by.*|withered away|was shot by a skull from.*|was killed by.*)"
     );
@@ -258,85 +258,93 @@ public class LogCommand implements CommandExecutor {
 
 
     private ProcessResult processSessionGroup(List<LogLine> allLines, Map<String, UUID> nameToUuidMap) {
+        Map<String, LocalDateTime> pendingAuthentications = new HashMap<>();
         Map<ParticipantData, SessionInfo> openSessions = new HashMap<>();
         List<String> errorLines = new ArrayList<>();
-        Map<UUID, LocalDateTime> lastJoinEventTimes = new HashMap<>();
-        Map<UUID, LocalDateTime> lastLeaveEventTimes = new HashMap<>();
 
         for (LogLine log : allLines) {
-            Matcher joinMatcher = JOIN_PATTERN.matcher(log.content());
+            LocalDateTime timestamp = log.timestamp();
+            String content = log.content();
+
+            // 1. Authentication Check
+            Matcher uuidMatcher = UUID_PATTERN.matcher(content);
+            if (uuidMatcher.find()) {
+                pendingAuthentications.put(uuidMatcher.group(1), timestamp);
+                continue;
+            }
+            Matcher floodgateMatcher = FLOODGATE_UUID_PATTERN.matcher(content);
+            if (floodgateMatcher.find()) {
+                pendingAuthentications.put(floodgateMatcher.group(1), timestamp);
+                // This is also a join, so process it as such immediately
+            }
+
+            // 2. Join Check
+            Matcher joinMatcher = JOIN_PATTERN.matcher(content);
             if (joinMatcher.find()) {
                 String name = joinMatcher.group(1);
+                pendingAuthentications.remove(name); // Successful login, remove from pending
                 UUID uuid = nameToUuidMap.get(name);
-
                 if (uuid != null) {
                     ParticipantData data = participantManager.findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
-                    if(data == null) continue;
-
-                    LocalDateTime lastEvent = lastJoinEventTimes.get(uuid);
-                    if (lastEvent == null || Duration.between(lastEvent, log.timestamp()).getSeconds() > 10) {
-                        SessionInfo session = openSessions.computeIfAbsent(data, k -> new SessionInfo(log.timestamp(), new HashSet<>()));
-                        if(session.onlineUuids().isEmpty()) {
+                    if (data != null) {
+                        SessionInfo session = openSessions.computeIfAbsent(data, k -> new SessionInfo(timestamp, new HashSet<>()));
+                        if (session.onlineUuids().isEmpty()) {
                             participantManager.incrementJoins(uuid);
                         }
                         session.onlineUuids().add(uuid);
-                        lastJoinEventTimes.put(uuid, log.timestamp());
                     }
                 }
                 continue;
             }
 
-            Matcher leaveMatcher = LEAVE_PATTERN.matcher(log.content());
+            // 3. Leave Check
+            Matcher leaveMatcher = LEAVE_PATTERN.matcher(content);
             if (leaveMatcher.find()) {
                 String name = leaveMatcher.group(1);
                 UUID uuid = nameToUuidMap.get(name);
-                if (uuid != null) {
-                    ParticipantData data = participantManager.getParticipant(uuid);
-                    if (data == null) continue;
+                if (uuid == null) continue;
 
-                    LocalDateTime lastEvent = lastLeaveEventTimes.get(uuid);
-                    if (lastEvent == null || Duration.between(lastEvent, log.timestamp()).getSeconds() > 10) {
-                        SessionInfo session = openSessions.get(data);
-                        if (session != null && session.onlineUuids().contains(uuid)) {
-                            session.onlineUuids().remove(uuid);
-                            if(session.onlineUuids().isEmpty()){
-                                LocalDateTime joinTime = session.firstLogin();
-                                long playTime = Duration.between(joinTime, log.timestamp()).getSeconds();
-                                if (playTime > 0) participantManager.addPlaytime(uuid, playTime);
-                                if (playTime >= 600) {
-                                    participantManager.addJoinHistory(uuid, joinTime);
-                                }
-                                openSessions.remove(data);
-                            }
-                        } else {
-                            if (data.isOnline()) {
-                                logger.warning("Player " + data.getDisplayName() + " left without a join record in this session, but was marked as online. Treating as a session continuation.");
-                                data.setOnline(false);
-                                participantManager.saveParticipant(data);
-                            } else {
-                                errorLines.add(log.content());
-                            }
-                        }
-                        lastLeaveEventTimes.put(uuid, log.timestamp());
+                ParticipantData data = participantManager.getParticipant(uuid);
+                if (data == null) continue;
+
+                // Check if player has an open session
+                SessionInfo session = openSessions.get(data);
+                if (session != null && session.onlineUuids().contains(uuid)) {
+                    session.onlineUuids().remove(uuid);
+                    if (session.onlineUuids().isEmpty()) {
+                        long playTime = Duration.between(session.firstLogin(), timestamp).getSeconds();
+                        if (playTime > 0) participantManager.addPlaytime(uuid, playTime);
+                        if (playTime >= 600) participantManager.addJoinHistory(uuid, session.firstLogin());
+                        openSessions.remove(data);
                     }
+                } else if (pendingAuthentications.containsKey(name)) {
+                    // Player authenticated but did not join, and left within 1 minute (e.g., whitelist kick)
+                    LocalDateTime authTime = pendingAuthentications.get(name);
+                    if (Duration.between(authTime, timestamp).getSeconds() <= 60) {
+                        pendingAuthentications.remove(name); // Valid failed login, ignore.
+                    } else {
+                        // Left long after authenticating without joining -> Error
+                        errorLines.add("Player '" + name + "' left long after authenticating without joining: " + content);
+                        pendingAuthentications.remove(name);
+                    }
+                } else {
+                    // Left without join or recent auth -> Error
+                    errorLines.add("Player '" + name + "' left without a join/auth record in this session: " + content);
                 }
                 continue;
             }
 
-            Matcher deathMatcher = DEATH_PATTERN.matcher(log.content());
+            // 4. Other stats for online players
+            Matcher deathMatcher = DEATH_PATTERN.matcher(content);
             if (deathMatcher.find()) {
                 String name = deathMatcher.group(1);
                 UUID uuid = nameToUuidMap.get(name);
-                if (uuid != null) {
-                    participantManager.findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
-                    participantManager.incrementDeaths(uuid);
-                }
+                if (uuid != null) participantManager.incrementDeaths(uuid);
                 continue;
             }
 
-            Matcher photoMatcher = PHOTOGRAPHING_PATTERN.matcher(log.content());
+            Matcher photoMatcher = PHOTOGRAPHING_PATTERN.matcher(content);
             if (photoMatcher.find()) {
-                LocalDateTime timestamp = log.timestamp();
                 openSessions.keySet().forEach(data -> {
                     data.getAssociatedUuids().forEach(uuid -> {
                         participantManager.incrementPhotoshootParticipations(uuid, timestamp);
@@ -345,12 +353,11 @@ public class LogCommand implements CommandExecutor {
                 continue;
             }
 
-            Matcher chatMatcher = CHAT_PATTERN.matcher(log.content());
+            Matcher chatMatcher = CHAT_PATTERN.matcher(content);
             if (chatMatcher.find()) {
                 String name = chatMatcher.group(1);
                 UUID uuid = nameToUuidMap.get(name);
                 if (uuid != null) {
-                    participantManager.findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
                     participantManager.incrementChats(uuid);
                     int wCount = StringUtils.countMatches(chatMatcher.group(2), 'w');
                     if (wCount > 0) participantManager.incrementWCount(uuid, wCount);
@@ -358,23 +365,10 @@ public class LogCommand implements CommandExecutor {
             }
         }
 
-        // Finalize sessions for players who were online when the logs ended (e.g., server crash)
-        if (!allLines.isEmpty()) {
-            LocalDateTime lastLogTimestamp = allLines.get(allLines.size() - 1).timestamp();
-            for (Map.Entry<ParticipantData, SessionInfo> entry : openSessions.entrySet()) {
-                if (entry.getValue().onlineUuids().isEmpty()) continue;
-
-                UUID representativeUuid = entry.getKey().getAssociatedUuids().stream().findFirst().orElse(null);
-                if(representativeUuid == null) continue;
-
-                LocalDateTime joinTime = entry.getValue().firstLogin();
-                long playTime = Duration.between(joinTime, lastLogTimestamp).getSeconds();
-                if (playTime > 0) {
-                    participantManager.addPlaytime(representativeUuid, playTime);
-                }
-                if (playTime >= 600) {
-                    participantManager.addJoinHistory(representativeUuid, joinTime);
-                }
+        // Final check after processing all lines in the session
+        if (!pendingAuthentications.isEmpty()) {
+            for(Map.Entry<String, LocalDateTime> entry : pendingAuthentications.entrySet()){
+                errorLines.add("Player '" + entry.getKey() + "' authenticated at " + entry.getValue() + " but never joined or left within the timeout.");
             }
         }
 
