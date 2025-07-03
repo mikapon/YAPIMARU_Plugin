@@ -6,7 +6,6 @@ import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
-import org.bukkit.scheduler.BukkitRunnable;
 
 import java.io.File;
 import java.io.IOException;
@@ -429,18 +428,19 @@ public class ParticipantManager {
     }
 
     public synchronized Optional<ParticipantData> findParticipantByAnyName(String name) {
-        String lowerCaseName = name.toLowerCase();
-        String strippedName = lowerCaseName.startsWith(".") ? lowerCaseName.substring(1) : lowerCaseName;
+        if (name == null || name.isBlank()) {
+            return Optional.empty();
+        }
+        final String lowerCaseName = name.toLowerCase();
 
         return Stream.concat(activeParticipants.values().stream(), dischargedParticipants.values().stream())
                 .filter(pData -> {
-                    if (pData.getBaseName() != null && pData.getBaseName().equalsIgnoreCase(name)) return true;
-                    if (pData.getLinkedName() != null && pData.getLinkedName().equalsIgnoreCase(name)) return true;
-                    if (pData.getBaseName() != null && pData.getBaseName().equalsIgnoreCase(strippedName)) return true;
-                    if (pData.getLinkedName() != null && pData.getLinkedName().equalsIgnoreCase(strippedName)) return true;
+                    // base_name, linked_name, そして uuid-to-name の中の全ての名前をチェック
+                    if (pData.getBaseName() != null && pData.getBaseName().toLowerCase().contains(lowerCaseName)) return true;
+                    if (pData.getLinkedName() != null && pData.getLinkedName().toLowerCase().contains(lowerCaseName)) return true;
                     if (pData.getUuidToNameMap() != null) {
                         for (String storedName : pData.getUuidToNameMap().values()) {
-                            if (storedName.equalsIgnoreCase(name) || storedName.equalsIgnoreCase(strippedName)) {
+                            if (storedName != null && storedName.toLowerCase().contains(lowerCaseName)) {
                                 return true;
                             }
                         }
