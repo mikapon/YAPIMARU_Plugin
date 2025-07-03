@@ -16,6 +16,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
@@ -253,32 +254,43 @@ public class ParticipantManager {
         return count;
     }
 
-    public synchronized void incrementPhotoshootParticipations(UUID uuid, LocalDateTime timestamp) {
-        ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
-        if (data == null) return;
-        data.incrementStat("photoshoot_participations");
-        data.addHistoryEvent("photoshoot", timestamp);
-    }
-
+    // ★★★ ここから下に必要なメソッドを再追加 ★★★
     public synchronized void incrementDeaths(UUID uuid) {
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
-        if (data == null) return;
-        data.incrementStat("total_deaths");
+        if (data != null) {
+            data.incrementStat("total_deaths");
+            saveParticipant(data);
+        }
     }
 
     public synchronized void incrementChats(UUID uuid) {
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
-        if (data == null) return;
-        data.incrementStat("total_chats");
+        if (data != null) {
+            data.incrementStat("total_chats");
+            saveParticipant(data);
+        }
     }
 
     public synchronized void incrementWCount(UUID uuid, int amount) {
         if (amount == 0) return;
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
-        if (data == null) return;
-        long currentWCount = data.getStatistics().getOrDefault("w_count", 0L).longValue();
-        data.getStatistics().put("w_count", currentWCount + amount);
+        if (data != null) {
+            long currentWCount = data.getStatistics().getOrDefault("w_count", 0L).longValue();
+            data.getStatistics().put("w_count", currentWCount + amount);
+            saveParticipant(data);
+        }
     }
+
+    public synchronized void incrementPhotoshootParticipations(UUID uuid, LocalDateTime timestamp) {
+        ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
+        if (data != null) {
+            data.incrementStat("photoshoot_participations");
+            data.addHistoryEvent("photoshoot", timestamp);
+            saveParticipant(data);
+        }
+    }
+    // ★★★ ここまで ★★★
+
 
     public synchronized boolean moveParticipantToActive(String participantId) {
         ParticipantData data = dischargedParticipants.remove(participantId);

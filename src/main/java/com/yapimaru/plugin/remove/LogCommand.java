@@ -234,20 +234,7 @@ public class LogCommand implements CommandExecutor {
             }
         }
 
-        participantManager.saveAllParticipantData();
-
-
-        if (totalFilesProcessed > 0) {
-            plugin.getAdventure().sender(sender).sendMessage(
-                    Component.text("ログ処理が完了しました！", NamedTextColor.GREEN)
-                            .append(Component.newline())
-                            .append(Component.text("正常に処理されたファイル数: " + totalFilesProcessed + "件", NamedTextColor.AQUA))
-            );
-        } else if (sessionsWithError > 0) {
-            plugin.getAdventure().sender(sender).sendMessage(Component.text("正常に処理されたログセッションはありませんでした。", NamedTextColor.YELLOW));
-        } else {
-            plugin.getAdventure().sender(sender).sendMessage(Component.text("処理対象のログファイルが見つかりませんでした。", NamedTextColor.GREEN));
-        }
+        plugin.getAdventure().sender(sender).sendMessage(Component.text("ログ処理が完了しました。", NamedTextColor.GREEN));
 
         if (sessionsWithError > 0) {
             plugin.getAdventure().sender(sender).sendMessage(Component.text(sessionsWithError + " 件のセッションでエラーが検出されました。詳細はErrorフォルダを確認してください。", NamedTextColor.RED));
@@ -309,9 +296,12 @@ public class LogCommand implements CommandExecutor {
                 String name = joinMatcher.group(1);
                 UUID uuid = findUuidForName(name, nameToUuidMap);
                 if (uuid != null) {
-                    ParticipantData data = participantManager.findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
-                    data.recordLogin(uuid, timestamp);
-                    openSessions.put(uuid, new PlayerSession(timestamp, content, log.fileName()));
+                    if (!openSessions.containsKey(uuid)) {
+                        ParticipantData data = participantManager.findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
+                        data.recordLogin(uuid, timestamp);
+                        participantManager.saveParticipant(data);
+                        openSessions.put(uuid, new PlayerSession(timestamp, content, log.fileName()));
+                    }
                 } else if (!NON_PLAYER_ENTITIES.contains(name)) {
                     unmappedNames.add(name);
                 }
@@ -323,7 +313,7 @@ public class LogCommand implements CommandExecutor {
                 String name = lostConnectionMatcher.group(1);
                 UUID uuid = findUuidForName(name, nameToUuidMap);
                 if (uuid != null) {
-                    endPlayerSession(uuid, timestamp, openSessions, errorLines);
+                    endPlayerSession(uuid, timestamp, openSessions);
                 }
                 continue;
             }
@@ -333,7 +323,7 @@ public class LogCommand implements CommandExecutor {
                 String name = leftGameMatcher.group(1);
                 UUID uuid = findUuidForName(name, nameToUuidMap);
                 if(uuid != null && openSessions.containsKey(uuid)) {
-                    endPlayerSession(uuid, timestamp, openSessions, errorLines);
+                    endPlayerSession(uuid, timestamp, openSessions);
                 }
                 continue;
             }
@@ -349,6 +339,7 @@ public class LogCommand implements CommandExecutor {
                     ParticipantData data = participantManager.getParticipant(uuid);
                     if (data != null) {
                         data.incrementStat("total_deaths");
+                        participantManager.saveParticipant(data);
                     }
                 } else {
                     unmappedNames.add(potentialName);
@@ -359,7 +350,12 @@ public class LogCommand implements CommandExecutor {
             Matcher photoMatcher = PHOTOGRAPHING_PATTERN.matcher(content);
             if (photoMatcher.find()) {
                 for (UUID pUuid : openSessions.keySet()) {
-                    participantManager.incrementPhotoshootParticipations(pUuid, timestamp);
+                    ParticipantData data = participantManager.getParticipant(pUuid);
+                    if (data != null) {
+                        data.incrementStat("photoshoot_participations");
+                        data.addHistoryEvent("photoshoot", timestamp);
+                        participantManager.saveParticipant(data);
+                    }
                 }
                 continue;
             }
@@ -374,10 +370,15 @@ public class LogCommand implements CommandExecutor {
 
                 UUID uuid = findUuidForName(name, nameToUuidMap);
                 if (uuid != null) {
-                    participantManager.incrementChats(uuid);
-                    int wCount = StringUtils.countMatches(chatMatcher.group(2), 'w');
-                    if (wCount > 0) {
-                        participantManager.incrementWCount(uuid, wCount);
+                    ParticipantData data = participantManager.getParticipant(uuid);
+                    if (data != null) {
+                        data.incrementStat("total_chats");
+                        int wCount = StringUtils.countMatches(chatMatcher.group(2), 'w');
+                        if (wCount > 0) {
+                            long currentWCount = data.getStatistics().getOrDefault("w_count", 0L).longValue();
+                            data.getStatistics().put("w_count", currentWCount + wCount);
+                        }
+                        participantManager.saveParticipant(data);
                     }
                 }
             }
@@ -401,7 +402,7 @@ public class LogCommand implements CommandExecutor {
         return new ProcessResult(!errorLines.isEmpty(), errorLines);
     }
 
-    private void endPlayerSession(UUID uuid, LocalDateTime timestamp, Map<UUID, PlayerSession> openSessions, List<String> errorLines) {
+    private void endPlayerSession(UUID uuid, LocalDateTime timestamp, Map<UUID, PlayerSession> openSessions) {
         PlayerSession session = openSessions.remove(uuid);
         if (session != null) {
             ParticipantData data = participantManager.getParticipant(uuid);
@@ -409,6 +410,7 @@ public class LogCommand implements CommandExecutor {
 
             long playTime = Duration.between(session.loginTime(), timestamp).getSeconds();
             data.recordLogout(uuid, timestamp, playTime);
+            participantManager.saveParticipant(data);
         }
     }
 
