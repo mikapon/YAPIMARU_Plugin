@@ -65,6 +65,11 @@ public class LogCommand implements CommandExecutor {
     private static final Pattern SERVER_START_PATTERN = Pattern.compile("Starting minecraft server version");
     private static final Pattern SERVER_STOP_PATTERN = Pattern.compile("Stopping server");
 
+    private static final Set<String> NON_PLAYER_ENTITIES = new HashSet<>(Arrays.asList(
+            "Villager", "Librarian", "Farmer", "Shepherd", "Nitwit", "Leatherworker",
+            "Weaponsmith", "Fisherman", "You", "adomin" // Common misidentified names
+    ));
+
 
     private record LogLine(LocalDateTime timestamp, String content) {}
     private record ProcessResult(boolean hasError, List<String> errorLines) {}
@@ -300,7 +305,7 @@ public class LogCommand implements CommandExecutor {
                         openSessions.put(uuid, new PlayerSession(timestamp));
                         participantManager.incrementJoins(uuid);
                     }
-                } else {
+                } else if (!NON_PLAYER_ENTITIES.contains(name)) {
                     unmappedNames.add(name);
                 }
                 continue;
@@ -312,7 +317,7 @@ public class LogCommand implements CommandExecutor {
                 UUID uuid = findUuidForName(name, nameToUuidMap);
                 if(uuid != null) {
                     endPlayerSession(uuid, timestamp, openSessions, errorLines, content);
-                } else {
+                } else if (!NON_PLAYER_ENTITIES.contains(name)) {
                     unmappedNames.add(name);
                 }
                 continue;
@@ -324,7 +329,7 @@ public class LogCommand implements CommandExecutor {
                 UUID uuid = findUuidForName(name, nameToUuidMap);
                 if(uuid != null) {
                     endPlayerSession(uuid, timestamp, openSessions, errorLines, content);
-                } else {
+                } else if (!NON_PLAYER_ENTITIES.contains(name)) {
                     unmappedNames.add(name);
                 }
                 continue;
@@ -332,12 +337,23 @@ public class LogCommand implements CommandExecutor {
 
             Matcher deathMatcher = DEATH_PATTERN.matcher(content);
             if (deathMatcher.find()) {
-                String name = deathMatcher.group(1);
-                UUID uuid = findUuidForName(name, nameToUuidMap);
+                String potentialName = deathMatcher.group(1);
+
+                if (content.contains("Entity") && (content.contains("died, message:") || content.contains("died:"))) {
+                    continue;
+                }
+                if (NON_PLAYER_ENTITIES.contains(potentialName)) {
+                    continue;
+                }
+                if (StringUtils.isNumeric(potentialName.replace("+", ""))) {
+                    continue;
+                }
+
+                UUID uuid = findUuidForName(potentialName, nameToUuidMap);
                 if (uuid != null) {
                     participantManager.incrementDeaths(uuid);
                 } else {
-                    unmappedNames.add(name);
+                    unmappedNames.add(potentialName);
                 }
                 continue;
             }
@@ -361,7 +377,7 @@ public class LogCommand implements CommandExecutor {
                     if (wCount > 0) {
                         participantManager.incrementWCount(uuid, wCount);
                     }
-                } else {
+                } else if (!NON_PLAYER_ENTITIES.contains(name)) {
                     unmappedNames.add(name);
                 }
             }
@@ -435,7 +451,30 @@ public class LogCommand implements CommandExecutor {
         if (logFiles == null || logFiles.length == 0) {
             return Collections.emptyList();
         }
-        Arrays.sort(logFiles, Comparator.comparing(File::getName));
+
+        // Custom comparator for natural sorting of log files
+        Comparator<File> logFileComparator = (f1, f2) -> {
+            Pattern pattern = Pattern.compile("(\\d{4}-\\d{2}-\\d{2})-(\\d+)\\.log(\\.gz)?");
+            Matcher m1 = pattern.matcher(f1.getName());
+            Matcher m2 = pattern.matcher(f2.getName());
+
+            if (m1.matches() && m2.matches()) {
+                String date1 = m1.group(1);
+                int num1 = Integer.parseInt(m1.group(2));
+                String date2 = m2.group(1);
+                int num2 = Integer.parseInt(m2.group(2));
+
+                int dateCompare = date1.compareTo(date2);
+                if (dateCompare != 0) {
+                    return dateCompare;
+                }
+                return Integer.compare(num1, num2);
+            }
+            return f1.getName().compareTo(f2.getName());
+        };
+
+        Arrays.sort(logFiles, logFileComparator);
+
 
         List<List<File>> sessions = new ArrayList<>();
         List<File> currentSessionFiles = new ArrayList<>();
