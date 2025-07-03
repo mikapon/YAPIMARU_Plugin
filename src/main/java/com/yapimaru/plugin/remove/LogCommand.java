@@ -253,10 +253,12 @@ public class LogCommand implements CommandExecutor {
 
     private Map<String, UUID> buildComprehensiveNameMap() {
         Map<String, UUID> nameMap = new HashMap<>();
-        Stream.concat(
+        List<ParticipantData> allParticipants = Stream.concat(
                 participantManager.getActiveParticipants().stream(),
                 participantManager.getDischargedParticipants().stream()
-        ).forEach(data -> {
+        ).collect(Collectors.toList());
+
+        for (ParticipantData data : allParticipants) {
             String primaryName = data.getBaseName();
             if (primaryName == null || primaryName.isEmpty()) {
                 primaryName = data.getDisplayName();
@@ -270,10 +272,12 @@ public class LogCommand implements CommandExecutor {
                 }
             }
             if (primaryName != null && !primaryName.isEmpty()) {
-                // Find a primary UUID to associate with the base name
-                data.getAssociatedUuids().stream().findFirst().ifPresent(uuid -> nameMap.put(primaryName, uuid));
+                Optional<UUID> firstUuid = data.getAssociatedUuids().stream().findFirst();
+                if (firstUuid.isPresent()) {
+                    nameMap.put(primaryName, firstUuid.get());
+                }
             }
-        });
+        }
         return nameMap;
     }
 
@@ -367,13 +371,13 @@ public class LogCommand implements CommandExecutor {
             logger.warning("以下のプレイヤー名をUUIDにマッピングできませんでした: " + String.join(", ", unmappedNames));
         }
 
-
         if (!openSessions.isEmpty()) {
-            openSessions.forEach((pUuid, session) -> {
+            for (Map.Entry<UUID, PlayerSession> entry : openSessions.entrySet()) {
+                UUID pUuid = entry.getKey();
                 String name = Bukkit.getOfflinePlayer(pUuid).getName();
                 if (name == null) name = pUuid.toString();
                 errorLines.add("Player '" + name + "' session was not closed at the end of the server session.");
-            });
+            }
         }
 
         return new ProcessResult(!errorLines.isEmpty(), errorLines);
