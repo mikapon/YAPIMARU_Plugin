@@ -4,7 +4,6 @@ import com.yapimaru.plugin.YAPIMARU_Plugin;
 import com.yapimaru.plugin.commands.YmCommand;
 import com.yapimaru.plugin.data.ParticipantData;
 import com.yapimaru.plugin.managers.*;
-import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -14,7 +13,6 @@ import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.SkullMeta;
 
 import java.util.Collection;
 import java.util.HashMap;
@@ -62,6 +60,7 @@ public class GuiListener implements Listener {
 
         if (clickedItem == null || clickedItem.getType().isAir()) return;
 
+        // Creator GUI (handled by InventoryHolder)
         if (holder instanceof GuiManager.MainMenuHolder) {
             event.setCancelled(true);
             creatorGuiManager.handleMainMenuClick(player, clickedItem);
@@ -74,7 +73,10 @@ public class GuiListener implements Listener {
         } else if (holder instanceof GuiManager.GamemodeMenuHolder) {
             event.setCancelled(true);
             creatorGuiManager.handleGamemodeMenuClick(player, clickedItem);
-        } else if (event.getView().getTitle().startsWith(YmCommand.GUI_PREFIX)) {
+        }
+
+        // YmCommand GUI (handled by title prefix)
+        else if (event.getView().getTitle().startsWith(YmCommand.GUI_PREFIX)) {
             event.setCancelled(true);
             if (!clickedItem.hasItemMeta()) return;
             handleYmGuiClick(player, event.getView().getTitle(), clickedItem, event.getClick());
@@ -215,18 +217,13 @@ public class GuiListener implements Listener {
                 return;
             }
 
-            // ★ 警告を修正: メソッドの戻り値をチェック
-            boolean success = false;
             switch (listType) {
                 case "active":
-                    success = participantManager.moveParticipantToDischarged(participantId);
+                    participantManager.moveParticipantToDischarged(participantId);
                     break;
                 case "discharged":
-                    success = participantManager.moveParticipantToActive(participantId);
+                    participantManager.moveParticipantToActive(participantId);
                     break;
-            }
-            if (!success) {
-                player.sendMessage(ChatColor.RED + "プレイヤーの移動に失敗しました。");
             }
             refreshParticipantGui(player, listType);
         }
@@ -236,7 +233,7 @@ public class GuiListener implements Listener {
         if (item == null || !item.hasItemMeta() || !item.getItemMeta().hasLore()) return null;
         for (String line : item.getItemMeta().getLore()) {
             if (line.startsWith("§8ID: ")) {
-                return line.substring(6);
+                return line.substring(6); // "§8ID: ".length()
             }
         }
         return null;
@@ -326,6 +323,7 @@ public class GuiListener implements Listener {
         };
     }
 
+    // --- Other GUI Handlers ---
     private void handlePlayerSettingsGuiClick(Player player, ItemStack item) {
         if (item == null) return;
         PlayerRestrictionManager.RestrictionMode current = restrictionManager.getCurrentMode();
