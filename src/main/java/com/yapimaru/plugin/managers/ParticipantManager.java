@@ -4,7 +4,6 @@ import com.yapimaru.plugin.YAPIMARU_Plugin;
 import com.yapimaru.plugin.data.ParticipantData;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
-import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 
@@ -19,6 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class ParticipantManager {
@@ -42,15 +42,21 @@ public class ParticipantManager {
         this.activeDir = new File(participantDir, "participant");
         this.dischargedDir = new File(participantDir, "discharge");
 
-        if (!activeDir.exists()) activeDir.mkdirs();
-        if (!dischargedDir.exists()) dischargedDir.mkdirs();
+        // ★ 警告を修正: mkdirs()の結果をチェック
+        if (!activeDir.exists() && !activeDir.mkdirs()) {
+            plugin.getLogger().warning("Failed to create participant directory: " + activeDir.getPath());
+        }
+        if (!dischargedDir.exists() && !dischargedDir.mkdirs()) {
+            plugin.getLogger().warning("Failed to create discharge directory: " + dischargedDir.getPath());
+        }
 
         migrateOldFiles();
         loadAllParticipants();
     }
 
     public synchronized void handleServerStartup() {
-        LocalDateTime startupTime = LocalDateTime.now();
+        // ★ 警告を修正: 未使用の変数を削除
+        // LocalDateTime startupTime = LocalDateTime.now();
         Stream.concat(activeParticipants.values().stream(), dischargedParticipants.values().stream())
                 .forEach(data -> {
                     boolean wasModified = false;

@@ -142,11 +142,7 @@ public class ParticipantData {
     public String getLinkedName() { return linkedName; }
     public Map<UUID, AccountInfo> getAccounts() { return accounts; }
     public Set<UUID> getAssociatedUuids() { return accounts.keySet(); }
-    public Map<UUID, String> getUuidToNameMap() {
-        Map<UUID, String> map = new HashMap<>();
-        accounts.forEach((uuid, accountInfo) -> map.put(uuid, accountInfo.getName()));
-        return map;
-    }
+    // ★ 警告を修正: 未使用のメソッドを削除
     public Map<String, Number> getStatistics() { return statistics; }
     public List<String> getJoinHistory() { return joinHistory; }
     public List<String> getPhotoshootHistory() { return photoshootHistory; }

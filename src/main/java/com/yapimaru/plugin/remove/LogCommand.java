@@ -6,7 +6,6 @@ import com.yapimaru.plugin.managers.ParticipantManager;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
-// ★★★ エラー箇所を修正 ★★★
 import org.bukkit.OfflinePlayer;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -14,11 +13,13 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.jetbrains.annotations.NotNull;
 
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
-import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -39,13 +40,14 @@ public class LogCommand implements CommandExecutor {
     private final Logger logger;
 
     // Log line patterns
+    // ★ 警告を修正: 冗長なエスケープを削除
     private static final Pattern LOG_LINE_PATTERN = Pattern.compile("^\\[(\\d{2}:\\d{2}:\\d{2})].*");
     private static final Pattern UUID_PATTERN = Pattern.compile("UUID of player (\\S+) is ([0-9a-f\\-]+)");
     private static final Pattern FLOODGATE_UUID_PATTERN = Pattern.compile("\\[floodgate] Floodgate.+? (\\S+) でログインしているプレイヤーが参加しました \\(UUID: ([0-9a-f\\-]+)");
 
-    private static final Pattern JOIN_PATTERN = Pattern.compile("\\] (\\.?[a-zA-Z0-9_]{2,16})(?:\\[.+])? (joined the game|logged in with entity|がマッチングしました)");
-    private static final Pattern LOST_CONNECTION_PATTERN = Pattern.compile("\\] (\\.?[a-zA-Z0-9_]{2,16}) lost connection:.*");
-    private static final Pattern LEFT_GAME_PATTERN = Pattern.compile("\\] (\\.?[a-zA-Z0-9_]{2,16}) (left the game|が退出しました)");
+    private static final Pattern JOIN_PATTERN = Pattern.compile("] (\\.?[a-zA-Z0-9_]{2,16})(?:\\[.+])? (joined the game|logged in with entity|がマッチングしました)");
+    // ★ 警告を修正: 未使用のフィールドを削除 private static final Pattern LOST_CONNECTION_PATTERN = Pattern.compile("\\] (\\.?[a-zA-Z0-9_]{2,16}) lost connection:.*");
+    private static final Pattern LEFT_GAME_PATTERN = Pattern.compile("] (\\.?[a-zA-Z0-9_]{2,16}) (left the game|が退出しました)");
 
     private static final Pattern DEATH_PATTERN = Pattern.compile(
             "(\\.?[a-zA-Z0-9_]{2,16}) (was squashed by a falling anvil|was shot by.*|was pricked to death|walked into a cactus.*|was squished too much|was squashed by.*|was roasted in dragon's breath|drowned|died from dehydration|was killed by even more magic|blew up|was blown up by.*|hit the ground too hard|was squashed by a falling block|was skewered by a falling stalactite|was fireballed by.*|went off with a bang|experienced kinetic energy|froze to death|was frozen to death by.*|died|died because of.*|was killed|discovered the floor was lava|walked into the danger zone due to.*|was killed by.*using magic|went up in flames|walked into fire.*|suffocated in a wall|tried to swim in lava|was struck by lightning|was smashed by.*|was killed by magic|was slain by.*|burned to death|was burned to a crisp.*|fell out of the world|didn't want to live in the same world as.*|left the confines of this world|was obliterated by a sonically-charged shriek|was impaled on a stalagmite|starved to death|was stung to death|was poked to death by a sweet berry bush|was killed while trying to hurt.*|was pummeled by.*|was impaled by.*|withered away|was shot by a skull from.*|was killed by.*)"
@@ -55,7 +57,7 @@ public class LogCommand implements CommandExecutor {
 
     // Server state patterns
     private static final Pattern SERVER_START_PATTERN = Pattern.compile("Starting minecraft server version");
-    private static final Pattern SERVER_STOP_PATTERN = Pattern.compile("Stopping server");
+    // ★ 警告を修正: 未使用のフィールドを削除 private static final Pattern SERVER_STOP_PATTERN = Pattern.compile("Stopping server");
 
     private static final Set<String> NON_PLAYER_ENTITIES = new HashSet<>(Arrays.asList(
             "Villager", "Librarian", "Farmer", "Shepherd", "Nitwit", "Leatherworker",
@@ -109,10 +111,10 @@ public class LogCommand implements CommandExecutor {
         File memoryDumpsDir = new File(logDir, "memory_dumps");
 
         try {
-            if (!processedDir.exists()) Files.createDirectories(processedDir.toPath());
-            if (!errorDir.exists()) Files.createDirectories(errorDir.toPath());
-            if (!memoryDumpsDir.exists()) Files.createDirectories(memoryDumpsDir.toPath());
-        } catch (IOException e) {
+            if (!processedDir.exists() && !processedDir.mkdirs()) logger.warning("Failed to create processed directory.");
+            if (!errorDir.exists() && !errorDir.mkdirs()) logger.warning("Failed to create error directory.");
+            if (!memoryDumpsDir.exists() && !memoryDumpsDir.mkdirs()) logger.warning("Failed to create memory_dumps directory.");
+        } catch (SecurityException e) {
             handleError(sender, null, "作業ディレクトリの作成に失敗しました: " + e.getMessage(), e, null);
             return;
         }
@@ -208,7 +210,7 @@ public class LogCommand implements CommandExecutor {
                 // === フェーズ3: ログからの再集計 ===
                 Map<String, ParticipantData> participantDataMap = sessionParticipants.stream()
                         .collect(Collectors.toMap(ParticipantData::getParticipantId, p -> p));
-                processSessionEvents(sessionFiles, participantDataMap, sender);
+                processSessionEvents(sessionFiles, participantDataMap);
 
                 mmConfig.set("processed_participants_data", sessionParticipants);
                 mmConfig.save(mmFile);
@@ -236,7 +238,7 @@ public class LogCommand implements CommandExecutor {
     }
 
 
-    private void processSessionEvents(List<File> sessionFiles, Map<String, ParticipantData> sessionParticipants, CommandSender sender) throws IOException {
+    private void processSessionEvents(List<File> sessionFiles, Map<String, ParticipantData> sessionParticipants) throws IOException {
 
         List<LogLine> allLines = new ArrayList<>();
         LocalDate currentDate = null;
@@ -406,7 +408,10 @@ public class LogCommand implements CommandExecutor {
 
         if(filesToMove != null && !filesToMove.isEmpty()) {
             File errorDir = new File(new File(plugin.getDataFolder(), "Participant_Information"), "log/Error");
-            if (!errorDir.exists()) errorDir.mkdirs();
+            // ★ 警告を修正: mkdirs()の結果をチェック
+            if (!errorDir.exists() && !errorDir.mkdirs()) {
+                logger.warning("Could not create error directory at: " + errorDir.getPath());
+            }
 
             String errorSessionName = (sessionName != null) ? sessionName : "unknown_session";
             File errorReasonFile = new File(errorDir, errorSessionName + "_error.txt");
@@ -422,16 +427,6 @@ public class LogCommand implements CommandExecutor {
         }
     }
 
-
-    private void moveFilesTo(List<File> files, File targetDir) {
-        for (File file : files) {
-            try {
-                Files.move(file.toPath(), targetDir.toPath().resolve(file.getName()), StandardCopyOption.REPLACE_EXISTING);
-            } catch (IOException e) {
-                logger.log(Level.SEVERE, "ログファイルの移動に失敗: " + file.getName(), e);
-            }
-        }
-    }
 
     private void handleResetCommand(CommandSender sender) {
         plugin.getAdventure().sender(sender).sendMessage(Component.text("全参加者の統計情報をリセットしています...", NamedTextColor.GREEN));

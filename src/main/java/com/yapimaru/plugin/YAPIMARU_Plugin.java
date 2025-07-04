@@ -66,8 +66,7 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
         participantManager.handleServerStartup();
 
         for (Player player : Bukkit.getOnlinePlayers()) {
-            // ★★★ エラー箇所を修正 ★★★
-            participantManager.handlePlayerLogin(player.getUniqueId(), true); // recordLoginTime -> handlePlayerLogin
+            participantManager.handlePlayerLogin(player.getUniqueId(), true);
             nameManager.updatePlayerName(player);
         }
 
@@ -87,8 +86,7 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
 
         if (participantManager != null) {
             for (Player player : Bukkit.getOnlinePlayers()) {
-                // ★★★ エラー箇所を修正 ★★★
-                participantManager.handlePlayerLogout(player.getUniqueId()); // recordQuitTime -> handlePlayerLogout
+                participantManager.handlePlayerLogout(player.getUniqueId());
             }
         }
 
@@ -195,5 +193,5 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
     public GuiManager getCreatorGuiManager() { return creatorGuiManager; }
     public ParticipantManager getParticipantManager() { return participantManager; }
     public WhitelistManager getWhitelistManager() { return whitelistManager; }
-    public YmCommand getYmCommand() { return ymCommand; }
+    // ★ 警告を修正: 未使用のメソッドを削除
 }
