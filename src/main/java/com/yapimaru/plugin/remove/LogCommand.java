@@ -72,7 +72,6 @@ public class LogCommand implements CommandExecutor {
     private record LogLine(LocalDateTime timestamp, String content, String fileName) {}
     private record PlayerSession(LocalDateTime loginTime, String loginLogLine, String loginFileName) {}
 
-    // ★★★ 中間的な更新データを保持するためのクラス ★★★
     private static class PlayerUpdates {
         long totalPlaytime = 0;
         int totalJoins = 0;
@@ -263,14 +262,11 @@ public class LogCommand implements CommandExecutor {
 
                 if (data != null) {
                     data.addPlaytime(updates.totalPlaytime);
-                    for(int i = 0; i < updates.totalJoins; i++) data.incrementStat("total_joins");
-                    for(int i = 0; i < updates.totalDeaths; i++) data.incrementStat("total_deaths");
-                    for(int i = 0; i < updates.totalChats; i++) data.incrementStat("total_chats");
-                    if(updates.totalWCount > 0) {
-                        long currentWCount = data.getStatistics().getOrDefault("w_count", 0L).longValue();
-                        data.getStatistics().put("w_count", currentWCount + updates.totalWCount);
-                    }
-                    for(int i = 0; i < updates.totalPhotoSessions; i++) data.incrementStat("photoshoot_participations");
+                    data.incrementStat("total_joins", updates.totalJoins);
+                    data.incrementStat("total_deaths", updates.totalDeaths);
+                    data.incrementStat("total_chats", updates.totalChats);
+                    data.incrementStat("w_count", updates.totalWCount);
+                    data.incrementStat("photoshoot_participations", updates.totalPhotoSessions);
 
                     updates.joinHistory.forEach(ts -> data.addHistoryEvent("join", ts));
                     updates.playtimeHistory.forEach(data::addPlaytimeToHistory);
@@ -300,29 +296,14 @@ public class LogCommand implements CommandExecutor {
         ).collect(Collectors.toList());
 
         for (ParticipantData data : allParticipants) {
-            UUID representativeUuid = data.getAssociatedUuids().stream().findFirst().orElse(null);
-            if (representativeUuid == null) continue;
-
+            for (Map.Entry<UUID, ParticipantData.AccountInfo> entry : data.getAccounts().entrySet()) {
+                nameMap.put(entry.getValue().getName().toLowerCase(), entry.getKey());
+            }
             if (data.getBaseName() != null && !data.getBaseName().isEmpty()) {
-                nameMap.put(data.getBaseName().toLowerCase(), representativeUuid);
+                nameMap.put(data.getBaseName().toLowerCase(), data.getAssociatedUuids().stream().findFirst().orElse(null));
             }
             if (data.getLinkedName() != null && !data.getLinkedName().isEmpty()) {
-                nameMap.put(data.getLinkedName().toLowerCase(), representativeUuid);
-            }
-
-            for (UUID uuid : data.getAssociatedUuids()) {
-                OfflinePlayer player = Bukkit.getOfflinePlayer(uuid);
-                String mcName = player.getName();
-                if (mcName != null) {
-                    nameMap.put(mcName.toLowerCase(), representativeUuid);
-                }
-            }
-            if(data.getUuidToNameMap() != null){
-                for(String name : data.getUuidToNameMap().values()){
-                    if(name != null){
-                        nameMap.put(name.toLowerCase(), representativeUuid);
-                    }
-                }
+                nameMap.put(data.getLinkedName().toLowerCase(), data.getAssociatedUuids().stream().findFirst().orElse(null));
             }
         }
         return nameMap;
@@ -472,7 +453,7 @@ public class LogCommand implements CommandExecutor {
         }
 
         Optional<ParticipantData> foundParticipant = participantManager.findParticipantByAnyName(name);
-        return foundParticipant.flatMap(pData -> pData.getAssociatedUuids().stream().findFirst()).orElse(null);
+        return foundParticipant.map(pData -> pData.getAssociatedUuids().stream().findFirst().orElse(null)).orElse(null);
     }
 
     private List<List<File>> groupLogsByServerSession(File logDir) {
@@ -621,7 +602,6 @@ public class LogCommand implements CommandExecutor {
     private void handleResetCommand(CommandSender sender) {
         plugin.getAdventure().sender(sender).sendMessage(Component.text("全参加者の統計情報をリセットしています...", NamedTextColor.GREEN));
         int count = participantManager.resetAllStats();
-        participantManager.saveAllParticipantData();
         plugin.getAdventure().sender(sender).sendMessage(Component.text(count + " 人の参加者の統計情報をリセットしました。", NamedTextColor.GREEN));
     }
 

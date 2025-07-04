@@ -16,6 +16,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
@@ -219,7 +220,32 @@ public class ParticipantManager {
         ParticipantData data = findOrCreateParticipant(player);
         if (data == null) return;
 
-        data.recordLogin(player.getUniqueId(), LocalDateTime.now());
+        boolean wasOnline = data.isOnline();
+        data.getAccounts().get(player.getUniqueId()).setOnline(true);
+
+        if (!wasOnline) {
+            LocalDateTime now = LocalDateTime.now();
+            List<String> joinHistory = data.getJoinHistory();
+            String lastJoinStr = joinHistory.isEmpty() ? null : joinHistory.get(joinHistory.size() - 1);
+
+            boolean shouldRecord = true;
+            if (lastJoinStr != null) {
+                try {
+                    LocalDateTime lastJoin = LocalDateTime.parse(lastJoinStr);
+                    if (Duration.between(lastJoin, now).toMinutes() < 10) {
+                        shouldRecord = false;
+                    }
+                } catch (Exception e) {
+                    // Ignore parse exception
+                }
+            }
+
+            if (shouldRecord) {
+                data.incrementStat("total_joins", 1);
+                data.addHistoryEvent("join", now);
+            }
+        }
+
         sessionStartTimes.put(player.getUniqueId(), System.currentTimeMillis());
         saveParticipant(data);
     }
@@ -234,7 +260,14 @@ public class ParticipantManager {
             durationSeconds = (System.currentTimeMillis() - loginTimestamp) / 1000;
         }
 
-        data.recordLogout(player.getUniqueId(), LocalDateTime.now(), durationSeconds);
+        if (durationSeconds > 0) {
+            data.addPlaytime(durationSeconds);
+            data.addPlaytimeToHistory(durationSeconds);
+        }
+        data.setLastQuitTime(LocalDateTime.now());
+        if (data.getAccounts().containsKey(player.getUniqueId())) {
+            data.getAccounts().get(player.getUniqueId()).setOnline(false);
+        }
         saveParticipant(data);
     }
 
@@ -253,18 +286,18 @@ public class ParticipantManager {
         return count;
     }
 
-    public synchronized void incrementDeaths(UUID uuid) {
+    public synchronized void incrementDeaths(UUID uuid, int amount) {
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data != null) {
-            data.incrementStat("total_deaths");
+            data.incrementStat("total_deaths", amount);
             saveParticipant(data);
         }
     }
 
-    public synchronized void incrementChats(UUID uuid) {
+    public synchronized void incrementChats(UUID uuid, int amount) {
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data != null) {
-            data.incrementStat("total_chats");
+            data.incrementStat("total_chats", amount);
             saveParticipant(data);
         }
     }
@@ -273,8 +306,7 @@ public class ParticipantManager {
         if (amount == 0) return;
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data != null) {
-            long currentWCount = data.getStatistics().getOrDefault("w_count", 0L).longValue();
-            data.getStatistics().put("w_count", currentWCount + amount);
+            data.incrementStat("w_count", amount);
             saveParticipant(data);
         }
     }
@@ -282,7 +314,7 @@ public class ParticipantManager {
     public synchronized void incrementPhotoshootParticipations(UUID uuid, LocalDateTime timestamp) {
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data != null) {
-            data.incrementStat("photoshoot_participations");
+            data.incrementStat("photoshoot_participations", 1);
             data.addHistoryEvent("photoshoot", timestamp);
             saveParticipant(data);
         }

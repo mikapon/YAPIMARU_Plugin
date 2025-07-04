@@ -2,10 +2,8 @@ package com.yapimaru.plugin.data;
 
 import org.bukkit.configuration.ConfigurationSection;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
 import java.util.*;
 
 public class ParticipantData {
@@ -148,42 +146,6 @@ public class ParticipantData {
         return baseName;
     }
 
-    // --- Business Logic ---
-    public void recordLogin(UUID accountUuid, LocalDateTime loginTime) {
-        if (!accounts.containsKey(accountUuid)) return;
-
-        boolean wasOnline = isOnline();
-        accounts.get(accountUuid).setOnline(true);
-
-        if (!wasOnline) { // is-onlineがfalse -> trueになった瞬間
-            boolean isNewSession = true;
-            if (!joinHistory.isEmpty()) {
-                String lastJoinStr = joinHistory.get(joinHistory.size() - 1);
-                try {
-                    LocalDateTime lastJoin = LocalDateTime.parse(lastJoinStr);
-                    if (Duration.between(lastJoin, loginTime).toMinutes() < 10) {
-                        isNewSession = false;
-                    }
-                } catch (DateTimeParseException e) { /* ignore */ }
-            }
-            if (isNewSession) {
-                incrementStat("total_joins");
-                addHistoryEvent("join", loginTime);
-            }
-        }
-    }
-
-    public void recordLogout(UUID accountUuid, LocalDateTime logoutTime, long playtimeSeconds) {
-        if (!accounts.containsKey(accountUuid)) return;
-
-        if (playtimeSeconds > 0) {
-            addPlaytime(playtimeSeconds);
-            addPlaytimeToHistory(playtimeSeconds);
-        }
-        setLastQuitTime(logoutTime);
-        accounts.get(accountUuid).setOnline(false);
-    }
-
     // Getters
     public String getBaseName() { return baseName; }
     public String getLinkedName() { return linkedName; }
@@ -219,12 +181,12 @@ public class ParticipantData {
         this.accounts.put(uuid, new AccountInfo(name, false));
     }
 
-    public void incrementStat(String key) {
+    public void incrementStat(String key, int amount) {
         Number value = statistics.getOrDefault(key, 0);
         if (value instanceof Long) {
-            statistics.put(key, value.longValue() + 1);
+            statistics.put(key, value.longValue() + amount);
         } else {
-            statistics.put(key, value.intValue() + 1);
+            statistics.put(key, value.intValue() + amount);
         }
     }
 
