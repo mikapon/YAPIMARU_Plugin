@@ -72,6 +72,7 @@ public class LogCommand implements CommandExecutor {
     private record LogLine(LocalDateTime timestamp, String content, String fileName) {}
     private record PlayerSession(LocalDateTime loginTime, String loginLogLine, String loginFileName) {}
 
+    // ★★★ 中間的な更新データを保持するためのクラス ★★★
     private static class PlayerUpdates {
         long totalPlaytime = 0;
         int totalJoins = 0;
@@ -277,12 +278,11 @@ public class LogCommand implements CommandExecutor {
 
                     if(updates.lastQuitTime != null) data.setLastQuitTime(updates.lastQuitTime);
 
-                    // Note: individual account online status is not updated from logs
-
-                    participantManager.saveParticipant(data);
                     updatedPlayers++;
                 }
             }
+
+            participantManager.saveAllParticipantData();
 
             plugin.getAdventure().sender(sender).sendMessage(Component.text(updatedPlayers + "人のプレイヤーデータを更新し、保存しました。", NamedTextColor.GREEN));
 
@@ -621,6 +621,7 @@ public class LogCommand implements CommandExecutor {
     private void handleResetCommand(CommandSender sender) {
         plugin.getAdventure().sender(sender).sendMessage(Component.text("全参加者の統計情報をリセットしています...", NamedTextColor.GREEN));
         int count = participantManager.resetAllStats();
+        participantManager.saveAllParticipantData();
         plugin.getAdventure().sender(sender).sendMessage(Component.text(count + " 人の参加者の統計情報をリセットしました。", NamedTextColor.GREEN));
     }
 
