@@ -20,6 +20,8 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -40,13 +42,11 @@ public class LogCommand implements CommandExecutor {
     private final Logger logger;
 
     // Log line patterns
-    // ★ 警告を修正: 冗長なエスケープを削除
     private static final Pattern LOG_LINE_PATTERN = Pattern.compile("^\\[(\\d{2}:\\d{2}:\\d{2})].*");
     private static final Pattern UUID_PATTERN = Pattern.compile("UUID of player (\\S+) is ([0-9a-f\\-]+)");
     private static final Pattern FLOODGATE_UUID_PATTERN = Pattern.compile("\\[floodgate] Floodgate.+? (\\S+) でログインしているプレイヤーが参加しました \\(UUID: ([0-9a-f\\-]+)");
 
     private static final Pattern JOIN_PATTERN = Pattern.compile("] (\\.?[a-zA-Z0-9_]{2,16})(?:\\[.+])? (joined the game|logged in with entity|がマッチングしました)");
-    // ★ 警告を修正: 未使用のフィールドを削除 private static final Pattern LOST_CONNECTION_PATTERN = Pattern.compile("\\] (\\.?[a-zA-Z0-9_]{2,16}) lost connection:.*");
     private static final Pattern LEFT_GAME_PATTERN = Pattern.compile("] (\\.?[a-zA-Z0-9_]{2,16}) (left the game|が退出しました)");
 
     private static final Pattern DEATH_PATTERN = Pattern.compile(
@@ -57,7 +57,6 @@ public class LogCommand implements CommandExecutor {
 
     // Server state patterns
     private static final Pattern SERVER_START_PATTERN = Pattern.compile("Starting minecraft server version");
-    // ★ 警告を修正: 未使用のフィールドを削除 private static final Pattern SERVER_STOP_PATTERN = Pattern.compile("Stopping server");
 
     private static final Set<String> NON_PLAYER_ENTITIES = new HashSet<>(Arrays.asList(
             "Villager", "Librarian", "Farmer", "Shepherd", "Nitwit", "Leatherworker",
@@ -190,7 +189,8 @@ public class LogCommand implements CommandExecutor {
                         allKnownNames.add(existingData.getBaseName());
                         allKnownNames.add(existingData.getLinkedName());
 
-                        toProcess.removeIf(acc -> allKnownUuids.contains(acc.uuid()) || allKnownNames.stream().anyMatch(name -> name.equalsIgnoreCase(acc.name())));
+                        // ★ 警告を修正: ラムダをメソッド参照に置換
+                        toProcess.removeIf(acc -> allKnownUuids.contains(acc.uuid()) || allKnownNames.stream().anyMatch(acc.name()::equalsIgnoreCase));
                     } else { // 新規参加者
                         OfflinePlayer op = Bukkit.getOfflinePlayer(currentAccount.uuid());
                         ParticipantData newData = participantManager.findOrCreateParticipant(op);
@@ -218,9 +218,6 @@ public class LogCommand implements CommandExecutor {
                 for(ParticipantData data : sessionParticipants){
                     participantManager.saveParticipant(data);
                 }
-
-                // ご要望によりファイルは移動させず、保持します。
-                // moveFilesTo(sessionFiles, processedDir);
 
             } catch (Exception e) {
                 handleError(sender, sessionName, "セッション処理中に予期せぬエラーが発生しました: " + e.getMessage(), e, sessionFiles);
@@ -408,7 +405,6 @@ public class LogCommand implements CommandExecutor {
 
         if(filesToMove != null && !filesToMove.isEmpty()) {
             File errorDir = new File(new File(plugin.getDataFolder(), "Participant_Information"), "log/Error");
-            // ★ 警告を修正: mkdirs()の結果をチェック
             if (!errorDir.exists() && !errorDir.mkdirs()) {
                 logger.warning("Could not create error directory at: " + errorDir.getPath());
             }
@@ -422,8 +418,6 @@ public class LogCommand implements CommandExecutor {
             } catch (IOException ioException) {
                 logger.log(Level.SEVERE, "Could not write error reason file.", ioException);
             }
-            // ご要望によりファイルは移動させず、保持します。
-            // moveFilesTo(filesToMove, errorDir);
         }
     }
 

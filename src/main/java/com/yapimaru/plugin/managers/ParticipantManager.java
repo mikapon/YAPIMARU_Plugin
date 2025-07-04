@@ -21,6 +21,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+// ★ 警告を修正: 未使用の可能性のあるimport文を整理
 public class ParticipantManager {
 
     private final YAPIMARU_Plugin plugin;
@@ -42,7 +43,6 @@ public class ParticipantManager {
         this.activeDir = new File(participantDir, "participant");
         this.dischargedDir = new File(participantDir, "discharge");
 
-        // ★ 警告を修正: mkdirs()の結果をチェック
         if (!activeDir.exists() && !activeDir.mkdirs()) {
             plugin.getLogger().warning("Failed to create participant directory: " + activeDir.getPath());
         }
@@ -55,8 +55,6 @@ public class ParticipantManager {
     }
 
     public synchronized void handleServerStartup() {
-        // ★ 警告を修正: 未使用の変数を削除
-        // LocalDateTime startupTime = LocalDateTime.now();
         Stream.concat(activeParticipants.values().stream(), dischargedParticipants.values().stream())
                 .forEach(data -> {
                     boolean wasModified = false;
@@ -165,7 +163,6 @@ public class ParticipantManager {
         config.set("base_name", data.getBaseName());
         config.set("linked_name", data.getLinkedName());
 
-        // 新しいインライン形式で保存
         Map<String, Object> accountsMap = new LinkedHashMap<>();
         for (Map.Entry<UUID, ParticipantData.AccountInfo> entry : data.getAccounts().entrySet()) {
             Map<String, Object> accountDetails = new LinkedHashMap<>();
@@ -216,7 +213,7 @@ public class ParticipantManager {
         boolean wasParticipantOnline = data.isOnline();
         data.getAccounts().get(uuid).setOnline(true);
 
-        if (!wasParticipantOnline) { // 参加者の最初のログイン
+        if (!wasParticipantOnline) {
             LocalDateTime now = LocalDateTime.now();
             LocalDateTime lastQuit = data.getLastQuitTimeAsDate();
 
@@ -247,7 +244,7 @@ public class ParticipantManager {
             data.getAccounts().get(uuid).setOnline(false);
         }
 
-        if (!data.isOnline()) { // 参加者の最後のログアウト
+        if (!data.isOnline()) {
             LocalDateTime now = LocalDateTime.now();
             LocalDateTime startTime = participantSessionStartTimes.remove(data.getParticipantId());
             if (startTime != null) {
@@ -308,13 +305,10 @@ public class ParticipantManager {
     }
 
     public int calculateWCount(String message) {
-        // ステップ1: 入れ子括弧ブロックを削除
         String cleanedMessage = removeNestedParentheses(message);
-        // ステップ2: 単純な括弧を削除
         cleanedMessage = cleanedMessage.replaceAll("[()]", "");
 
         int count = 0;
-        // ルールC: 特定単語のカウント
         String[] laughWords = {"kusa", "草", "wara", "笑", "lol"};
         String tempMessage = cleanedMessage.toLowerCase();
         for (String word : laughWords) {
@@ -322,13 +316,11 @@ public class ParticipantManager {
             tempMessage = tempMessage.replace(word, "");
         }
 
-        // ルールA & B: 'w'のカウント
         Pattern wPattern = Pattern.compile("w{2,}");
         Matcher wMatcher = wPattern.matcher(tempMessage.toLowerCase());
         while(wMatcher.find()) {
             count += wMatcher.group().length();
         }
-        // 文末の'w'
         if (tempMessage.endsWith("w") && !tempMessage.endsWith("ww")) {
             count++;
         }
@@ -358,7 +350,6 @@ public class ParticipantManager {
             result.append(text.substring(lastPos));
         }
 
-        // 残った文字列から入れ子を持つ括弧ブロックを再帰的に削除
         Pattern pattern = Pattern.compile("\\([^()]*\\([^()]*\\)[^()]*\\)");
         Matcher matcher = pattern.matcher(result.toString());
         if(matcher.find()){
@@ -492,7 +483,6 @@ public class ParticipantManager {
                     String displayName = pData.getDisplayName();
                     if (displayName.equalsIgnoreCase(lowerCaseName)) return true;
 
-                    // "NameA(NameB)" format check
                     Pattern pattern = Pattern.compile("(.+)\\((.+)\\)");
                     Matcher matcher = pattern.matcher(displayName);
                     if(matcher.matches()){

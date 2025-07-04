@@ -77,8 +77,8 @@ public class PlayerEventListener implements Listener {
                     this.cancel();
                     return;
                 }
-                // ★★★ エラー箇所を修正: onGround() -> isOnGround() に戻す
-                boolean isOnGround = player.isOnGround();
+                // ★★★ エラー箇所を修正: getBlock().isSolid() -> getBlock().getType().isSolid()
+                boolean isOnGround = player.getLocation().subtract(0, 0.1, 0).getBlock().getType().isSolid();
                 boolean isInLiquid = player.getLocation().getBlock().isLiquid();
 
                 if (isOnGround || isInLiquid) {
