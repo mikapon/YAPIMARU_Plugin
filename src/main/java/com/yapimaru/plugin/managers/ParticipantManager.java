@@ -5,7 +5,8 @@ import com.yapimaru.plugin.data.ParticipantData;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.configuration.file.YamlConfiguration;
-import org.bukkit.entity.Player;
+// ★ 警告を修正: 未使用のimportを削除
+// import org.bukkit.entity.Player;
 
 import java.io.File;
 import java.io.IOException;
@@ -21,7 +22,6 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-// ★ 警告を修正: 未使用の可能性のあるimport文を整理
 public class ParticipantManager {
 
     private final YAPIMARU_Plugin plugin;
