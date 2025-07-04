@@ -15,6 +15,8 @@ public class ParticipantData {
     private String lastQuitTime = null;
     private final List<Long> playtimeHistory = new ArrayList<>();
     private final List<String> photoshootHistory = new ArrayList<>();
+    private static final DateTimeFormatter HISTORY_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH:mm:ss");
+
 
     public static class AccountInfo {
         private final String name;
@@ -50,20 +52,6 @@ public class ParticipantData {
                     this.accounts.put(uuid, new AccountInfo(name, online));
                 } catch (IllegalArgumentException e) {
                     // Invalid UUID, ignore
-                }
-            }
-        } else {
-            // --- Backward Compatibility ---
-            ConfigurationSection uuidNameSection = config.getConfigurationSection("uuid-to-name");
-            if (uuidNameSection != null) {
-                for (String uuidStr : uuidNameSection.getKeys(false)) {
-                    try {
-                        UUID uuid = UUID.fromString(uuidStr);
-                        String name = uuidNameSection.getString(uuidStr);
-                        this.accounts.put(uuid, new AccountInfo(name, config.getBoolean("is-online", false)));
-                    } catch (IllegalArgumentException e) {
-                        // Invalid UUID, ignore
-                    }
                 }
             }
         }
@@ -102,11 +90,14 @@ public class ParticipantData {
             return;
         }
 
-        historyList.add(timestamp.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
-        historyList.sort(Comparator.naturalOrder());
+        String formattedTimestamp = timestamp.format(HISTORY_FORMATTER);
+        if (!historyList.contains(formattedTimestamp)) {
+            historyList.add(formattedTimestamp);
+            historyList.sort(Comparator.naturalOrder());
 
-        while (historyList.size() > 10) {
-            historyList.remove(0);
+            while (historyList.size() > 10) {
+                historyList.remove(0);
+            }
         }
     }
 
@@ -160,6 +151,14 @@ public class ParticipantData {
     public List<String> getJoinHistory() { return joinHistory; }
     public List<String> getPhotoshootHistory() { return photoshootHistory; }
     public String getLastQuitTime() { return lastQuitTime; }
+    public LocalDateTime getLastQuitTimeAsDate() {
+        if (lastQuitTime == null) return null;
+        try {
+            return LocalDateTime.parse(lastQuitTime, HISTORY_FORMATTER);
+        } catch (Exception e) {
+            return null;
+        }
+    }
     public List<Long> getPlaytimeHistory() { return playtimeHistory; }
 
     public boolean isOnline() {
@@ -167,13 +166,23 @@ public class ParticipantData {
     }
 
     public void setLastQuitTime(LocalDateTime timestamp) {
-        this.lastQuitTime = (timestamp != null) ? timestamp.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) : null;
+        this.lastQuitTime = (timestamp != null) ? timestamp.format(HISTORY_FORMATTER) : null;
     }
 
     public void addPlaytimeToHistory(long seconds) {
         this.playtimeHistory.add(seconds);
         if (this.playtimeHistory.size() > 10) {
             this.playtimeHistory.remove(0);
+        }
+    }
+
+    public void addTimeToLastPlaytime(long seconds) {
+        if (playtimeHistory.isEmpty()) {
+            addPlaytimeToHistory(seconds);
+        } else {
+            int lastIndex = playtimeHistory.size() - 1;
+            long newTime = playtimeHistory.get(lastIndex) + seconds;
+            playtimeHistory.set(lastIndex, newTime);
         }
     }
 

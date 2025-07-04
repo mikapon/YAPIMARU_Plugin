@@ -13,13 +13,12 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
-import java.time.Instant;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 public class ParticipantManager {
@@ -33,7 +32,9 @@ public class ParticipantManager {
     private final Map<UUID, ParticipantData> uuidToParticipantMap = new HashMap<>();
     private final Map<String, ParticipantData> dischargedParticipants = new HashMap<>();
 
-    private final Map<UUID, Long> sessionStartTimes = new ConcurrentHashMap<>();
+    private final Map<String, LocalDateTime> participantSessionStartTimes = new ConcurrentHashMap<>();
+    private final Map<String, Boolean> isContinuingSession = new ConcurrentHashMap<>();
+
 
     public ParticipantManager(YAPIMARU_Plugin plugin) {
         this.plugin = plugin;
@@ -56,15 +57,7 @@ public class ParticipantManager {
                     for (Map.Entry<UUID, ParticipantData.AccountInfo> entry : data.getAccounts().entrySet()) {
                         if (entry.getValue().isOnline()) {
                             plugin.getLogger().warning("Player " + entry.getValue().getName() + " was marked as online during startup. Correcting session data.");
-
-                            Long loginTimestamp = sessionStartTimes.remove(entry.getKey());
-                            if (loginTimestamp != null) {
-                                LocalDateTime quitTime = startupTime.minusMinutes(2); // Assume a 2-minute session if server crashed
-                                long playTime = Duration.between(LocalDateTime.ofInstant(Instant.ofEpochMilli(loginTimestamp), ZoneId.systemDefault()), quitTime).getSeconds();
-                                if (playTime > 0) {
-                                    data.addPlaytime(playTime);
-                                }
-                            }
+                            handlePlayerLogout(entry.getKey());
                             entry.getValue().setOnline(false);
                             wasModified = true;
                         }
@@ -73,7 +66,8 @@ public class ParticipantManager {
                         saveParticipant(data);
                     }
                 });
-        sessionStartTimes.clear();
+        participantSessionStartTimes.clear();
+        isContinuingSession.clear();
     }
 
 
@@ -138,7 +132,7 @@ public class ParticipantManager {
         if (data != null) {
             if (!data.getAccounts().containsKey(player.getUniqueId())) {
                 data.addAccount(player.getUniqueId(), player.getName());
-                saveParticipant(data); // Save immediately after adding account
+                saveParticipant(data);
             }
             return data;
         }
@@ -165,38 +159,31 @@ public class ParticipantManager {
         config.set("base_name", data.getBaseName());
         config.set("linked_name", data.getLinkedName());
 
-        config.setComments("accounts", List.of("紐付けられたUUIDと、その時点でのプレイヤー名の記録、オンライン状況"));
+        // 新しいインライン形式で保存
+        Map<String, Object> accountsMap = new LinkedHashMap<>();
         for (Map.Entry<UUID, ParticipantData.AccountInfo> entry : data.getAccounts().entrySet()) {
-            String uuidStr = entry.getKey().toString();
-            config.set("accounts." + uuidStr + ".name", entry.getValue().getName());
-            config.set("accounts." + uuidStr + ".online", entry.getValue().isOnline());
+            Map<String, Object> accountDetails = new LinkedHashMap<>();
+            accountDetails.put("name", entry.getValue().getName());
+            accountDetails.put("online", entry.getValue().isOnline());
+            accountsMap.put(entry.getKey().toString(), accountDetails);
         }
+        config.set("accounts", accountsMap);
+
 
         Map<String, Number> stats = data.getStatistics();
         config.set("statistics.total_deaths", stats.get("total_deaths"));
-        config.setComments("statistics.total_deaths", List.of("デス合計数"));
         config.set("statistics.total_playtime_seconds", stats.get("total_playtime_seconds"));
-        config.setComments("statistics.total_playtime_seconds", List.of("サーバー参加合計時間"));
         config.set("statistics.total_joins", stats.get("total_joins"));
-        config.setComments("statistics.total_joins", List.of("サーバー入室合計回数"));
         config.set("statistics.photoshoot_participations", stats.get("photoshoot_participations"));
-        config.setComments("statistics.photoshoot_participations", List.of("撮影参加合計回数"));
         config.set("statistics.total_chats", stats.get("total_chats"));
-        config.setComments("statistics.total_chats", List.of("チャット合計回数"));
         config.set("statistics.w_count", stats.get("w_count"));
-        config.setComments("statistics.w_count", List.of("w合計数"));
 
         config.set("join-history", data.getJoinHistory());
-        config.setComments("join-history", List.of("参加履歴"));
         config.set("photoshoot-history", data.getPhotoshootHistory());
-        config.setComments("photoshoot-history", List.of("撮影参加履歴"));
         config.set("last-quit-time", data.getLastQuitTime());
-        config.setComments("last-quit-time", List.of("最終退出時刻"));
         config.set("playtime-history", data.getPlaytimeHistory());
-        config.setComments("playtime-history", List.of("直近10回のプレイ時間(秒)"));
 
         config.set("is-online", data.isOnline());
-        config.setComments("is-online", List.of("この参加者に紐づくアカウントのいずれかがオンラインか"));
 
         try {
             config.save(file);
@@ -216,59 +203,62 @@ public class ParticipantManager {
         saveParticipant(data);
     }
 
-    public synchronized void handlePlayerLogin(UUID uuid, LocalDateTime loginTime) {
+    public synchronized void handlePlayerLogin(UUID uuid, boolean isServerStart) {
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data == null) return;
 
-        boolean wasOnline = data.isOnline();
+        boolean wasParticipantOnline = data.isOnline();
         data.getAccounts().get(uuid).setOnline(true);
 
-        if (!wasOnline) {
+        if (!wasParticipantOnline) { // 参加者の最初のログイン
+            LocalDateTime now = LocalDateTime.now();
+            LocalDateTime lastQuit = data.getLastQuitTimeAsDate();
+
             boolean isNewSession = true;
-            if (!data.getJoinHistory().isEmpty()) {
-                String lastJoinStr = data.getJoinHistory().get(data.getJoinHistory().size() - 1);
-                try {
-                    LocalDateTime lastJoin = LocalDateTime.parse(lastJoinStr);
-                    if (Duration.between(lastJoin, loginTime).toMinutes() < 10) {
-                        isNewSession = false;
-                    }
-                } catch (DateTimeParseException e) { /* ignore */ }
+            if (lastQuit != null && !isServerStart) {
+                if (Duration.between(lastQuit, now).toMinutes() < 10) {
+                    isNewSession = false;
+                }
             }
+
             if (isNewSession) {
+                isContinuingSession.put(data.getParticipantId(), false);
                 data.incrementStat("total_joins", 1);
-                data.addHistoryEvent("join", loginTime);
+                data.addHistoryEvent("join", now);
+            } else {
+                isContinuingSession.put(data.getParticipantId(), true);
             }
+            participantSessionStartTimes.put(data.getParticipantId(), now);
         }
         saveParticipant(data);
     }
 
-    public synchronized void handlePlayerLogout(UUID uuid, LocalDateTime logoutTime, long playtime) {
+    public synchronized void handlePlayerLogout(UUID uuid) {
         ParticipantData data = getParticipant(uuid);
         if (data == null) return;
 
-        if (playtime > 0) {
-            data.addPlaytime(playtime);
-            data.addPlaytimeToHistory(playtime);
-        }
-        data.setLastQuitTime(logoutTime);
         if (data.getAccounts().containsKey(uuid)) {
             data.getAccounts().get(uuid).setOnline(false);
         }
-        saveParticipant(data);
-    }
 
-    public synchronized void recordLoginTime(Player player) {
-        handlePlayerLogin(player.getUniqueId(), LocalDateTime.now());
-        sessionStartTimes.put(player.getUniqueId(), System.currentTimeMillis());
-    }
-
-    public synchronized void recordQuitTime(Player player) {
-        Long loginTimestamp = sessionStartTimes.remove(player.getUniqueId());
-        long durationSeconds = 0;
-        if (loginTimestamp != null) {
-            durationSeconds = (System.currentTimeMillis() - loginTimestamp) / 1000;
+        if (!data.isOnline()) { // 参加者の最後のログアウト
+            LocalDateTime now = LocalDateTime.now();
+            LocalDateTime startTime = participantSessionStartTimes.remove(data.getParticipantId());
+            if (startTime != null) {
+                long durationSeconds = Duration.between(startTime, now).getSeconds();
+                if (durationSeconds > 0) {
+                    data.addPlaytime(durationSeconds);
+                    if (isContinuingSession.getOrDefault(data.getParticipantId(), false)) {
+                        data.addTimeToLastPlaytime(durationSeconds);
+                    } else {
+                        data.addPlaytimeToHistory(durationSeconds);
+                    }
+                }
+            }
+            data.setLastQuitTime(now);
+            isContinuingSession.remove(data.getParticipantId());
         }
-        handlePlayerLogout(player.getUniqueId(), LocalDateTime.now(), durationSeconds);
+        saveParticipant(data);
     }
 
     public synchronized int resetAllStats() {
@@ -310,6 +300,67 @@ public class ParticipantManager {
             saveParticipant(data);
         }
     }
+
+    public int calculateWCount(String message) {
+        // ステップ1: 入れ子括弧ブロックを削除
+        String cleanedMessage = removeNestedParentheses(message);
+        // ステップ2: 単純な括弧を削除
+        cleanedMessage = cleanedMessage.replaceAll("[()]", "");
+
+        int count = 0;
+        // ルールC: 特定単語のカウント
+        String[] laughWords = {"kusa", "草", "wara", "笑", "lol"};
+        String tempMessage = cleanedMessage.toLowerCase();
+        for (String word : laughWords) {
+            count += (tempMessage.length() - tempMessage.replace(word, "").length()) / word.length();
+            tempMessage = tempMessage.replace(word, "");
+        }
+
+        // ルールA & B: 'w'のカウント
+        Pattern wPattern = Pattern.compile("w{2,}");
+        Matcher wMatcher = wPattern.matcher(tempMessage.toLowerCase());
+        while(wMatcher.find()) {
+            count += wMatcher.group().length();
+        }
+        // 文末の'w'
+        if (tempMessage.endsWith("w") && !tempMessage.endsWith("ww")) {
+            count++;
+        }
+
+        return count;
+    }
+
+    private String removeNestedParentheses(String text) {
+        StringBuilder result = new StringBuilder();
+        int depth = 0;
+        int lastPos = 0;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '(') {
+                if(depth == 0) {
+                    result.append(text, lastPos, i);
+                }
+                depth++;
+            } else if (c == ')') {
+                depth = Math.max(0, depth - 1);
+                if(depth == 0) {
+                    lastPos = i + 1;
+                }
+            }
+        }
+        if (lastPos < text.length()) {
+            result.append(text.substring(lastPos));
+        }
+
+        // 残った文字列から入れ子を持つ括弧ブロックを再帰的に削除
+        Pattern pattern = Pattern.compile("\\([^()]*\\([^()]*\\)[^()]*\\)");
+        Matcher matcher = pattern.matcher(result.toString());
+        if(matcher.find()){
+            return removeNestedParentheses(matcher.replaceAll(""));
+        }
+        return result.toString();
+    }
+
 
     public synchronized void incrementPhotoshootParticipations(UUID uuid, LocalDateTime timestamp) {
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
@@ -429,10 +480,23 @@ public class ParticipantManager {
 
         return Stream.concat(activeParticipants.values().stream(), dischargedParticipants.values().stream())
                 .filter(pData -> {
-                    if (pData.getBaseName() != null && pData.getBaseName().toLowerCase().contains(lowerCaseName)) return true;
-                    if (pData.getLinkedName() != null && pData.getLinkedName().toLowerCase().contains(lowerCaseName)) return true;
+                    if (pData.getBaseName() != null && pData.getBaseName().equalsIgnoreCase(lowerCaseName)) return true;
+                    if (pData.getLinkedName() != null && pData.getLinkedName().equalsIgnoreCase(lowerCaseName)) return true;
+
+                    String displayName = pData.getDisplayName();
+                    if (displayName.equalsIgnoreCase(lowerCaseName)) return true;
+
+                    // "NameA(NameB)" format check
+                    Pattern pattern = Pattern.compile("(.+)\\((.+)\\)");
+                    Matcher matcher = pattern.matcher(displayName);
+                    if(matcher.matches()){
+                        if(matcher.group(1).equalsIgnoreCase(lowerCaseName) || matcher.group(2).equalsIgnoreCase(lowerCaseName)){
+                            return true;
+                        }
+                    }
+
                     for (ParticipantData.AccountInfo accountInfo : pData.getAccounts().values()) {
-                        if (accountInfo.getName() != null && accountInfo.getName().toLowerCase().contains(lowerCaseName)) {
+                        if (accountInfo.getName() != null && accountInfo.getName().equalsIgnoreCase(lowerCaseName)) {
                             return true;
                         }
                     }

@@ -5,7 +5,6 @@ import com.yapimaru.plugin.managers.*;
 import net.kyori.adventure.platform.bukkit.BukkitAudiences;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
-import org.apache.commons.lang3.StringUtils;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
@@ -61,13 +60,12 @@ public class PlayerEventListener implements Listener {
     }
 
     @EventHandler
-    @SuppressWarnings("deprecation")
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
         Bukkit.getScheduler().runTaskLater(plugin, () -> nameManager.updatePlayerName(player), 5L);
         restrictionManager.applyModeToPlayer(player);
 
-        participantManager.recordLoginTime(player);
+        participantManager.handlePlayerLogin(player.getUniqueId(), false);
 
 
         joinInvinciblePlayers.put(player.getUniqueId(), System.currentTimeMillis() + 60000);
@@ -103,14 +101,14 @@ public class PlayerEventListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerChat(AsyncPlayerChatEvent event) {
         participantManager.incrementChats(event.getPlayer().getUniqueId(), 1);
-        int w_count = StringUtils.countMatches(event.getMessage(), "w");
+        int w_count = participantManager.calculateWCount(event.getMessage());
         participantManager.incrementWCount(event.getPlayer().getUniqueId(), w_count);
     }
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
-        participantManager.recordQuitTime(player);
+        participantManager.handlePlayerLogout(player.getUniqueId());
         joinInvinciblePlayers.remove(player.getUniqueId());
         if(joinInvincibilityTasks.containsKey(player.getUniqueId())) {
             joinInvincibilityTasks.get(player.getUniqueId()).cancel();

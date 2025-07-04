@@ -66,7 +66,8 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
         participantManager.handleServerStartup();
 
         for (Player player : Bukkit.getOnlinePlayers()) {
-            participantManager.recordLoginTime(player);
+            // ★★★ エラー箇所を修正 ★★★
+            participantManager.handlePlayerLogin(player.getUniqueId(), true); // recordLoginTime -> handlePlayerLogin
             nameManager.updatePlayerName(player);
         }
 
@@ -86,7 +87,8 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
 
         if (participantManager != null) {
             for (Player player : Bukkit.getOnlinePlayers()) {
-                participantManager.recordQuitTime(player);
+                // ★★★ エラー箇所を修正 ★★★
+                participantManager.handlePlayerLogout(player.getUniqueId()); // recordQuitTime -> handlePlayerLogout
             }
         }
 
