@@ -20,7 +20,6 @@ import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class ParticipantManager {
@@ -139,6 +138,7 @@ public class ParticipantManager {
         if (data != null) {
             if (!data.getAccounts().containsKey(player.getUniqueId())) {
                 data.addAccount(player.getUniqueId(), player.getName());
+                saveParticipant(data); // Save immediately after adding account
             }
             return data;
         }
@@ -216,59 +216,59 @@ public class ParticipantManager {
         saveParticipant(data);
     }
 
-    public synchronized void recordLoginTime(Player player) {
-        ParticipantData data = findOrCreateParticipant(player);
+    public synchronized void handlePlayerLogin(UUID uuid, LocalDateTime loginTime) {
+        ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data == null) return;
 
         boolean wasOnline = data.isOnline();
-        data.getAccounts().get(player.getUniqueId()).setOnline(true);
+        data.getAccounts().get(uuid).setOnline(true);
 
         if (!wasOnline) {
-            LocalDateTime now = LocalDateTime.now();
-            List<String> joinHistory = data.getJoinHistory();
-            String lastJoinStr = joinHistory.isEmpty() ? null : joinHistory.get(joinHistory.size() - 1);
-
-            boolean shouldRecord = true;
-            if (lastJoinStr != null) {
+            boolean isNewSession = true;
+            if (!data.getJoinHistory().isEmpty()) {
+                String lastJoinStr = data.getJoinHistory().get(data.getJoinHistory().size() - 1);
                 try {
                     LocalDateTime lastJoin = LocalDateTime.parse(lastJoinStr);
-                    if (Duration.between(lastJoin, now).toMinutes() < 10) {
-                        shouldRecord = false;
+                    if (Duration.between(lastJoin, loginTime).toMinutes() < 10) {
+                        isNewSession = false;
                     }
-                } catch (Exception e) {
-                    // Ignore parse exception
-                }
+                } catch (DateTimeParseException e) { /* ignore */ }
             }
-
-            if (shouldRecord) {
+            if (isNewSession) {
                 data.incrementStat("total_joins", 1);
-                data.addHistoryEvent("join", now);
+                data.addHistoryEvent("join", loginTime);
             }
         }
-
-        sessionStartTimes.put(player.getUniqueId(), System.currentTimeMillis());
         saveParticipant(data);
     }
 
-    public synchronized void recordQuitTime(Player player) {
-        ParticipantData data = getParticipant(player.getUniqueId());
+    public synchronized void handlePlayerLogout(UUID uuid, LocalDateTime logoutTime, long playtime) {
+        ParticipantData data = getParticipant(uuid);
         if (data == null) return;
 
+        if (playtime > 0) {
+            data.addPlaytime(playtime);
+            data.addPlaytimeToHistory(playtime);
+        }
+        data.setLastQuitTime(logoutTime);
+        if (data.getAccounts().containsKey(uuid)) {
+            data.getAccounts().get(uuid).setOnline(false);
+        }
+        saveParticipant(data);
+    }
+
+    public synchronized void recordLoginTime(Player player) {
+        handlePlayerLogin(player.getUniqueId(), LocalDateTime.now());
+        sessionStartTimes.put(player.getUniqueId(), System.currentTimeMillis());
+    }
+
+    public synchronized void recordQuitTime(Player player) {
         Long loginTimestamp = sessionStartTimes.remove(player.getUniqueId());
         long durationSeconds = 0;
         if (loginTimestamp != null) {
             durationSeconds = (System.currentTimeMillis() - loginTimestamp) / 1000;
         }
-
-        if (durationSeconds > 0) {
-            data.addPlaytime(durationSeconds);
-            data.addPlaytimeToHistory(durationSeconds);
-        }
-        data.setLastQuitTime(LocalDateTime.now());
-        if (data.getAccounts().containsKey(player.getUniqueId())) {
-            data.getAccounts().get(player.getUniqueId()).setOnline(false);
-        }
-        saveParticipant(data);
+        handlePlayerLogout(player.getUniqueId(), LocalDateTime.now(), durationSeconds);
     }
 
     public synchronized int resetAllStats() {

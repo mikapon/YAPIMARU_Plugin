@@ -102,7 +102,6 @@ public class PlayerEventListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerChat(AsyncPlayerChatEvent event) {
-        // ★★★ 修正箇所 ★★★
         participantManager.incrementChats(event.getPlayer().getUniqueId(), 1);
         int w_count = StringUtils.countMatches(event.getMessage(), "w");
         participantManager.incrementWCount(event.getPlayer().getUniqueId(), w_count);
@@ -155,7 +154,6 @@ public class PlayerEventListener implements Listener {
 
     @EventHandler
     public void onPlayerDeath(PlayerDeathEvent event) {
-        // ★★★ 修正箇所 ★★★
         participantManager.incrementDeaths(event.getEntity().getUniqueId(), 1);
         pvpManager.handlePlayerDeath(event.getEntity());
     }
