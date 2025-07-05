@@ -475,7 +475,6 @@ public class ParticipantManager {
 
         return Stream.concat(activeParticipants.values().stream(), dischargedParticipants.values().stream())
                 .filter(pData -> {
-                    // ★ エラー修正: 名前がnullでないことを確認
                     if (pData.getBaseName() != null && pData.getBaseName().equalsIgnoreCase(lowerCaseName)) return true;
                     if (pData.getLinkedName() != null && pData.getLinkedName().equalsIgnoreCase(lowerCaseName)) return true;
 
@@ -491,7 +490,6 @@ public class ParticipantManager {
                     }
 
                     for (ParticipantData.AccountInfo accountInfo : pData.getAccounts().values()) {
-                        // ★ エラー修正: 名前がnullでないことを確認
                         if (accountInfo.getName() != null && accountInfo.getName().equalsIgnoreCase(lowerCaseName)) {
                             return true;
                         }

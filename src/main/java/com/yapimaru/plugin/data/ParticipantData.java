@@ -71,9 +71,9 @@ public class ParticipantData {
         initializeStats();
     }
 
-    // ★★★ エラー修正: オブジェクトをMapに変換するメソッドを追加 ★★★
     public Map<String, Object> toMap() {
         Map<String, Object> map = new LinkedHashMap<>();
+        map.put("participant_id", getParticipantId()); // ★デバッグ用にIDを追加
         map.put("base_name", baseName);
         map.put("linked_name", linkedName);
 
@@ -205,6 +205,7 @@ public class ParticipantData {
     }
 
     public void addAccount(UUID uuid, String name) {
+        if (name == null || uuid == null) return;
         this.accounts.put(uuid, new AccountInfo(name, false));
     }
 

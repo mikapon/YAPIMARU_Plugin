@@ -17,11 +17,13 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeParseException;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap; // ★★★ エラー箇所を修正: import文を追加 ★★★
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -35,6 +37,8 @@ public class LogCommand implements CommandExecutor {
     private final YAPIMARU_Plugin plugin;
     private final ParticipantManager participantManager;
     private final Logger logger;
+    private final Map<String, Boolean> isContinuingSession = new ConcurrentHashMap<>();
+    private final Map<String, LocalDateTime> participantSessionStartTimes = new ConcurrentHashMap<>();
 
     // Log line patterns
     private static final Pattern LOG_LINE_PATTERN = Pattern.compile("^\\[(\\d{2}:\\d{2}:\\d{2})].*");
@@ -139,44 +143,39 @@ public class LogCommand implements CommandExecutor {
                 plugin.getAdventure().sender(sender).sendMessage(Component.text("サーバーセッション: " + sessionName + " の処理を開始 (" + sessionFiles.size() + "ファイル)...", NamedTextColor.AQUA));
 
                 // === フェーズ1: 情報収集と中間ファイルの作成 ===
-                Set<UnprocessedAccount> unprocessedList = new HashSet<>();
+                Set<UnprocessedAccount> unprocessedAccounts = new HashSet<>();
                 for (File logFile : sessionFiles) {
                     try (BufferedReader reader = getReaderForFile(logFile)) {
                         reader.lines().forEach(line -> {
                             Matcher uuidMatcher = UUID_PATTERN.matcher(line);
                             if (uuidMatcher.find()) {
-                                unprocessedList.add(new UnprocessedAccount(UUID.fromString(uuidMatcher.group(2)), uuidMatcher.group(1)));
+                                unprocessedAccounts.add(new UnprocessedAccount(UUID.fromString(uuidMatcher.group(2)), uuidMatcher.group(1)));
                             }
                             Matcher floodgateMatcher = FLOODGATE_UUID_PATTERN.matcher(line);
                             if (floodgateMatcher.find()) {
-                                unprocessedList.add(new UnprocessedAccount(UUID.fromString(floodgateMatcher.group(2)), floodgateMatcher.group(1)));
+                                unprocessedAccounts.add(new UnprocessedAccount(UUID.fromString(floodgateMatcher.group(2)), floodgateMatcher.group(1)));
                             }
                         });
                     }
                 }
 
                 YamlConfiguration mmConfig = new YamlConfiguration();
-                List<Map<String, String>> accountsMap = unprocessedList.stream()
+                List<Map<String, String>> accountsMap = unprocessedAccounts.stream()
                         .map(acc -> Map.of("uuid", acc.uuid().toString(), "name", acc.name()))
                         .collect(Collectors.toList());
                 mmConfig.set("accounts", accountsMap);
 
                 // === フェーズ2: 名寄せとデータ統合 ===
                 Set<ParticipantData> sessionParticipants = new HashSet<>();
-                Set<UnprocessedAccount> toProcess = new HashSet<>(unprocessedList);
+                Set<UnprocessedAccount> toProcess = new HashSet<>(unprocessedAccounts);
 
                 while(!toProcess.isEmpty()) {
                     UnprocessedAccount currentAccount = toProcess.iterator().next();
                     toProcess.remove(currentAccount);
 
-                    Optional<ParticipantData> existingDataOpt = findParticipantForAccount(sessionParticipants, currentAccount);
-
-                    if(existingDataOpt.isEmpty()) {
-                        existingDataOpt = participantManager.findParticipantByAnyName(currentAccount.name());
-                    }
-                    if (existingDataOpt.isEmpty()) {
-                        existingDataOpt = Optional.ofNullable(participantManager.getParticipant(currentAccount.uuid()));
-                    }
+                    Optional<ParticipantData> existingDataOpt = findParticipantForAccount(sessionParticipants, currentAccount)
+                            .or(() -> participantManager.findParticipantByAnyName(currentAccount.name()))
+                            .or(() -> Optional.ofNullable(participantManager.getParticipant(currentAccount.uuid())));
 
                     if(existingDataOpt.isPresent()){
                         ParticipantData pData = existingDataOpt.get();
@@ -193,13 +192,12 @@ public class LogCommand implements CommandExecutor {
 
                 // === フェーズ2.5: 統計データのリセット ===
                 for (ParticipantData data : sessionParticipants) {
-                    data.getStatistics().replaceAll((k, v) -> (v instanceof Long) ? 0L : 0);
+                    data.getStatistics().replaceAll((k, v) -> k.equals("total_playtime_seconds") ? 0L : 0);
                     data.getAccounts().values().forEach(acc -> acc.setOnline(false));
-                    data.setLastQuitTime(null);
                 }
 
-                // === フェーズ3: ログからの再集計 ===
-                processSessionEvents(sessionFiles, sessionParticipants, sessionCounter.get() == 2); // 最初のセッションかどうかを判定
+                // === フェーズ3: 再集計 ===
+                processSessionEvents(sessionFiles, sessionParticipants, sessionCounter.get() == 2);
 
                 List<Map<String, Object>> participantMaps = sessionParticipants.stream()
                         .map(ParticipantData::toMap)
@@ -235,10 +233,7 @@ public class LogCommand implements CommandExecutor {
         LocalDate currentDate = null;
         LocalTime lastTime = LocalTime.MIN;
         for (File logFile : sessionFiles) {
-            if (currentDate == null) {
-                currentDate = parseDateFromFileName(logFile.getName());
-            }
-
+            currentDate = (currentDate == null) ? parseDateFromFileName(logFile.getName()) : currentDate;
             try (BufferedReader reader = getReaderForFile(logFile)) {
                 String line;
                 while ((line = reader.readLine()) != null) {
@@ -246,16 +241,14 @@ public class LogCommand implements CommandExecutor {
                     if (timeMatcher.find()) {
                         try {
                             LocalTime currentTime = LocalTime.parse(timeMatcher.group(1));
-                            if (currentTime.isBefore(lastTime)) {
-                                currentDate = currentDate.plusDays(1);
-                            }
+                            if (currentTime.isBefore(lastTime)) currentDate = currentDate.plusDays(1);
                             allLines.add(new LogLine(currentDate.atTime(currentTime), line));
                         } catch (DateTimeParseException ignored) {}
                     }
                 }
             }
         }
-        if(allLines.isEmpty()) return;
+        if (allLines.isEmpty()) return;
 
         for (LogLine log : allLines) {
             LocalDateTime timestamp = log.timestamp();
@@ -265,7 +258,7 @@ public class LogCommand implements CommandExecutor {
             if (joinMatcher.find()) {
                 String name = joinMatcher.group(1);
                 findParticipantByName(sessionParticipants, name)
-                        .ifPresent(p -> participantManager.handlePlayerLogin(getUuidForName(p, name), isServerStart));
+                        .ifPresent(p -> handleLoginLogic(p, getUuidForName(p, name), isServerStart, timestamp));
                 continue;
             }
 
@@ -273,24 +266,25 @@ public class LogCommand implements CommandExecutor {
             if (leftMatcher.find()) {
                 String name = leftMatcher.group(1);
                 findParticipantByName(sessionParticipants, name)
-                        .ifPresent(p -> participantManager.handlePlayerLogout(getUuidForName(p, name)));
+                        .ifPresent(p -> handleLogoutLogic(p, getUuidForName(p, name), timestamp));
                 continue;
             }
 
             Matcher deathMatcher = DEATH_PATTERN.matcher(content);
             if (deathMatcher.find()) {
                 String name = deathMatcher.group(1).trim();
-                if(NON_PLAYER_ENTITIES.contains(name)) continue;
+                if (NON_PLAYER_ENTITIES.contains(name)) continue;
                 findParticipantByName(sessionParticipants, name)
                         .ifPresent(p -> p.incrementStat("total_deaths", 1));
                 continue;
             }
 
             if (PHOTOGRAPHING_PATTERN.matcher(content).find()) {
-                sessionParticipants.stream().filter(ParticipantData::isOnline).forEach(p -> {
-                    p.incrementStat("photoshoot_participations", 1);
-                    p.addHistoryEvent("photoshoot", timestamp);
-                });
+                sessionParticipants.stream().filter(ParticipantData::isOnline)
+                        .forEach(p -> {
+                            p.incrementStat("photoshoot_participations", 1);
+                            p.addHistoryEvent("photoshoot", timestamp);
+                        });
                 continue;
             }
 
@@ -304,7 +298,7 @@ public class LogCommand implements CommandExecutor {
         }
     }
 
-    private Optional<ParticipantData> findParticipantByName(Set<ParticipantData> participants, String name){
+    private Optional<ParticipantData> findParticipantByName(Set<ParticipantData> participants, String name) {
         return participantManager.findParticipantByAnyName(name);
     }
 
@@ -323,44 +317,83 @@ public class LogCommand implements CommandExecutor {
                 .filter(entry -> entry.getValue().getName() != null && entry.getValue().getName().equalsIgnoreCase(name))
                 .map(Map.Entry::getKey)
                 .findFirst()
-                .orElse(p.getAssociatedUuids().iterator().next());
+                .orElse(p.getAssociatedUuids().stream().findFirst().orElse(null));
     }
 
+    private void handleLoginLogic(ParticipantData data, UUID uuid, boolean isServerStart, LocalDateTime loginTime) {
+        boolean wasParticipantOnline = data.isOnline();
+        if (data.getAccounts().containsKey(uuid)) {
+            data.getAccounts().get(uuid).setOnline(true);
+        }
+
+        if (!wasParticipantOnline) {
+            LocalDateTime lastQuit = data.getLastQuitTimeAsDate();
+
+            boolean isNewSession = true;
+            if (lastQuit != null && !isServerStart) {
+                if (Duration.between(lastQuit, loginTime).toMinutes() < 10) {
+                    isNewSession = false;
+                }
+            }
+
+            if (isNewSession) {
+                isContinuingSession.put(data.getParticipantId(), false);
+                data.incrementStat("total_joins", 1);
+                data.addHistoryEvent("join", loginTime);
+            } else {
+                isContinuingSession.put(data.getParticipantId(), true);
+            }
+            participantSessionStartTimes.put(data.getParticipantId(), loginTime);
+        }
+    }
+
+    private void handleLogoutLogic(ParticipantData data, UUID uuid, LocalDateTime logoutTime) {
+        if (data.getAccounts().containsKey(uuid)) {
+            data.getAccounts().get(uuid).setOnline(false);
+        }
+
+        if (!data.isOnline()) {
+            LocalDateTime startTime = participantSessionStartTimes.remove(data.getParticipantId());
+            if (startTime != null) {
+                long durationSeconds = Duration.between(startTime, logoutTime).getSeconds();
+                if (durationSeconds > 0) {
+                    data.addPlaytime(durationSeconds);
+                    if(isContinuingSession.getOrDefault(data.getParticipantId(), false)) {
+                        data.addTimeToLastPlaytime(durationSeconds);
+                    } else {
+                        data.addPlaytimeToHistory(durationSeconds);
+                    }
+                }
+            }
+            data.setLastQuitTime(logoutTime);
+            isContinuingSession.remove(data.getParticipantId());
+        }
+    }
 
     private List<List<File>> groupLogsByServerSession(File[] logFiles) {
         if (logFiles == null || logFiles.length == 0) {
             return Collections.emptyList();
         }
-
         Arrays.sort(logFiles, Comparator.comparing(this::getFileNameTimestamp).thenComparing(this::getFileNameIndex));
-
         List<List<File>> sessions = new ArrayList<>();
         List<File> currentSessionFiles = new ArrayList<>();
-
         for (File currentFile : logFiles) {
             boolean isStart = false;
             try (BufferedReader reader = getReaderForFile(currentFile)) {
-                if (reader.lines().anyMatch(SERVER_START_PATTERN.asPredicate())) {
-                    isStart = true;
-                }
+                isStart = reader.lines().anyMatch(SERVER_START_PATTERN.asPredicate());
             } catch (IOException e) {
                 logger.log(Level.WARNING, "Could not read log file: " + currentFile.getName(), e);
                 continue;
             }
-
-            if (isStart) {
-                if (!currentSessionFiles.isEmpty()) {
-                    sessions.add(new ArrayList<>(currentSessionFiles));
-                }
+            if (isStart && !currentSessionFiles.isEmpty()) {
+                sessions.add(new ArrayList<>(currentSessionFiles));
                 currentSessionFiles.clear();
             }
             currentSessionFiles.add(currentFile);
         }
-
         if (!currentSessionFiles.isEmpty()) {
             sessions.add(currentSessionFiles);
         }
-
         return sessions;
     }
 
