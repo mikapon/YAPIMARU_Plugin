@@ -71,6 +71,29 @@ public class ParticipantData {
         initializeStats();
     }
 
+    // ★★★ エラー修正: オブジェクトをMapに変換するメソッドを追加 ★★★
+    public Map<String, Object> toMap() {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("base_name", baseName);
+        map.put("linked_name", linkedName);
+
+        Map<String, Object> accountsMap = new LinkedHashMap<>();
+        for (Map.Entry<UUID, AccountInfo> entry : accounts.entrySet()) {
+            Map<String, Object> accountDetails = new LinkedHashMap<>();
+            accountDetails.put("name", entry.getValue().getName());
+            accountDetails.put("online", entry.getValue().isOnline());
+            accountsMap.put(entry.getKey().toString(), accountDetails);
+        }
+        map.put("accounts", accountsMap);
+        map.put("statistics", statistics);
+        map.put("join-history", joinHistory);
+        map.put("photoshoot-history", photoshootHistory);
+        map.put("last-quit-time", lastQuitTime);
+        map.put("playtime-history", playtimeHistory);
+        map.put("is-online", isOnline());
+        return map;
+    }
+
     private void initializeStats() {
         statistics.putIfAbsent("total_deaths", 0);
         statistics.putIfAbsent("total_joins", 0);
@@ -95,7 +118,7 @@ public class ParticipantData {
             historyList.add(formattedTimestamp);
             historyList.sort(Comparator.naturalOrder());
 
-            while (historyList.size() > 10) {
+            if (historyList.size() > 10) {
                 historyList.remove(0);
             }
         }
@@ -142,7 +165,6 @@ public class ParticipantData {
     public String getLinkedName() { return linkedName; }
     public Map<UUID, AccountInfo> getAccounts() { return accounts; }
     public Set<UUID> getAssociatedUuids() { return accounts.keySet(); }
-    // ★ 警告を修正: 未使用のメソッドを削除
     public Map<String, Number> getStatistics() { return statistics; }
     public List<String> getJoinHistory() { return joinHistory; }
     public List<String> getPhotoshootHistory() { return photoshootHistory; }

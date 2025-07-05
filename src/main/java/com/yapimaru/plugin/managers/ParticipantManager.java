@@ -5,7 +5,6 @@ import com.yapimaru.plugin.data.ParticipantData;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.configuration.file.YamlConfiguration;
-import org.bukkit.entity.Player;
 
 import java.io.File;
 import java.io.IOException;
@@ -21,7 +20,6 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-// ★ 警告を修正: 未使用の可能性のあるimport文を整理
 public class ParticipantManager {
 
     private final YAPIMARU_Plugin plugin;
@@ -477,6 +475,7 @@ public class ParticipantManager {
 
         return Stream.concat(activeParticipants.values().stream(), dischargedParticipants.values().stream())
                 .filter(pData -> {
+                    // ★ エラー修正: 名前がnullでないことを確認
                     if (pData.getBaseName() != null && pData.getBaseName().equalsIgnoreCase(lowerCaseName)) return true;
                     if (pData.getLinkedName() != null && pData.getLinkedName().equalsIgnoreCase(lowerCaseName)) return true;
 
@@ -492,6 +491,7 @@ public class ParticipantManager {
                     }
 
                     for (ParticipantData.AccountInfo accountInfo : pData.getAccounts().values()) {
+                        // ★ エラー修正: 名前がnullでないことを確認
                         if (accountInfo.getName() != null && accountInfo.getName().equalsIgnoreCase(lowerCaseName)) {
                             return true;
                         }
