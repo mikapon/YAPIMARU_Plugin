@@ -5,6 +5,7 @@ import org.bukkit.configuration.ConfigurationSection;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.stream.Collectors;
 
 public class ParticipantData {
     private String baseName;
@@ -15,6 +16,7 @@ public class ParticipantData {
     private String lastQuitTime = null;
     private final List<Long> playtimeHistory = new ArrayList<>();
     private final List<String> photoshootHistory = new ArrayList<>();
+    private boolean isOnline; // is-onlineをクラスフィールドとして保持
     private static final DateTimeFormatter HISTORY_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH:mm:ss");
 
 
@@ -35,6 +37,7 @@ public class ParticipantData {
     public ParticipantData(String baseName, String linkedName) {
         this.baseName = baseName;
         this.linkedName = linkedName;
+        this.isOnline = false;
         initializeStats();
     }
 
@@ -63,17 +66,14 @@ public class ParticipantData {
             for (String key : statsSection.getKeys(false)) {
                 statistics.put(key, (Number) statsSection.get(key));
             }
-        } else {
-            initializeStats();
         }
-
 
         this.joinHistory.addAll(config.getStringList("join-history"));
         this.photoshootHistory.addAll(config.getStringList("photoshoot-history"));
         this.lastQuitTime = config.getString("last-quit-time", null);
+        this.isOnline = config.getBoolean("is-online", false);
         this.playtimeHistory.addAll(config.getLongList("playtime-history"));
 
-        // Ensure all stats are present
         initializeStats();
     }
 
@@ -97,7 +97,7 @@ public class ParticipantData {
         map.put("photoshoot-history", photoshootHistory);
         map.put("last-quit-time", lastQuitTime);
         map.put("playtime-history", playtimeHistory);
-        map.put("is-online", isOnline());
+        map.put("is-online", this.isOnline());
         return map;
     }
 
@@ -109,6 +109,45 @@ public class ParticipantData {
         statistics.putIfAbsent("total_chats", 0);
         statistics.putIfAbsent("w_count", 0);
     }
+
+    public void addLogData(ParticipantData logData) {
+        // Add statistics
+        logData.getStatistics().forEach((key, value) -> {
+            Number currentValue = this.statistics.getOrDefault(key, 0);
+            if (currentValue instanceof Long || value instanceof Long) {
+                this.statistics.put(key, currentValue.longValue() + value.longValue());
+            } else {
+                this.statistics.put(key, currentValue.intValue() + value.intValue());
+            }
+        });
+
+        // Merge and trim history lists
+        this.joinHistory.addAll(logData.getJoinHistory());
+        this.joinHistory.sort(Comparator.naturalOrder());
+        while(this.joinHistory.size() > 10) {
+            this.joinHistory.remove(0);
+        }
+
+        this.photoshootHistory.addAll(logData.getPhotoshootHistory());
+        this.photoshootHistory.sort(Comparator.naturalOrder());
+        while(this.photoshootHistory.size() > 10) {
+            this.photoshootHistory.remove(0);
+        }
+
+        this.playtimeHistory.addAll(logData.getPlaytimeHistory());
+        this.playtimeHistory.sort(Comparator.naturalOrder());
+        while(this.playtimeHistory.size() > 10) {
+            this.playtimeHistory.remove(0);
+        }
+
+        // Update last quit time if the new one is more recent
+        LocalDateTime existingLQT = this.getLastQuitTimeAsDate();
+        LocalDateTime newLQT = logData.getLastQuitTimeAsDate();
+        if (newLQT != null && (existingLQT == null || newLQT.isAfter(existingLQT))) {
+            this.setLastQuitTime(newLQT);
+        }
+    }
+
 
     public void addHistoryEvent(String type, LocalDateTime timestamp) {
         List<String> historyList;
@@ -131,34 +170,28 @@ public class ParticipantData {
         }
     }
 
-    /**
-     * /log reset コマンド用。統計も履歴も全てリセットする。
-     */
     public void resetStats() {
-        statistics.put("total_deaths", 0);
-        statistics.put("total_joins", 0);
-        statistics.put("total_playtime_seconds", 0L);
-        statistics.put("photoshoot_participations", 0);
-        statistics.put("total_chats", 0);
-        statistics.put("w_count", 0);
+        // 全ての統計情報を初期化
+        this.statistics.clear();
+        initializeStats();
+
         joinHistory.clear();
         photoshootHistory.clear();
-        lastQuitTime = null;
         playtimeHistory.clear();
+        lastQuitTime = null;
+        isOnline = false; // Reset online status as well
         accounts.values().forEach(acc -> acc.setOnline(false));
     }
 
-    /**
-     * /log add コマンド用。履歴は保持し、統計カウンターのみリセットする。
-     */
     public void resetStatsForLog() {
-        statistics.put("total_deaths", 0);
-        statistics.put("total_joins", 0);
-        statistics.put("total_playtime_seconds", 0L);
-        statistics.put("photoshoot_participations", 0);
-        statistics.put("total_chats", 0);
-        statistics.put("w_count", 0);
-        // 履歴はリセットしない
+        this.statistics.clear();
+        initializeStats();
+
+        joinHistory.clear();
+        photoshootHistory.clear();
+        playtimeHistory.clear();
+        lastQuitTime = null;
+        // Do NOT reset isOnline here
         accounts.values().forEach(acc -> acc.setOnline(false));
     }
 
@@ -203,7 +236,12 @@ public class ParticipantData {
     public List<Long> getPlaytimeHistory() { return playtimeHistory; }
 
     public boolean isOnline() {
+        if (this.isOnline) return true;
         return accounts.values().stream().anyMatch(AccountInfo::isOnline);
+    }
+
+    public void setOnlineStatus(boolean online) {
+        this.isOnline = online;
     }
 
     public void setLastQuitTime(LocalDateTime timestamp) {

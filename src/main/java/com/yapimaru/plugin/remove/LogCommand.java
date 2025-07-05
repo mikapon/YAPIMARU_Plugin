@@ -65,8 +65,6 @@ public class LogCommand implements CommandExecutor {
     private record LogLine(LocalDateTime timestamp, String content) {}
     private record UnprocessedAccount(UUID uuid, String name) {}
 
-    // These maps are temporary for the duration of a single /log add command execution
-    private final Map<String, Boolean> isContinuingSession = new ConcurrentHashMap<>();
     private final Map<String, LocalDateTime> participantSessionStartTimes = new ConcurrentHashMap<>();
     private final AtomicInteger mmFileCounter = new AtomicInteger(1);
 
@@ -110,12 +108,12 @@ public class LogCommand implements CommandExecutor {
         File logDir = new File(new File(plugin.getDataFolder(), "Participant_Information"), "log");
         File processedDir = new File(logDir, "processed");
         File errorDir = new File(logDir, "error");
-        File memoryDumpsDir = new File(logDir, "memory_dumps"); // ★★★ 追加
+        File memoryDumpsDir = new File(logDir, "memory_dumps");
 
         try {
             if (!processedDir.exists() && !processedDir.mkdirs()) logger.warning("Failed to create processed directory.");
             if (!errorDir.exists() && !errorDir.mkdirs()) logger.warning("Failed to create error directory.");
-            if (!memoryDumpsDir.exists() && !memoryDumpsDir.mkdirs()) logger.warning("Failed to create memory_dumps directory."); // ★★★ 追加
+            if (!memoryDumpsDir.exists() && !memoryDumpsDir.mkdirs()) logger.warning("Failed to create memory_dumps directory.");
         } catch (SecurityException e) {
             handleError(sender, null, "作業ディレクトリの作成に失敗しました: " + e.getMessage(), e, null);
             return;
@@ -139,84 +137,56 @@ public class LogCommand implements CommandExecutor {
             if (sessionFiles.isEmpty()) continue;
 
             String sessionName = sessionFiles.get(0).getName();
-            File mmFile = new File(memoryDumpsDir, "mm_" + mmFileCounter.getAndIncrement() + ".yml"); // ★★★ 追加
-            YamlConfiguration mmConfig = new YamlConfiguration(); // ★★★ 追加
+            File mmFile = new File(memoryDumpsDir, "mm_" + mmFileCounter.getAndIncrement() + ".yml");
 
-            isContinuingSession.clear();
             participantSessionStartTimes.clear();
 
             try {
                 plugin.getAdventure().sender(sender).sendMessage(Component.text("サーバーセッション: " + sessionName + " の処理を開始 (" + sessionFiles.size() + "ファイル)...", NamedTextColor.AQUA));
 
-                // === Phase 1: Information Gathering ===
+                // フェーズ1: 全アカウント情報をログから収集
                 Set<UnprocessedAccount> unprocessedAccounts = new HashSet<>();
                 for (File logFile : sessionFiles) {
                     try (BufferedReader reader = getReaderForFile(logFile)) {
-                        reader.lines().forEach(line -> {
+                        String line;
+                        while ((line = reader.readLine()) != null) {
                             Matcher uuidMatcher = UUID_PATTERN.matcher(line);
                             if (uuidMatcher.find()) {
                                 unprocessedAccounts.add(new UnprocessedAccount(UUID.fromString(uuidMatcher.group(2)), uuidMatcher.group(1)));
+                                continue; // Avoid double matching
                             }
                             Matcher floodgateMatcher = FLOODGATE_UUID_PATTERN.matcher(line);
                             if (floodgateMatcher.find()) {
                                 unprocessedAccounts.add(new UnprocessedAccount(UUID.fromString(floodgateMatcher.group(2)), floodgateMatcher.group(1)));
                             }
-                        });
+                        }
                     }
                 }
-                // ★★★ mm_X.ymlへの書き出し(1)
-                mmConfig.set("phase1_unprocessed_accounts", unprocessedAccounts.stream().map(acc -> Map.of("name", acc.name(), "uuid", acc.uuid().toString())).toList());
-                mmConfig.save(mmFile);
+                saveMmFile(mmFile, "phase1_unprocessed_accounts", unprocessedAccounts.stream().map(acc -> Map.of("name", acc.name(), "uuid", acc.uuid().toString())).collect(Collectors.toList()));
 
-                // === Phase 2: Name Aggregation (Nayose) ===
-                Set<ParticipantData> sessionParticipants = new HashSet<>();
-                Set<UnprocessedAccount> accountsToProcess = new HashSet<>(unprocessedAccounts);
-
-                while (!accountsToProcess.isEmpty()) {
-                    UnprocessedAccount currentAccount = accountsToProcess.iterator().next();
-                    accountsToProcess.remove(currentAccount);
-
-                    Optional<ParticipantData> existingDataOpt = participantManager.findParticipantByAnyName(currentAccount.name())
-                            .or(() -> Optional.ofNullable(participantManager.getParticipant(currentAccount.uuid())));
-
-                    ParticipantData pData;
-                    if (existingDataOpt.isPresent()) {
-                        pData = existingDataOpt.get();
-                    } else {
-                        OfflinePlayer op = Bukkit.getOfflinePlayer(currentAccount.uuid());
-                        pData = participantManager.findOrCreateParticipant(op);
-                    }
+                // フェーズ2: 名寄せ
+                Map<String, ParticipantData> sessionParticipants = new HashMap<>();
+                for (UnprocessedAccount currentAccount : unprocessedAccounts) {
+                    ParticipantData pData = participantManager.findParticipantByAnyName(currentAccount.name())
+                            .or(() -> Optional.ofNullable(participantManager.getParticipant(currentAccount.uuid())))
+                            .orElseGet(() -> participantManager.findOrCreateParticipant(Bukkit.getOfflinePlayer(currentAccount.uuid())));
 
                     pData.addAccount(currentAccount.uuid(), currentAccount.name());
-                    sessionParticipants.add(pData);
-
-                    Set<UUID> allKnownUuids = new HashSet<>(pData.getAssociatedUuids());
-                    Set<String> allKnownNames = pData.getAccounts().values().stream()
-                            .map(ParticipantData.AccountInfo::getName).filter(Objects::nonNull).collect(Collectors.toSet());
-                    if (pData.getBaseName() != null) allKnownNames.add(pData.getBaseName());
-                    if (pData.getLinkedName() != null) allKnownNames.add(pData.getLinkedName());
-
-                    accountsToProcess.removeIf(acc -> allKnownUuids.contains(acc.uuid()) || allKnownNames.stream().anyMatch(name -> name.equalsIgnoreCase(acc.name())));
+                    sessionParticipants.put(pData.getParticipantId(), pData);
                 }
-                // ★★★ mm_X.ymlへの書き出し(2)
-                mmConfig.set("phase2_session_participants_before_reset", sessionParticipants.stream().map(ParticipantData::toMap).toList());
-                mmConfig.save(mmFile);
+                saveMmFile(mmFile, "phase2_nayose_results", sessionParticipants.values().stream().map(ParticipantData::toMap).collect(Collectors.toList()));
 
-
-                // === Phase 2.5: Reset Stats for Recalculation ===
-                for (ParticipantData data : sessionParticipants) {
+                // フェーズ3: 再集計
+                for (ParticipantData data : sessionParticipants.values()) {
                     data.resetStatsForLog();
                 }
 
-                // === Phase 3: Recalculate Stats from Logs ===
-                processSessionEvents(sessionFiles, sessionParticipants, sessionsWithError.get() == 0);
-                // ★★★ mm_X.ymlへの書き出し(3)
-                mmConfig.set("phase3_final_participant_data", sessionParticipants.stream().map(ParticipantData::toMap).toList());
-                mmConfig.save(mmFile);
+                processSessionEvents(sessionFiles, sessionParticipants);
+                saveMmFile(mmFile, "phase3_recalculation_results", sessionParticipants.values().stream().map(ParticipantData::toMap).collect(Collectors.toList()));
 
-                // === Phase 4: Save Data ===
-                for (ParticipantData data : sessionParticipants) {
-                    participantManager.saveParticipant(data);
+                // フェーズ4: 加算処理
+                for (ParticipantData logResultData : sessionParticipants.values()) {
+                    participantManager.addOrUpdateDataFromLog(logResultData);
                 }
 
                 moveFilesTo(sessionFiles, processedDir);
@@ -237,19 +207,17 @@ public class LogCommand implements CommandExecutor {
     }
 
 
-    private void processSessionEvents(List<File> sessionFiles, Set<ParticipantData> sessionParticipants, boolean isServerStart) throws IOException {
-
+    private void processSessionEvents(List<File> sessionFiles, Map<String, ParticipantData> sessionParticipants) throws IOException {
         List<LogLine> allLines = new ArrayList<>();
         LocalDate currentDate = null;
+        LocalTime lastTime = LocalTime.MIN;
+
         for (File logFile : sessionFiles) {
             LocalDate fileDate = parseDateFromFileName(logFile.getName());
             if (currentDate == null) {
                 currentDate = fileDate;
-            } else if (fileDate.isAfter(currentDate)) {
-                currentDate = fileDate;
             }
 
-            LocalTime lastTime = LocalTime.MIN;
             try (BufferedReader reader = getReaderForFile(logFile)) {
                 String line;
                 while ((line = reader.readLine()) != null) {
@@ -269,7 +237,6 @@ public class LogCommand implements CommandExecutor {
         }
         allLines.sort(Comparator.comparing(LogLine::timestamp));
 
-
         for (LogLine log : allLines) {
             LocalDateTime timestamp = log.timestamp();
             String content = log.content();
@@ -277,16 +244,14 @@ public class LogCommand implements CommandExecutor {
             Matcher joinMatcher = JOIN_PATTERN.matcher(content);
             if (joinMatcher.find()) {
                 String name = joinMatcher.group(1);
-                findParticipantByName(sessionParticipants, name)
-                        .ifPresent(p -> handleLoginLogic(p, getUuidForName(p, name), isServerStart, timestamp));
+                findParticipantByName(sessionParticipants, name).ifPresent(p -> handleLoginLogic(p, getUuidForName(p, name), timestamp));
                 continue;
             }
 
             Matcher leftMatcher = LEFT_GAME_PATTERN.matcher(content);
             if (leftMatcher.find()) {
                 String name = leftMatcher.group(1);
-                findParticipantByName(sessionParticipants, name)
-                        .ifPresent(p -> handleLogoutLogic(p, getUuidForName(p, name), timestamp));
+                findParticipantByName(sessionParticipants, name).ifPresent(p -> handleLogoutLogic(p, getUuidForName(p, name), timestamp));
                 continue;
             }
 
@@ -294,13 +259,12 @@ public class LogCommand implements CommandExecutor {
             if (deathMatcher.find()) {
                 String name = deathMatcher.group(1).trim();
                 if (NON_PLAYER_ENTITIES.contains(name)) continue;
-                findParticipantByName(sessionParticipants, name)
-                        .ifPresent(p -> p.incrementStat("total_deaths", 1));
+                findParticipantByName(sessionParticipants, name).ifPresent(p -> p.incrementStat("total_deaths", 1));
                 continue;
             }
 
             if (PHOTOGRAPHING_PATTERN.matcher(content).find()) {
-                sessionParticipants.stream().filter(ParticipantData::isOnline)
+                sessionParticipants.values().stream().filter(ParticipantData::isOnline)
                         .forEach(p -> {
                             p.incrementStat("photoshoot_participations", 1);
                             p.addHistoryEvent("photoshoot", timestamp);
@@ -311,7 +275,6 @@ public class LogCommand implements CommandExecutor {
             Matcher chatMatcher = CHAT_PATTERN.matcher(content);
             if (chatMatcher.find()) {
                 String playerName = chatMatcher.group(1);
-                // In case display name has prefixes/suffixes, find the core name
                 findParticipantByName(sessionParticipants, playerName).ifPresent(p -> {
                     p.incrementStat("total_chats", 1);
                     p.incrementStat("w_count", participantManager.calculateWCount(chatMatcher.group(2)));
@@ -320,21 +283,15 @@ public class LogCommand implements CommandExecutor {
         }
     }
 
-    private Optional<ParticipantData> findParticipantByName(Set<ParticipantData> participants, String name) {
-        // Exact match on any known name first
-        for (ParticipantData pData : participants) {
-            // base_name or linked_name
+    private Optional<ParticipantData> findParticipantByName(Map<String, ParticipantData> participants, String name) {
+        for (ParticipantData pData : participants.values()) {
             if (pData.getBaseName() != null && pData.getBaseName().equalsIgnoreCase(name)) return Optional.of(pData);
             if (pData.getLinkedName() != null && pData.getLinkedName().equalsIgnoreCase(name)) return Optional.of(pData);
-            // a specific account name
             for (ParticipantData.AccountInfo accountInfo : pData.getAccounts().values()) {
                 if (accountInfo.getName() != null && accountInfo.getName().equalsIgnoreCase(name)) {
                     return Optional.of(pData);
                 }
             }
-        }
-        // Fallback for display names like "LinkedName(BaseName)"
-        for (ParticipantData pData : participants) {
             if (pData.getDisplayName().equalsIgnoreCase(name)) return Optional.of(pData);
         }
         return Optional.empty();
@@ -348,7 +305,7 @@ public class LogCommand implements CommandExecutor {
                 .orElse(p.getAssociatedUuids().stream().findFirst().orElse(null));
     }
 
-    private void handleLoginLogic(ParticipantData data, UUID uuid, boolean isServerStart, LocalDateTime loginTime) {
+    private void handleLoginLogic(ParticipantData data, UUID uuid, LocalDateTime loginTime) {
         if (data == null || uuid == null) return;
         boolean wasParticipantOnline = data.isOnline();
         data.getAccounts().computeIfPresent(uuid, (k, v) -> {
@@ -357,22 +314,9 @@ public class LogCommand implements CommandExecutor {
         });
 
         if (!wasParticipantOnline) {
-            LocalDateTime lastQuit = data.getLastQuitTimeAsDate();
-
-            boolean isNewSession = true;
-            if (lastQuit != null && !isServerStart) {
-                if (Duration.between(lastQuit, loginTime).toMinutes() < 10) {
-                    isNewSession = false;
-                }
-            }
-
-            if (isNewSession) {
-                isContinuingSession.put(data.getParticipantId(), false);
-                data.incrementStat("total_joins", 1);
-                data.addHistoryEvent("join", loginTime);
-            } else {
-                isContinuingSession.put(data.getParticipantId(), true);
-            }
+            data.setOnlineStatus(true);
+            data.incrementStat("total_joins", 1);
+            data.addHistoryEvent("join", loginTime);
             participantSessionStartTimes.put(data.getParticipantId(), loginTime);
         }
     }
@@ -384,28 +328,22 @@ public class LogCommand implements CommandExecutor {
             return v;
         });
 
-        if (!data.isOnline()) {
+        if (data.getAccounts().values().stream().noneMatch(ParticipantData.AccountInfo::isOnline)) {
+            data.setOnlineStatus(false);
             LocalDateTime startTime = participantSessionStartTimes.remove(data.getParticipantId());
             if (startTime != null) {
                 long durationSeconds = Duration.between(startTime, logoutTime).getSeconds();
                 if (durationSeconds > 0) {
                     data.addPlaytime(durationSeconds);
-                    if (isContinuingSession.getOrDefault(data.getParticipantId(), false)) {
-                        data.addTimeToLastPlaytime(durationSeconds);
-                    } else {
-                        data.addPlaytimeToHistory(durationSeconds);
-                    }
+                    data.addPlaytimeToHistory(durationSeconds);
                 }
             }
             data.setLastQuitTime(logoutTime);
-            isContinuingSession.remove(data.getParticipantId());
         }
     }
 
     private List<List<File>> groupLogsByServerSession(File[] logFiles) {
-        if (logFiles == null || logFiles.length == 0) {
-            return Collections.emptyList();
-        }
+        if (logFiles == null || logFiles.length == 0) return Collections.emptyList();
         Arrays.sort(logFiles, Comparator.comparing(this::getFileNameTimestamp).thenComparing(this::getFileNameIndex));
         List<List<File>> sessions = new ArrayList<>();
         List<File> currentSessionFiles = new ArrayList<>();
@@ -423,9 +361,7 @@ public class LogCommand implements CommandExecutor {
             }
             currentSessionFiles.add(currentFile);
         }
-        if (!currentSessionFiles.isEmpty()) {
-            sessions.add(currentSessionFiles);
-        }
+        if (!currentSessionFiles.isEmpty()) sessions.add(currentSessionFiles);
         return sessions;
     }
 
@@ -439,18 +375,13 @@ public class LogCommand implements CommandExecutor {
         return m.find() ? Integer.parseInt(m.group(1)) : 0;
     }
 
-
     private BufferedReader getReaderForFile(File file) throws IOException {
-        FileInputStream fis = new FileInputStream(file);
-        InputStream is;
+        InputStream is = new FileInputStream(file);
         if (file.getName().endsWith(".gz")) {
-            is = new GZIPInputStream(fis);
-        } else {
-            is = fis;
+            is = new GZIPInputStream(is);
         }
         return new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8));
     }
-
 
     private LocalDate parseDateFromFileName(String fileName) {
         Pattern datePattern = Pattern.compile("(\\d{4}-\\d{2}-\\d{2})");
@@ -458,11 +389,28 @@ public class LogCommand implements CommandExecutor {
         if (matcher.find()) {
             try {
                 return LocalDate.parse(matcher.group(1));
-            } catch (DateTimeParseException e) {
-                logger.warning("Could not parse date from filename: " + fileName + ". Using today's date.");
-            }
+            } catch (DateTimeParseException e) { /* fallback */ }
         }
         return LocalDate.now();
+    }
+
+    private void saveMmFile(File mmFile, String key, Object data) {
+        try {
+            YamlConfiguration mmConfig;
+            if (mmFile.exists()) {
+                try (Reader reader = new InputStreamReader(new FileInputStream(mmFile), StandardCharsets.UTF_8)) {
+                    mmConfig = YamlConfiguration.loadConfiguration(reader);
+                }
+            } else {
+                mmConfig = new YamlConfiguration();
+            }
+            mmConfig.set(key, data);
+            try (Writer writer = new OutputStreamWriter(new FileOutputStream(mmFile), StandardCharsets.UTF_8)) {
+                writer.write(mmConfig.saveToString());
+            }
+        } catch (IOException e) {
+            logger.log(Level.SEVERE, "Could not save debug mm file: " + mmFile.getName(), e);
+        }
     }
 
     private void handleError(CommandSender sender, String sessionName, String message, Exception e, List<File> filesToMove) {
@@ -470,13 +418,11 @@ public class LogCommand implements CommandExecutor {
         if (sender instanceof Player) {
             plugin.getAdventure().sender(sender).sendMessage(Component.text(message + "詳細はコンソールとerrorフォルダを確認してください。", NamedTextColor.RED));
         }
-
         if (filesToMove != null && !filesToMove.isEmpty()) {
             File errorDir = new File(new File(plugin.getDataFolder(), "Participant_Information"), "log/error");
             if (!errorDir.exists() && !errorDir.mkdirs()) {
                 logger.warning("Could not create error directory at: " + errorDir.getPath());
             }
-
             String errorSessionName = (sessionName != null) ? sessionName.replaceAll("[^a-zA-Z0-9.-]", "_") : "unknown_session";
             File errorReasonFile = new File(errorDir, errorSessionName + "_error_reason.txt");
             try (PrintWriter writer = new PrintWriter(new FileWriter(errorReasonFile, true))) {
@@ -489,7 +435,6 @@ public class LogCommand implements CommandExecutor {
             moveFilesTo(filesToMove, errorDir);
         }
     }
-
 
     private void moveFilesTo(List<File> files, File targetDir) {
         for (File file : files) {
@@ -508,7 +453,6 @@ public class LogCommand implements CommandExecutor {
         int count = participantManager.resetAllStats();
         plugin.getAdventure().sender(sender).sendMessage(Component.text(count + " 人の参加者の統計情報をリセットしました。", NamedTextColor.GREEN));
     }
-
 
     private void sendHelp(CommandSender sender) {
         sender.sendMessage("§6--- Log Command Help ---");

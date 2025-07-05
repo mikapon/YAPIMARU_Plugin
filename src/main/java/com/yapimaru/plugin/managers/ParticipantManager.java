@@ -6,8 +6,8 @@ import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.configuration.file.YamlConfiguration;
 
-import java.io.File;
-import java.io.IOException;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
@@ -17,7 +17,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class ParticipantManager {
@@ -54,24 +53,26 @@ public class ParticipantManager {
 
     public synchronized void handleServerStartup() {
         loadAllParticipants(); // Load latest data from files
-        plugin.getLogger().info("Correcting session data for all participants on server startup...");
+        plugin.getLogger().info("Correcting session data and ensuring all keys exist for all participants...");
+
         Stream.concat(activeParticipants.values().stream(), dischargedParticipants.values().stream())
                 .forEach(data -> {
                     boolean wasModified = false;
+                    // Correct online status
                     for (Map.Entry<UUID, ParticipantData.AccountInfo> entry : data.getAccounts().entrySet()) {
                         if (entry.getValue().isOnline()) {
-                            plugin.getLogger().warning("Player " + entry.getValue().getName() + " ("+ data.getParticipantId() +") was marked as online during startup. Correcting session data.");
+                            plugin.getLogger().warning("Player " + entry.getValue().getName() + " ("+ data.getParticipantId() +") was marked as online during startup. Correcting status.");
                             entry.getValue().setOnline(false);
                             wasModified = true;
                         }
                     }
-                    if (wasModified) {
-                        saveParticipant(data);
-                    }
+                    // Force save to ensure all keys are present
+                    saveParticipant(data, true);
                 });
+
         participantSessionStartTimes.clear();
         isContinuingSession.clear();
-        plugin.getLogger().info("Session correction finished.");
+        plugin.getLogger().info("Participant check finished.");
     }
 
 
@@ -80,31 +81,29 @@ public class ParticipantManager {
         uuidToParticipantMap.clear();
         dischargedParticipants.clear();
 
-        java.util.function.Consumer<File> processDirectory = (directory) -> {
-            File[] files = directory.listFiles((dir, name) -> name.endsWith(".yml"));
-            if (files == null) return;
-
-            Map<String, ParticipantData> map = (directory.equals(activeDir)) ? activeParticipants : dischargedParticipants;
-
-            for (File file : files) {
-                loadParticipantFromFile(file, map);
-            }
-        };
-
-        processDirectory.accept(activeDir);
-        processDirectory.accept(dischargedDir);
+        loadParticipantsFromDirectory(activeDir, activeParticipants);
+        loadParticipantsFromDirectory(dischargedDir, dischargedParticipants);
 
         plugin.getLogger().info("Loaded " + activeParticipants.size() + " active and " + dischargedParticipants.size() + " discharged participant data files.");
     }
 
+    private synchronized void loadParticipantsFromDirectory(File directory, Map<String, ParticipantData> map) {
+        File[] files = directory.listFiles((dir, name) -> name.endsWith(".yml"));
+        if (files == null) return;
 
-    private synchronized void loadParticipantFromFile(File file, Map<String, ParticipantData> map) {
-        YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
-        ParticipantData data = new ParticipantData(config);
-        map.put(data.getParticipantId(), data);
-        if (map == activeParticipants) {
-            for (UUID uuid : data.getAssociatedUuids()) {
-                uuidToParticipantMap.put(uuid, data);
+        for (File file : files) {
+            // ★★★ 文字化け対策: UTF-8でファイルを読み込む
+            try (Reader reader = new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8)) {
+                YamlConfiguration config = YamlConfiguration.loadConfiguration(reader);
+                ParticipantData data = new ParticipantData(config);
+                map.put(data.getParticipantId(), data);
+                if (map == activeParticipants) {
+                    for (UUID uuid : data.getAssociatedUuids()) {
+                        uuidToParticipantMap.put(uuid, data);
+                    }
+                }
+            } catch (IOException e) {
+                plugin.getLogger().log(Level.SEVERE, "Failed to load participant file with UTF-8: " + file.getName(), e);
             }
         }
     }
@@ -139,7 +138,7 @@ public class ParticipantManager {
         if (data != null) {
             if (!data.getAccounts().containsKey(player.getUniqueId()) && player.getName() != null) {
                 data.addAccount(player.getUniqueId(), player.getName());
-                saveParticipant(data);
+                saveParticipant(data, false);
             }
             return data;
         }
@@ -151,7 +150,7 @@ public class ParticipantManager {
                 data = foundByName.get();
                 data.addAccount(player.getUniqueId(), player.getName());
                 uuidToParticipantMap.put(player.getUniqueId(), data); // Link UUID to existing data
-                saveParticipant(data);
+                saveParticipant(data, false);
                 return data;
             }
         }
@@ -169,7 +168,7 @@ public class ParticipantManager {
         return data;
     }
 
-    public synchronized void saveParticipant(ParticipantData data) {
+    public synchronized void saveParticipant(ParticipantData data, boolean forceAllKeys) {
         if (data == null) return;
 
         boolean isDischarged = dischargedParticipants.containsKey(data.getParticipantId());
@@ -190,26 +189,21 @@ public class ParticipantManager {
         }
         config.set("accounts", accountsMap);
 
-
-        Map<String, Number> stats = data.getStatistics();
-        config.set("statistics.total_deaths", stats.get("total_deaths"));
-        config.set("statistics.total_playtime_seconds", stats.get("total_playtime_seconds"));
-        config.set("statistics.total_joins", stats.get("total_joins"));
-        config.set("statistics.photoshoot_participations", stats.get("photoshoot_participations"));
-        config.set("statistics.total_chats", stats.get("total_chats"));
-        config.set("statistics.w_count", stats.get("w_count"));
-
+        config.set("statistics", data.getStatistics());
         config.set("join-history", data.getJoinHistory());
         config.set("photoshoot-history", data.getPhotoshootHistory());
-        config.set("last-quit-time", data.getLastQuitTime());
         config.set("playtime-history", data.getPlaytimeHistory());
+        config.set("last-quit-time", data.getLastQuitTime());
+        config.set("is-online", data.isOnline());
 
-        try {
-            config.save(file);
+        // ★★★ 文字化け対策: UTF-8でファイルを書き込む
+        try (Writer writer = new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8)) {
+            writer.write(config.saveToString());
         } catch (IOException e) {
             plugin.getLogger().log(Level.SEVERE, "Could not save participant data for " + data.getParticipantId(), e);
         }
     }
+
 
     public synchronized void registerNewParticipant(ParticipantData data) {
         if (data == null || data.getParticipantId() == null || data.getParticipantId().isEmpty()) {
@@ -219,7 +213,7 @@ public class ParticipantManager {
         for (UUID uuid : data.getAssociatedUuids()) {
             uuidToParticipantMap.put(uuid, data);
         }
-        saveParticipant(data);
+        saveParticipant(data, true);
     }
 
     public synchronized void handlePlayerLogin(UUID uuid, boolean isServerStart) {
@@ -249,7 +243,7 @@ public class ParticipantManager {
             }
             participantSessionStartTimes.put(data.getParticipantId(), now);
         }
-        saveParticipant(data);
+        saveParticipant(data, false);
     }
 
     public synchronized void handlePlayerLogout(UUID uuid) {
@@ -277,29 +271,48 @@ public class ParticipantManager {
             data.setLastQuitTime(now);
             isContinuingSession.remove(data.getParticipantId());
         }
-        saveParticipant(data);
+        saveParticipant(data, false);
     }
 
     public synchronized int resetAllStats() {
+        // ★★★ リセット対象を管理下の参加者のみに限定
+        List<ParticipantData> allKnownParticipants = new ArrayList<>();
+        allKnownParticipants.addAll(activeParticipants.values());
+        allKnownParticipants.addAll(dischargedParticipants.values());
+
         int count = 0;
-        for (ParticipantData data : activeParticipants.values()) {
+        for (ParticipantData data : allKnownParticipants) {
             data.resetStats();
-            saveParticipant(data);
-            count++;
-        }
-        for (ParticipantData data : dischargedParticipants.values()) {
-            data.resetStats();
-            saveParticipant(data);
+            saveParticipant(data, true); // forceAllKeysをtrueにして欠損キーを追加
             count++;
         }
         return count;
     }
 
+    public synchronized void addOrUpdateDataFromLog(ParticipantData logData) {
+        ParticipantData existingData = findParticipantByAnyName(logData.getParticipantId())
+                .or(() -> logData.getAssociatedUuids().stream()
+                        .map(this::getParticipant)
+                        .filter(Objects::nonNull)
+                        .findFirst())
+                .orElse(logData); // If not found, it's a new participant
+
+        if (existingData != logData) {
+            existingData.addLogData(logData);
+        } else {
+            // It's a new participant, register it
+            registerNewParticipant(existingData);
+        }
+
+        saveParticipant(existingData, false);
+    }
+
+
     public synchronized void incrementDeaths(UUID uuid, int amount) {
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data != null) {
             data.incrementStat("total_deaths", amount);
-            saveParticipant(data);
+            saveParticipant(data, false);
         }
     }
 
@@ -307,7 +320,7 @@ public class ParticipantManager {
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data != null) {
             data.incrementStat("total_chats", amount);
-            saveParticipant(data);
+            saveParticipant(data, false);
         }
     }
 
@@ -316,7 +329,7 @@ public class ParticipantManager {
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data != null) {
             data.incrementStat("w_count", amount);
-            saveParticipant(data);
+            saveParticipant(data, false);
         }
     }
 
@@ -380,7 +393,7 @@ public class ParticipantManager {
         if (data != null) {
             data.incrementStat("photoshoot_participations", 1);
             data.addHistoryEvent("photoshoot", timestamp);
-            saveParticipant(data);
+            saveParticipant(data, false);
         }
     }
 
@@ -437,7 +450,7 @@ public class ParticipantManager {
 
         if (oldParticipantId.equals(newParticipantId)) {
             oldData.setFullName(newBaseName, newLinkedName);
-            saveParticipant(oldData);
+            saveParticipant(oldData, false);
             return true;
         }
 
@@ -452,7 +465,7 @@ public class ParticipantManager {
         activeParticipants.remove(oldParticipantId);
         oldData.setFullName(newBaseName, newLinkedName);
         activeParticipants.put(newParticipantId, oldData);
-        saveParticipant(oldData);
+        saveParticipant(oldData, false);
         return true;
     }
 
@@ -477,10 +490,10 @@ public class ParticipantManager {
 
     public synchronized void saveAllParticipantData() {
         for (ParticipantData data : activeParticipants.values()) {
-            saveParticipant(data);
+            saveParticipant(data, false);
         }
         for (ParticipantData data : dischargedParticipants.values()) {
-            saveParticipant(data);
+            saveParticipant(data, false);
         }
         plugin.getLogger().info("Saved all participant data to files.");
     }

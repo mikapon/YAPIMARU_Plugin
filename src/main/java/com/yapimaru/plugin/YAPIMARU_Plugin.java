@@ -55,14 +55,15 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
         }
 
         saveDefaultConfig();
-        loadConfigAndManual();
 
         initializeManagers();
+        loadConfigAndManual(); // Manager初期化後に設定をロード
         linkManagers();
 
         registerListeners();
         registerCommands();
 
+        // 起動時の処理順を修正
         participantManager.handleServerStartup();
 
         for (Player player : Bukkit.getOnlinePlayers()) {
