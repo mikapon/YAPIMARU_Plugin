@@ -10,8 +10,9 @@ import org.bukkit.OfflinePlayer;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
-import org.jetbrains.annotations.NotNull; // ★★★ 修正: NotNullをインポート
+import org.jetbrains.annotations.NotNull;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
@@ -67,6 +68,7 @@ public class LogCommand implements CommandExecutor {
     // These maps are temporary for the duration of a single /log add command execution
     private final Map<String, Boolean> isContinuingSession = new ConcurrentHashMap<>();
     private final Map<String, LocalDateTime> participantSessionStartTimes = new ConcurrentHashMap<>();
+    private final AtomicInteger mmFileCounter = new AtomicInteger(1);
 
     public LogCommand(YAPIMARU_Plugin plugin) {
         this.plugin = plugin;
@@ -108,10 +110,12 @@ public class LogCommand implements CommandExecutor {
         File logDir = new File(new File(plugin.getDataFolder(), "Participant_Information"), "log");
         File processedDir = new File(logDir, "processed");
         File errorDir = new File(logDir, "error");
+        File memoryDumpsDir = new File(logDir, "memory_dumps"); // ★★★ 追加
 
         try {
             if (!processedDir.exists() && !processedDir.mkdirs()) logger.warning("Failed to create processed directory.");
             if (!errorDir.exists() && !errorDir.mkdirs()) logger.warning("Failed to create error directory.");
+            if (!memoryDumpsDir.exists() && !memoryDumpsDir.mkdirs()) logger.warning("Failed to create memory_dumps directory."); // ★★★ 追加
         } catch (SecurityException e) {
             handleError(sender, null, "作業ディレクトリの作成に失敗しました: " + e.getMessage(), e, null);
             return;
@@ -135,6 +139,9 @@ public class LogCommand implements CommandExecutor {
             if (sessionFiles.isEmpty()) continue;
 
             String sessionName = sessionFiles.get(0).getName();
+            File mmFile = new File(memoryDumpsDir, "mm_" + mmFileCounter.getAndIncrement() + ".yml"); // ★★★ 追加
+            YamlConfiguration mmConfig = new YamlConfiguration(); // ★★★ 追加
+
             isContinuingSession.clear();
             participantSessionStartTimes.clear();
 
@@ -157,6 +164,9 @@ public class LogCommand implements CommandExecutor {
                         });
                     }
                 }
+                // ★★★ mm_X.ymlへの書き出し(1)
+                mmConfig.set("phase1_unprocessed_accounts", unprocessedAccounts.stream().map(acc -> Map.of("name", acc.name(), "uuid", acc.uuid().toString())).toList());
+                mmConfig.save(mmFile);
 
                 // === Phase 2: Name Aggregation (Nayose) ===
                 Set<ParticipantData> sessionParticipants = new HashSet<>();
@@ -180,7 +190,6 @@ public class LogCommand implements CommandExecutor {
                     pData.addAccount(currentAccount.uuid(), currentAccount.name());
                     sessionParticipants.add(pData);
 
-                    // Remove all known aliases of this participant from the processing set
                     Set<UUID> allKnownUuids = new HashSet<>(pData.getAssociatedUuids());
                     Set<String> allKnownNames = pData.getAccounts().values().stream()
                             .map(ParticipantData.AccountInfo::getName).filter(Objects::nonNull).collect(Collectors.toSet());
@@ -189,6 +198,9 @@ public class LogCommand implements CommandExecutor {
 
                     accountsToProcess.removeIf(acc -> allKnownUuids.contains(acc.uuid()) || allKnownNames.stream().anyMatch(name -> name.equalsIgnoreCase(acc.name())));
                 }
+                // ★★★ mm_X.ymlへの書き出し(2)
+                mmConfig.set("phase2_session_participants_before_reset", sessionParticipants.stream().map(ParticipantData::toMap).toList());
+                mmConfig.save(mmFile);
 
 
                 // === Phase 2.5: Reset Stats for Recalculation ===
@@ -197,7 +209,10 @@ public class LogCommand implements CommandExecutor {
                 }
 
                 // === Phase 3: Recalculate Stats from Logs ===
-                processSessionEvents(sessionFiles, sessionParticipants, sessionsWithError.get() == 0); // isServerStart logic can be improved
+                processSessionEvents(sessionFiles, sessionParticipants, sessionsWithError.get() == 0);
+                // ★★★ mm_X.ymlへの書き出し(3)
+                mmConfig.set("phase3_final_participant_data", sessionParticipants.stream().map(ParticipantData::toMap).toList());
+                mmConfig.save(mmFile);
 
                 // === Phase 4: Save Data ===
                 for (ParticipantData data : sessionParticipants) {
@@ -452,7 +467,6 @@ public class LogCommand implements CommandExecutor {
 
     private void handleError(CommandSender sender, String sessionName, String message, Exception e, List<File> filesToMove) {
         logger.log(Level.SEVERE, message, e);
-        // ★★★ 修正: senderがPlayerの場合のみメッセージを送信
         if (sender instanceof Player) {
             plugin.getAdventure().sender(sender).sendMessage(Component.text(message + "詳細はコンソールとerrorフォルダを確認してください。", NamedTextColor.RED));
         }
@@ -463,7 +477,6 @@ public class LogCommand implements CommandExecutor {
                 logger.warning("Could not create error directory at: " + errorDir.getPath());
             }
 
-            // Write error reason to a text file
             String errorSessionName = (sessionName != null) ? sessionName.replaceAll("[^a-zA-Z0-9.-]", "_") : "unknown_session";
             File errorReasonFile = new File(errorDir, errorSessionName + "_error_reason.txt");
             try (PrintWriter writer = new PrintWriter(new FileWriter(errorReasonFile, true))) {
