@@ -235,7 +235,7 @@ public class GuiListener implements Listener {
         if (item == null || !item.hasItemMeta() || !item.getItemMeta().hasLore()) return null;
         for (String line : item.getItemMeta().getLore()) {
             if (line.startsWith("§8ID: ")) {
-                return line.substring(6);
+                return ChatColor.stripColor(line.substring(4));
             }
         }
         return null;
@@ -259,7 +259,7 @@ public class GuiListener implements Listener {
         }
 
         ymCommand.setPlayerGuiPage(player.getUniqueId(), 0);
-        String subCategoryName = item.getItemMeta().getDisplayName().replace("§r§f", "");
+        String subCategoryName = ChatColor.stripColor(item.getItemMeta().getDisplayName());
 
         if (title.equals(YmCommand.FILTER_GUI_TITLE)) {
             YmCommand.FilterCategory category = YmCommand.FilterCategory.ALL;
@@ -406,7 +406,7 @@ public class GuiListener implements Listener {
             return;
         }
 
-        String itemName = item.getItemMeta().getDisplayName();
+        String itemName = ChatColor.stripColor(item.getItemMeta().getDisplayName());
 
         if (itemName.contains("準備時間")) {
             int current = pvpManager.getGracePeriodTime();

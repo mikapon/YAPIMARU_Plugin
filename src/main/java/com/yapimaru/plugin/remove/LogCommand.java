@@ -153,7 +153,7 @@ public class LogCommand implements CommandExecutor {
                             Matcher uuidMatcher = UUID_PATTERN.matcher(line);
                             if (uuidMatcher.find()) {
                                 unprocessedAccounts.add(new UnprocessedAccount(UUID.fromString(uuidMatcher.group(2)), uuidMatcher.group(1)));
-                                continue; // Avoid double matching
+                                continue;
                             }
                             Matcher floodgateMatcher = FLOODGATE_UUID_PATTERN.matcher(line);
                             if (floodgateMatcher.find()) {
@@ -166,10 +166,28 @@ public class LogCommand implements CommandExecutor {
 
                 // フェーズ2: 名寄せ
                 Map<String, ParticipantData> sessionParticipants = new HashMap<>();
-                for (UnprocessedAccount currentAccount : unprocessedAccounts) {
+                Set<UnprocessedAccount> accountsToProcess = new HashSet<>(unprocessedAccounts);
+
+                while (!accountsToProcess.isEmpty()) {
+                    UnprocessedAccount currentAccount = accountsToProcess.iterator().next();
+
                     ParticipantData pData = participantManager.findParticipantByAnyName(currentAccount.name())
                             .or(() -> Optional.ofNullable(participantManager.getParticipant(currentAccount.uuid())))
                             .orElseGet(() -> participantManager.findOrCreateParticipant(Bukkit.getOfflinePlayer(currentAccount.uuid())));
+
+                    Set<UUID> deletionMarkers_uuid = new HashSet<>(pData.getAssociatedUuids());
+                    deletionMarkers_uuid.add(currentAccount.uuid());
+
+                    Set<String> deletionMarkers_name = pData.getAccounts().values().stream()
+                            .map(ParticipantData.AccountInfo::getName)
+                            .filter(Objects::nonNull)
+                            .collect(Collectors.toSet());
+                    deletionMarkers_name.add(pData.getBaseName());
+                    deletionMarkers_name.add(pData.getLinkedName());
+                    deletionMarkers_name.add(currentAccount.name());
+                    deletionMarkers_name.remove("");
+
+                    accountsToProcess.removeIf(acc -> deletionMarkers_uuid.contains(acc.uuid()) || deletionMarkers_name.contains(acc.name()));
 
                     pData.addAccount(currentAccount.uuid(), currentAccount.name());
                     sessionParticipants.put(pData.getParticipantId(), pData);
@@ -180,7 +198,6 @@ public class LogCommand implements CommandExecutor {
                 for (ParticipantData data : sessionParticipants.values()) {
                     data.resetStatsForLog();
                 }
-
                 processSessionEvents(sessionFiles, sessionParticipants);
                 saveMmFile(mmFile, "phase3_recalculation_results", sessionParticipants.values().stream().map(ParticipantData::toMap).collect(Collectors.toList()));
 
@@ -210,7 +227,6 @@ public class LogCommand implements CommandExecutor {
     private void processSessionEvents(List<File> sessionFiles, Map<String, ParticipantData> sessionParticipants) throws IOException {
         List<LogLine> allLines = new ArrayList<>();
         LocalDate currentDate = null;
-        LocalTime lastTime = LocalTime.MIN;
 
         for (File logFile : sessionFiles) {
             LocalDate fileDate = parseDateFromFileName(logFile.getName());
@@ -218,6 +234,7 @@ public class LogCommand implements CommandExecutor {
                 currentDate = fileDate;
             }
 
+            LocalTime lastTime = LocalTime.MIN;
             try (BufferedReader reader = getReaderForFile(logFile)) {
                 String line;
                 while ((line = reader.readLine()) != null) {

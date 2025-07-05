@@ -16,7 +16,7 @@ public class ParticipantData {
     private String lastQuitTime = null;
     private final List<Long> playtimeHistory = new ArrayList<>();
     private final List<String> photoshootHistory = new ArrayList<>();
-    private boolean isOnline; // is-onlineをクラスフィールドとして保持
+    private boolean isOnline;
     private static final DateTimeFormatter HISTORY_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH:mm:ss");
 
 
@@ -111,7 +111,6 @@ public class ParticipantData {
     }
 
     public void addLogData(ParticipantData logData) {
-        // Add statistics
         logData.getStatistics().forEach((key, value) -> {
             Number currentValue = this.statistics.getOrDefault(key, 0);
             if (currentValue instanceof Long || value instanceof Long) {
@@ -121,7 +120,6 @@ public class ParticipantData {
             }
         });
 
-        // Merge and trim history lists
         this.joinHistory.addAll(logData.getJoinHistory());
         this.joinHistory.sort(Comparator.naturalOrder());
         while(this.joinHistory.size() > 10) {
@@ -140,7 +138,6 @@ public class ParticipantData {
             this.playtimeHistory.remove(0);
         }
 
-        // Update last quit time if the new one is more recent
         LocalDateTime existingLQT = this.getLastQuitTimeAsDate();
         LocalDateTime newLQT = logData.getLastQuitTimeAsDate();
         if (newLQT != null && (existingLQT == null || newLQT.isAfter(existingLQT))) {
@@ -171,7 +168,6 @@ public class ParticipantData {
     }
 
     public void resetStats() {
-        // 全ての統計情報を初期化
         this.statistics.clear();
         initializeStats();
 
@@ -179,7 +175,7 @@ public class ParticipantData {
         photoshootHistory.clear();
         playtimeHistory.clear();
         lastQuitTime = null;
-        isOnline = false; // Reset online status as well
+        isOnline = false;
         accounts.values().forEach(acc -> acc.setOnline(false));
     }
 
@@ -191,8 +187,9 @@ public class ParticipantData {
         photoshootHistory.clear();
         playtimeHistory.clear();
         lastQuitTime = null;
-        // Do NOT reset isOnline here
+
         accounts.values().forEach(acc -> acc.setOnline(false));
+        this.isOnline = false;
     }
 
     public String getParticipantId() {
@@ -216,7 +213,6 @@ public class ParticipantData {
         return baseName;
     }
 
-    // Getters
     public String getBaseName() { return baseName; }
     public String getLinkedName() { return linkedName; }
     public Map<UUID, AccountInfo> getAccounts() { return accounts; }

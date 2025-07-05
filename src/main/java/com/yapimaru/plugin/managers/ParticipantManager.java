@@ -57,17 +57,13 @@ public class ParticipantManager {
 
         Stream.concat(activeParticipants.values().stream(), dischargedParticipants.values().stream())
                 .forEach(data -> {
-                    boolean wasModified = false;
-                    // Correct online status
                     for (Map.Entry<UUID, ParticipantData.AccountInfo> entry : data.getAccounts().entrySet()) {
                         if (entry.getValue().isOnline()) {
                             plugin.getLogger().warning("Player " + entry.getValue().getName() + " ("+ data.getParticipantId() +") was marked as online during startup. Correcting status.");
                             entry.getValue().setOnline(false);
-                            wasModified = true;
                         }
                     }
-                    // Force save to ensure all keys are present
-                    saveParticipant(data, true);
+                    saveParticipant(data);
                 });
 
         participantSessionStartTimes.clear();
@@ -92,7 +88,6 @@ public class ParticipantManager {
         if (files == null) return;
 
         for (File file : files) {
-            // ★★★ 文字化け対策: UTF-8でファイルを読み込む
             try (Reader reader = new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8)) {
                 YamlConfiguration config = YamlConfiguration.loadConfiguration(reader);
                 ParticipantData data = new ParticipantData(config);
@@ -117,11 +112,11 @@ public class ParticipantManager {
         return uuidToParticipantMap.get(uuid);
     }
 
-    public synchronized ParticipantData getParticipant(String participantId) {
-        return activeParticipants.get(participantId);
+    public synchronized ParticipantData getLoadedParticipant(String participantId) {
+        return activeParticipants.getOrDefault(participantId, dischargedParticipants.get(participantId));
     }
 
-
+    // ★★★ エラーが出ていた他クラスから呼び出されるメソッドを再追加 ★★★
     public synchronized Collection<ParticipantData> getActiveParticipants() {
         return Collections.unmodifiableCollection(new ArrayList<>(activeParticipants.values()));
     }
@@ -133,33 +128,28 @@ public class ParticipantManager {
     public synchronized ParticipantData findOrCreateParticipant(OfflinePlayer player) {
         if (player == null) return null;
 
-        // 1. Find by UUID
         ParticipantData data = getParticipant(player.getUniqueId());
         if (data != null) {
             if (!data.getAccounts().containsKey(player.getUniqueId()) && player.getName() != null) {
                 data.addAccount(player.getUniqueId(), player.getName());
-                saveParticipant(data, false);
+                saveParticipant(data);
             }
             return data;
         }
 
-        // 2. Find by Name (if UUID lookup fails)
         if (player.getName() != null) {
             Optional<ParticipantData> foundByName = findParticipantByAnyName(player.getName());
             if (foundByName.isPresent()) {
                 data = foundByName.get();
                 data.addAccount(player.getUniqueId(), player.getName());
-                uuidToParticipantMap.put(player.getUniqueId(), data); // Link UUID to existing data
-                saveParticipant(data, false);
+                uuidToParticipantMap.put(player.getUniqueId(), data);
+                saveParticipant(data);
                 return data;
             }
         }
 
-        // 3. Create new if not found
         String baseName = player.getName() != null ? player.getName() : player.getUniqueId().toString();
-        String linkedName = "";
-
-        data = new ParticipantData(baseName, linkedName);
+        data = new ParticipantData(baseName, "");
         if(player.getName() != null) {
             data.addAccount(player.getUniqueId(), player.getName());
         }
@@ -168,7 +158,7 @@ public class ParticipantManager {
         return data;
     }
 
-    public synchronized void saveParticipant(ParticipantData data, boolean forceAllKeys) {
+    public synchronized void saveParticipant(ParticipantData data) {
         if (data == null) return;
 
         boolean isDischarged = dischargedParticipants.containsKey(data.getParticipantId());
@@ -196,7 +186,6 @@ public class ParticipantManager {
         config.set("last-quit-time", data.getLastQuitTime());
         config.set("is-online", data.isOnline());
 
-        // ★★★ 文字化け対策: UTF-8でファイルを書き込む
         try (Writer writer = new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8)) {
             writer.write(config.saveToString());
         } catch (IOException e) {
@@ -213,7 +202,7 @@ public class ParticipantManager {
         for (UUID uuid : data.getAssociatedUuids()) {
             uuidToParticipantMap.put(uuid, data);
         }
-        saveParticipant(data, true);
+        saveParticipant(data);
     }
 
     public synchronized void handlePlayerLogin(UUID uuid, boolean isServerStart) {
@@ -222,6 +211,7 @@ public class ParticipantManager {
 
         boolean wasParticipantOnline = data.isOnline();
         data.getAccounts().get(uuid).setOnline(true);
+        data.setOnlineStatus(true);
 
         if (!wasParticipantOnline) {
             LocalDateTime now = LocalDateTime.now();
@@ -243,7 +233,7 @@ public class ParticipantManager {
             }
             participantSessionStartTimes.put(data.getParticipantId(), now);
         }
-        saveParticipant(data, false);
+        saveParticipant(data);
     }
 
     public synchronized void handlePlayerLogout(UUID uuid) {
@@ -254,7 +244,8 @@ public class ParticipantManager {
             data.getAccounts().get(uuid).setOnline(false);
         }
 
-        if (!data.isOnline()) {
+        if (data.getAccounts().values().stream().noneMatch(ParticipantData.AccountInfo::isOnline)) {
+            data.setOnlineStatus(false);
             LocalDateTime now = LocalDateTime.now();
             LocalDateTime startTime = participantSessionStartTimes.remove(data.getParticipantId());
             if (startTime != null) {
@@ -271,11 +262,10 @@ public class ParticipantManager {
             data.setLastQuitTime(now);
             isContinuingSession.remove(data.getParticipantId());
         }
-        saveParticipant(data, false);
+        saveParticipant(data);
     }
 
     public synchronized int resetAllStats() {
-        // ★★★ リセット対象を管理下の参加者のみに限定
         List<ParticipantData> allKnownParticipants = new ArrayList<>();
         allKnownParticipants.addAll(activeParticipants.values());
         allKnownParticipants.addAll(dischargedParticipants.values());
@@ -283,28 +273,22 @@ public class ParticipantManager {
         int count = 0;
         for (ParticipantData data : allKnownParticipants) {
             data.resetStats();
-            saveParticipant(data, true); // forceAllKeysをtrueにして欠損キーを追加
+            saveParticipant(data);
             count++;
         }
         return count;
     }
 
     public synchronized void addOrUpdateDataFromLog(ParticipantData logData) {
-        ParticipantData existingData = findParticipantByAnyName(logData.getParticipantId())
-                .or(() -> logData.getAssociatedUuids().stream()
-                        .map(this::getParticipant)
-                        .filter(Objects::nonNull)
-                        .findFirst())
-                .orElse(logData); // If not found, it's a new participant
-
-        if (existingData != logData) {
-            existingData.addLogData(logData);
-        } else {
-            // It's a new participant, register it
-            registerNewParticipant(existingData);
+        ParticipantData existingData = getLoadedParticipant(logData.getParticipantId());
+        if (existingData == null) {
+            plugin.getLogger().warning("Log processing found a participant not in memory: " + logData.getParticipantId() + ". This shouldn't happen. Registering as new.");
+            registerNewParticipant(logData);
+            existingData = logData;
         }
 
-        saveParticipant(existingData, false);
+        existingData.addLogData(logData);
+        saveParticipant(existingData);
     }
 
 
@@ -312,7 +296,7 @@ public class ParticipantManager {
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data != null) {
             data.incrementStat("total_deaths", amount);
-            saveParticipant(data, false);
+            saveParticipant(data);
         }
     }
 
@@ -320,7 +304,7 @@ public class ParticipantManager {
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data != null) {
             data.incrementStat("total_chats", amount);
-            saveParticipant(data, false);
+            saveParticipant(data);
         }
     }
 
@@ -329,7 +313,7 @@ public class ParticipantManager {
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
         if (data != null) {
             data.incrementStat("w_count", amount);
-            saveParticipant(data, false);
+            saveParticipant(data);
         }
     }
 
@@ -393,7 +377,7 @@ public class ParticipantManager {
         if (data != null) {
             data.incrementStat("photoshoot_participations", 1);
             data.addHistoryEvent("photoshoot", timestamp);
-            saveParticipant(data, false);
+            saveParticipant(data);
         }
     }
 
@@ -450,7 +434,7 @@ public class ParticipantManager {
 
         if (oldParticipantId.equals(newParticipantId)) {
             oldData.setFullName(newBaseName, newLinkedName);
-            saveParticipant(oldData, false);
+            saveParticipant(oldData);
             return true;
         }
 
@@ -465,7 +449,7 @@ public class ParticipantManager {
         activeParticipants.remove(oldParticipantId);
         oldData.setFullName(newBaseName, newLinkedName);
         activeParticipants.put(newParticipantId, oldData);
-        saveParticipant(oldData, false);
+        saveParticipant(oldData);
         return true;
     }
 
@@ -490,10 +474,10 @@ public class ParticipantManager {
 
     public synchronized void saveAllParticipantData() {
         for (ParticipantData data : activeParticipants.values()) {
-            saveParticipant(data, false);
+            saveParticipant(data);
         }
         for (ParticipantData data : dischargedParticipants.values()) {
-            saveParticipant(data, false);
+            saveParticipant(data);
         }
         plugin.getLogger().info("Saved all participant data to files.");
     }

@@ -91,7 +91,7 @@ public class StatsCommand implements CommandExecutor {
     }
 
     private void displayPlayerStats(CommandSender sender, String participantId) {
-        ParticipantData data = participantManager.getParticipant(participantId);
+        ParticipantData data = participantManager.findParticipantByAnyName(participantId).orElse(null);
         if (data == null) {
             plugin.getAdventure().sender(sender).sendMessage(Component.text("参加者「" + participantId + "」は見つかりませんでした。", NamedTextColor.RED));
             return;
