@@ -53,23 +53,25 @@ public class ParticipantManager {
     }
 
     public synchronized void handleServerStartup() {
+        loadAllParticipants(); // Load latest data from files
+        plugin.getLogger().info("Correcting session data for all participants on server startup...");
         Stream.concat(activeParticipants.values().stream(), dischargedParticipants.values().stream())
                 .forEach(data -> {
                     boolean wasModified = false;
                     for (Map.Entry<UUID, ParticipantData.AccountInfo> entry : data.getAccounts().entrySet()) {
                         if (entry.getValue().isOnline()) {
-                            plugin.getLogger().warning("Player " + entry.getValue().getName() + " was marked as online during startup. Correcting session data.");
-                            handlePlayerLogout(entry.getKey());
+                            plugin.getLogger().warning("Player " + entry.getValue().getName() + " ("+ data.getParticipantId() +") was marked as online during startup. Correcting session data.");
                             entry.getValue().setOnline(false);
                             wasModified = true;
                         }
                     }
-                    if(wasModified) {
+                    if (wasModified) {
                         saveParticipant(data);
                     }
                 });
         participantSessionStartTimes.clear();
         isContinuingSession.clear();
+        plugin.getLogger().info("Session correction finished.");
     }
 
 
@@ -92,8 +94,9 @@ public class ParticipantManager {
         processDirectory.accept(activeDir);
         processDirectory.accept(dischargedDir);
 
-        plugin.getLogger().info("Loaded " + activeParticipants.size() + " active and " + dischargedParticipants.size() + " participant data files.");
+        plugin.getLogger().info("Loaded " + activeParticipants.size() + " active and " + dischargedParticipants.size() + " discharged participant data files.");
     }
+
 
     private synchronized void loadParticipantFromFile(File file, Map<String, ParticipantData> map) {
         YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
@@ -130,20 +133,37 @@ public class ParticipantManager {
 
     public synchronized ParticipantData findOrCreateParticipant(OfflinePlayer player) {
         if (player == null) return null;
+
+        // 1. Find by UUID
         ParticipantData data = getParticipant(player.getUniqueId());
         if (data != null) {
-            if (!data.getAccounts().containsKey(player.getUniqueId())) {
+            if (!data.getAccounts().containsKey(player.getUniqueId()) && player.getName() != null) {
                 data.addAccount(player.getUniqueId(), player.getName());
                 saveParticipant(data);
             }
             return data;
         }
 
+        // 2. Find by Name (if UUID lookup fails)
+        if (player.getName() != null) {
+            Optional<ParticipantData> foundByName = findParticipantByAnyName(player.getName());
+            if (foundByName.isPresent()) {
+                data = foundByName.get();
+                data.addAccount(player.getUniqueId(), player.getName());
+                uuidToParticipantMap.put(player.getUniqueId(), data); // Link UUID to existing data
+                saveParticipant(data);
+                return data;
+            }
+        }
+
+        // 3. Create new if not found
         String baseName = player.getName() != null ? player.getName() : player.getUniqueId().toString();
         String linkedName = "";
 
         data = new ParticipantData(baseName, linkedName);
-        data.addAccount(player.getUniqueId(), player.getName());
+        if(player.getName() != null) {
+            data.addAccount(player.getUniqueId(), player.getName());
+        }
 
         registerNewParticipant(data);
         return data;
@@ -183,8 +203,6 @@ public class ParticipantManager {
         config.set("photoshoot-history", data.getPhotoshootHistory());
         config.set("last-quit-time", data.getLastQuitTime());
         config.set("playtime-history", data.getPlaytimeHistory());
-
-        config.set("is-online", data.isOnline());
 
         try {
             config.save(file);
@@ -265,12 +283,12 @@ public class ParticipantManager {
     public synchronized int resetAllStats() {
         int count = 0;
         for (ParticipantData data : activeParticipants.values()) {
-            data.resetStats(); // ★★★ エラー箇所を修正 ★★★
+            data.resetStats();
             saveParticipant(data);
             count++;
         }
         for (ParticipantData data : dischargedParticipants.values()) {
-            data.resetStats(); // ★★★ エラー箇所を修正 ★★★
+            data.resetStats();
             saveParticipant(data);
             count++;
         }

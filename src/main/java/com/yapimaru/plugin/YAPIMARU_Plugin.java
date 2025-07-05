@@ -70,13 +70,6 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
             nameManager.updatePlayerName(player);
         }
 
-        // Reset player names when the plugin is enabled
-        if (nameManager != null) {
-            for (Player player : Bukkit.getOnlinePlayers()) {
-                nameManager.resetPlayerName(player);
-            }
-        }
-
         getLogger().info("YAPIMARU Plugin has been enabled!");
     }
 
@@ -85,9 +78,7 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
         if (timerManager != null) timerManager.forceStop(true);
 
         if (participantManager != null) {
-            for (Player player : Bukkit.getOnlinePlayers()) {
-                participantManager.handlePlayerLogout(player.getUniqueId());
-            }
+            participantManager.saveAllParticipantData();
         }
 
         if(adventure != null) {
@@ -193,5 +184,4 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
     public GuiManager getCreatorGuiManager() { return creatorGuiManager; }
     public ParticipantManager getParticipantManager() { return participantManager; }
     public WhitelistManager getWhitelistManager() { return whitelistManager; }
-    // ★ 警告を修正: 未使用のメソッドを削除
 }

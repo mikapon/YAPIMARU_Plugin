@@ -63,13 +63,17 @@ public class ParticipantData {
             for (String key : statsSection.getKeys(false)) {
                 statistics.put(key, (Number) statsSection.get(key));
             }
+        } else {
+            initializeStats();
         }
+
 
         this.joinHistory.addAll(config.getStringList("join-history"));
         this.photoshootHistory.addAll(config.getStringList("photoshoot-history"));
         this.lastQuitTime = config.getString("last-quit-time", null);
         this.playtimeHistory.addAll(config.getLongList("playtime-history"));
 
+        // Ensure all stats are present
         initializeStats();
     }
 
@@ -225,7 +229,7 @@ public class ParticipantData {
 
     public void addAccount(UUID uuid, String name) {
         if (name == null || uuid == null) return;
-        this.accounts.put(uuid, new AccountInfo(name, false));
+        this.accounts.putIfAbsent(uuid, new AccountInfo(name, false));
     }
 
     public void incrementStat(String key, int amount) {
