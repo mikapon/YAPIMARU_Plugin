@@ -48,8 +48,10 @@ public class ParticipantData {
                 try {
                     UUID uuid = UUID.fromString(uuidStr);
                     String name = accountsSection.getString(uuidStr + ".name");
-                    boolean online = accountsSection.getBoolean(uuidStr + ".online", false);
-                    this.accounts.put(uuid, new AccountInfo(name, online));
+                    if (name != null) {
+                        boolean online = accountsSection.getBoolean(uuidStr + ".online", false);
+                        this.accounts.put(uuid, new AccountInfo(name, online));
+                    }
                 } catch (IllegalArgumentException e) {
                     // Invalid UUID, ignore
                 }
@@ -73,7 +75,8 @@ public class ParticipantData {
 
     public Map<String, Object> toMap() {
         Map<String, Object> map = new LinkedHashMap<>();
-        map.put("participant_id", getParticipantId()); // ★デバッグ用にIDを追加
+        map.put("participant_id", getParticipantId());
+        map.put("source_file", getParticipantId() + ".yml");
         map.put("base_name", baseName);
         map.put("linked_name", linkedName);
 
@@ -124,7 +127,9 @@ public class ParticipantData {
         }
     }
 
-
+    /**
+     * /log reset コマンド用。統計も履歴も全てリセットする。
+     */
     public void resetStats() {
         statistics.put("total_deaths", 0);
         statistics.put("total_joins", 0);
@@ -136,6 +141,20 @@ public class ParticipantData {
         photoshootHistory.clear();
         lastQuitTime = null;
         playtimeHistory.clear();
+        accounts.values().forEach(acc -> acc.setOnline(false));
+    }
+
+    /**
+     * /log add コマンド用。履歴は保持し、統計カウンターのみリセットする。
+     */
+    public void resetStatsForLog() {
+        statistics.put("total_deaths", 0);
+        statistics.put("total_joins", 0);
+        statistics.put("total_playtime_seconds", 0L);
+        statistics.put("photoshoot_participations", 0);
+        statistics.put("total_chats", 0);
+        statistics.put("w_count", 0);
+        // 履歴はリセットしない
         accounts.values().forEach(acc -> acc.setOnline(false));
     }
 

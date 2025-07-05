@@ -265,12 +265,12 @@ public class ParticipantManager {
     public synchronized int resetAllStats() {
         int count = 0;
         for (ParticipantData data : activeParticipants.values()) {
-            data.resetStats();
+            data.resetStats(); // ★★★ エラー箇所を修正 ★★★
             saveParticipant(data);
             count++;
         }
         for (ParticipantData data : dischargedParticipants.values()) {
-            data.resetStats();
+            data.resetStats(); // ★★★ エラー箇所を修正 ★★★
             saveParticipant(data);
             count++;
         }

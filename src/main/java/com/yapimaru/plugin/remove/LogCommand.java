@@ -23,7 +23,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeParseException;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap; // ★★★ エラー箇所を修正: import文を追加 ★★★
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -142,7 +142,7 @@ public class LogCommand implements CommandExecutor {
             try {
                 plugin.getAdventure().sender(sender).sendMessage(Component.text("サーバーセッション: " + sessionName + " の処理を開始 (" + sessionFiles.size() + "ファイル)...", NamedTextColor.AQUA));
 
-                // === フェーズ1: 情報収集と中間ファイルの作成 ===
+                // === フェーズ1: 情報収集 ===
                 Set<UnprocessedAccount> unprocessedAccounts = new HashSet<>();
                 for (File logFile : sessionFiles) {
                     try (BufferedReader reader = getReaderForFile(logFile)) {
@@ -159,19 +159,12 @@ public class LogCommand implements CommandExecutor {
                     }
                 }
 
-                YamlConfiguration mmConfig = new YamlConfiguration();
-                List<Map<String, String>> accountsMap = unprocessedAccounts.stream()
-                        .map(acc -> Map.of("uuid", acc.uuid().toString(), "name", acc.name()))
-                        .collect(Collectors.toList());
-                mmConfig.set("accounts", accountsMap);
-
-                // === フェーズ2: 名寄せとデータ統合 ===
+                // === フェーズ2: 名寄せ ===
                 Set<ParticipantData> sessionParticipants = new HashSet<>();
                 Set<UnprocessedAccount> toProcess = new HashSet<>(unprocessedAccounts);
 
                 while(!toProcess.isEmpty()) {
                     UnprocessedAccount currentAccount = toProcess.iterator().next();
-                    toProcess.remove(currentAccount);
 
                     Optional<ParticipantData> existingDataOpt = findParticipantForAccount(sessionParticipants, currentAccount)
                             .or(() -> participantManager.findParticipantByAnyName(currentAccount.name()))
@@ -181,34 +174,41 @@ public class LogCommand implements CommandExecutor {
                         ParticipantData pData = existingDataOpt.get();
                         pData.addAccount(currentAccount.uuid(), currentAccount.name());
                         sessionParticipants.add(pData);
+
+                        Set<UUID> allKnownUuids = pData.getAssociatedUuids();
+                        Set<String> allKnownNames = pData.getAccounts().values().stream()
+                                .map(ParticipantData.AccountInfo::getName).filter(Objects::nonNull).collect(Collectors.toSet());
+                        if(pData.getBaseName() != null) allKnownNames.add(pData.getBaseName());
+                        if(pData.getLinkedName() != null) allKnownNames.add(pData.getLinkedName());
+
+                        toProcess.removeIf(acc -> allKnownUuids.contains(acc.uuid()) || allKnownNames.stream().anyMatch(name -> name != null && name.equalsIgnoreCase(acc.name())));
                     } else {
                         OfflinePlayer op = Bukkit.getOfflinePlayer(currentAccount.uuid());
                         ParticipantData newData = participantManager.findOrCreateParticipant(op);
                         sessionParticipants.add(newData);
+                        toProcess.remove(currentAccount);
                     }
                 }
-                mmConfig.set("participants", sessionParticipants.stream().map(ParticipantData::getParticipantId).collect(Collectors.toList()));
 
-
-                // === フェーズ2.5: 統計データのリセット ===
+                // === フェーズ2.5: リセット ===
                 for (ParticipantData data : sessionParticipants) {
-                    data.getStatistics().replaceAll((k, v) -> k.equals("total_playtime_seconds") ? 0L : 0);
-                    data.getAccounts().values().forEach(acc -> acc.setOnline(false));
+                    data.resetStatsForLog();
                 }
 
                 // === フェーズ3: 再集計 ===
                 processSessionEvents(sessionFiles, sessionParticipants, sessionCounter.get() == 2);
 
-                List<Map<String, Object>> participantMaps = sessionParticipants.stream()
-                        .map(ParticipantData::toMap)
-                        .collect(Collectors.toList());
-                mmConfig.set("processed_participants_data", participantMaps);
+                // 中間ファイルの保存
+                YamlConfiguration mmConfig = new YamlConfiguration();
+                mmConfig.set("accounts", unprocessedAccounts.stream().map(acc -> Map.of("uuid", acc.uuid().toString(), "name", acc.name())).collect(Collectors.toList()));
+                mmConfig.set("participants", sessionParticipants.stream().map(ParticipantData::getParticipantId).collect(Collectors.toList()));
+                mmConfig.set("processed_participants_data", sessionParticipants.stream().map(ParticipantData::toMap).collect(Collectors.toList()));
                 mmConfig.save(mmFile);
 
+                // 最終データの保存
                 for(ParticipantData data : sessionParticipants){
                     participantManager.saveParticipant(data);
                 }
-
                 moveFilesTo(sessionFiles, processedDir);
 
             } catch (Exception e) {
@@ -299,7 +299,29 @@ public class LogCommand implements CommandExecutor {
     }
 
     private Optional<ParticipantData> findParticipantByName(Set<ParticipantData> participants, String name) {
-        return participantManager.findParticipantByAnyName(name);
+        return participants.stream()
+                .filter(pData -> {
+                    if (pData.getBaseName() != null && pData.getBaseName().equalsIgnoreCase(name)) return true;
+                    if (pData.getLinkedName() != null && pData.getLinkedName().equalsIgnoreCase(name)) return true;
+
+                    String displayName = pData.getDisplayName();
+                    if (displayName.equalsIgnoreCase(name)) return true;
+
+                    Pattern pattern = Pattern.compile("(.+)\\((.+)\\)");
+                    Matcher matcher = pattern.matcher(displayName);
+                    if (matcher.matches()) {
+                        if (matcher.group(1).equalsIgnoreCase(name) || matcher.group(2).equalsIgnoreCase(name)) {
+                            return true;
+                        }
+                    }
+                    for (ParticipantData.AccountInfo accountInfo : pData.getAccounts().values()) {
+                        if (accountInfo.getName() != null && accountInfo.getName().equalsIgnoreCase(name)) {
+                            return true;
+                        }
+                    }
+                    return false;
+                })
+                .findFirst();
     }
 
     private Optional<ParticipantData> findParticipantForAccount(Set<ParticipantData> participants, UnprocessedAccount account) {
@@ -321,10 +343,12 @@ public class LogCommand implements CommandExecutor {
     }
 
     private void handleLoginLogic(ParticipantData data, UUID uuid, boolean isServerStart, LocalDateTime loginTime) {
+        if (uuid == null) return;
         boolean wasParticipantOnline = data.isOnline();
-        if (data.getAccounts().containsKey(uuid)) {
-            data.getAccounts().get(uuid).setOnline(true);
-        }
+        data.getAccounts().computeIfPresent(uuid, (k, v) -> {
+            v.setOnline(true);
+            return v;
+        });
 
         if (!wasParticipantOnline) {
             LocalDateTime lastQuit = data.getLastQuitTimeAsDate();
@@ -348,9 +372,11 @@ public class LogCommand implements CommandExecutor {
     }
 
     private void handleLogoutLogic(ParticipantData data, UUID uuid, LocalDateTime logoutTime) {
-        if (data.getAccounts().containsKey(uuid)) {
-            data.getAccounts().get(uuid).setOnline(false);
-        }
+        if (uuid == null) return;
+        data.getAccounts().computeIfPresent(uuid, (k, v) -> {
+            v.setOnline(false);
+            return v;
+        });
 
         if (!data.isOnline()) {
             LocalDateTime startTime = participantSessionStartTimes.remove(data.getParticipantId());
