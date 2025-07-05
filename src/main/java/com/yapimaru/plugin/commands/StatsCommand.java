@@ -17,6 +17,7 @@ import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
+import java.util.Arrays; // ★★★ この行を追加 ★★★
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -62,7 +63,7 @@ public class StatsCommand implements CommandExecutor {
                     plugin.getAdventure().sender(sender).sendMessage(Component.text("参加者IDを指定してください。 /stats player <参加者ID>", NamedTextColor.RED));
                     return true;
                 }
-                String participantId = args[1];
+                String participantId = String.join(" ", Arrays.copyOfRange(args, 1, args.length));
                 displayPlayerStats(sender, participantId);
                 break;
             case "list":
@@ -142,37 +143,12 @@ public class StatsCommand implements CommandExecutor {
         int start = page * pageSize;
         int end = Math.min(start + pageSize, allData.size());
 
-        int currentRank = 0;
-        Number lastValue = null;
-        int rankOffset = 0;
-
-        if (start > 0) {
-            for (int i = 0; i < start; i++) {
-                Number currentValue = allData.get(i).getStatistics().get(statName);
-                if (lastValue == null || currentValue.doubleValue() != lastValue.doubleValue()) {
-                    currentRank += (1 + rankOffset);
-                    rankOffset = 0;
-                } else {
-                    rankOffset++;
-                }
-                lastValue = currentValue;
-            }
-        }
-
         for (int i = start; i < end; i++) {
             ParticipantData data = allData.get(i);
             Number value = data.getStatistics().get(statName);
 
-            if (lastValue == null || value.doubleValue() != lastValue.doubleValue()) {
-                currentRank += (1 + rankOffset);
-                rankOffset = 0;
-            } else {
-                rankOffset++;
-            }
-
             String valueStr = (statName.equals("total_playtime_seconds")) ? formatDuration(value.longValue()) : value.toString();
-            plugin.getAdventure().sender(sender).sendMessage(Component.text("  §e" + currentRank + "位 - §b" + valueStr + " §e- §f" + data.getDisplayName()));
-            lastValue = value;
+            plugin.getAdventure().sender(sender).sendMessage(Component.text("  §e" + (i + 1) + "位 - §b" + valueStr + " §e- §f" + data.getDisplayName()));
         }
 
         TextComponent.Builder footerBuilder = Component.text();

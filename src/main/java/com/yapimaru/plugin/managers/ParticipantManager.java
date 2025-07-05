@@ -52,7 +52,7 @@ public class ParticipantManager {
     }
 
     public synchronized void handleServerStartup() {
-        loadAllParticipants(); // Load latest data from files
+        loadAllParticipants();
         plugin.getLogger().info("Correcting session data and ensuring all keys exist for all participants...");
 
         Stream.concat(activeParticipants.values().stream(), dischargedParticipants.values().stream())

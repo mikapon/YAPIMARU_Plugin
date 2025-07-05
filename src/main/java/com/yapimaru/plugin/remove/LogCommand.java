@@ -164,7 +164,7 @@ public class LogCommand implements CommandExecutor {
                 }
                 saveMmFile(mmFile, "phase1_unprocessed_accounts", unprocessedAccounts.stream().map(acc -> Map.of("name", acc.name(), "uuid", acc.uuid().toString())).collect(Collectors.toList()));
 
-                // フェーズ2: 名寄せ
+                // フェーズ2: 名寄せ（企画書準拠ロジック）
                 Map<String, ParticipantData> sessionParticipants = new HashMap<>();
                 Set<UnprocessedAccount> accountsToProcess = new HashSet<>(unprocessedAccounts);
 
@@ -175,21 +175,18 @@ public class LogCommand implements CommandExecutor {
                             .or(() -> Optional.ofNullable(participantManager.getParticipant(currentAccount.uuid())))
                             .orElseGet(() -> participantManager.findOrCreateParticipant(Bukkit.getOfflinePlayer(currentAccount.uuid())));
 
-                    Set<UUID> deletionMarkers_uuid = new HashSet<>(pData.getAssociatedUuids());
-                    deletionMarkers_uuid.add(currentAccount.uuid());
+                    pData.addAccount(currentAccount.uuid(), currentAccount.name());
 
+                    Set<UUID> deletionMarkers_uuid = new HashSet<>(pData.getAssociatedUuids());
                     Set<String> deletionMarkers_name = pData.getAccounts().values().stream()
                             .map(ParticipantData.AccountInfo::getName)
                             .filter(Objects::nonNull)
                             .collect(Collectors.toSet());
-                    deletionMarkers_name.add(pData.getBaseName());
-                    deletionMarkers_name.add(pData.getLinkedName());
-                    deletionMarkers_name.add(currentAccount.name());
-                    deletionMarkers_name.remove("");
+                    if (pData.getBaseName() != null && !pData.getBaseName().isEmpty()) deletionMarkers_name.add(pData.getBaseName());
+                    if (pData.getLinkedName() != null && !pData.getLinkedName().isEmpty()) deletionMarkers_name.add(pData.getLinkedName());
 
                     accountsToProcess.removeIf(acc -> deletionMarkers_uuid.contains(acc.uuid()) || deletionMarkers_name.contains(acc.name()));
 
-                    pData.addAccount(currentAccount.uuid(), currentAccount.name());
                     sessionParticipants.put(pData.getParticipantId(), pData);
                 }
                 saveMmFile(mmFile, "phase2_nayose_results", sessionParticipants.values().stream().map(ParticipantData::toMap).collect(Collectors.toList()));
@@ -227,6 +224,7 @@ public class LogCommand implements CommandExecutor {
     private void processSessionEvents(List<File> sessionFiles, Map<String, ParticipantData> sessionParticipants) throws IOException {
         List<LogLine> allLines = new ArrayList<>();
         LocalDate currentDate = null;
+        LocalTime lastTime = LocalTime.MIN;
 
         for (File logFile : sessionFiles) {
             LocalDate fileDate = parseDateFromFileName(logFile.getName());
@@ -234,7 +232,6 @@ public class LogCommand implements CommandExecutor {
                 currentDate = fileDate;
             }
 
-            LocalTime lastTime = LocalTime.MIN;
             try (BufferedReader reader = getReaderForFile(logFile)) {
                 String line;
                 while ((line = reader.readLine()) != null) {
@@ -413,19 +410,20 @@ public class LogCommand implements CommandExecutor {
 
     private void saveMmFile(File mmFile, String key, Object data) {
         try {
-            YamlConfiguration mmConfig;
+            YamlConfiguration mmConfig = new YamlConfiguration();
             if (mmFile.exists()) {
                 try (Reader reader = new InputStreamReader(new FileInputStream(mmFile), StandardCharsets.UTF_8)) {
-                    mmConfig = YamlConfiguration.loadConfiguration(reader);
+                    mmConfig.load(reader);
+                } catch(Exception e) {
+                    logger.log(Level.WARNING, "Could not load existing mm file, creating new one.", e);
+                    mmConfig = new YamlConfiguration();
                 }
-            } else {
-                mmConfig = new YamlConfiguration();
             }
             mmConfig.set(key, data);
             try (Writer writer = new OutputStreamWriter(new FileOutputStream(mmFile), StandardCharsets.UTF_8)) {
                 writer.write(mmConfig.saveToString());
             }
-        } catch (IOException e) {
+        } catch (Exception e) {
             logger.log(Level.SEVERE, "Could not save debug mm file: " + mmFile.getName(), e);
         }
     }
