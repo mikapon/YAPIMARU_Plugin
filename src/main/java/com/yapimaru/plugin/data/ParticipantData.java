@@ -5,6 +5,8 @@ import org.bukkit.configuration.ConfigurationSection;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class ParticipantData {
@@ -50,10 +52,24 @@ public class ParticipantData {
             for (String uuidStr : accountsSection.getKeys(false)) {
                 try {
                     UUID uuid = UUID.fromString(uuidStr);
-                    String name = accountsSection.getString(uuidStr + ".name");
-                    if (name != null) {
-                        boolean online = accountsSection.getBoolean(uuidStr + ".online", false);
-                        this.accounts.put(uuid, new AccountInfo(name, online));
+                    // 1行形式と複数行形式の両方に対応
+                    if (accountsSection.isConfigurationSection(uuidStr)) {
+                        // 複数行形式
+                        String name = accountsSection.getString(uuidStr + ".name");
+                        if (name != null) {
+                            boolean online = accountsSection.getBoolean(uuidStr + ".online", false);
+                            this.accounts.put(uuid, new AccountInfo(name, online));
+                        }
+                    } else if (accountsSection.isString(uuidStr)) {
+                        // 1行形式 (例: {name: mikanpo33, online: false})
+                        String value = accountsSection.getString(uuidStr);
+                        Pattern p = Pattern.compile("\\{name: (.*), online: (true|false)\\}");
+                        Matcher m = p.matcher(value);
+                        if (m.find()) {
+                            String name = m.group(1);
+                            boolean online = Boolean.parseBoolean(m.group(2));
+                            this.accounts.put(uuid, new AccountInfo(name, online));
+                        }
                     }
                 } catch (IllegalArgumentException e) {
                     // Invalid UUID, ignore
@@ -84,12 +100,9 @@ public class ParticipantData {
         map.put("base_name", baseName);
         map.put("linked_name", linkedName);
 
-        Map<String, Object> accountsMap = new LinkedHashMap<>();
+        Map<String, String> accountsMap = new LinkedHashMap<>();
         for (Map.Entry<UUID, AccountInfo> entry : accounts.entrySet()) {
-            Map<String, Object> accountDetails = new LinkedHashMap<>();
-            accountDetails.put("name", entry.getValue().getName());
-            accountDetails.put("online", entry.getValue().isOnline());
-            accountsMap.put(entry.getKey().toString(), accountDetails);
+            accountsMap.put(entry.getKey().toString(), "{name: " + entry.getValue().getName() + ", online: " + entry.getValue().isOnline() + "}");
         }
         map.put("accounts", accountsMap);
         map.put("statistics", statistics);
@@ -121,14 +134,18 @@ public class ParticipantData {
             }
         });
 
-        // 履歴は、古い履歴+新しい履歴がマージ済みのリストで「上書き」する
+        // 履歴は、重複を避けつつマージする
+        Set<String> mergedJoinHistory = new TreeSet<>(this.joinHistory);
+        mergedJoinHistory.addAll(logData.getJoinHistory());
         this.joinHistory.clear();
-        this.joinHistory.addAll(logData.getJoinHistory());
+        this.joinHistory.addAll(mergedJoinHistory);
 
+        Set<String> mergedPhotoshootHistory = new TreeSet<>(this.photoshootHistory);
+        mergedPhotoshootHistory.addAll(logData.getPhotoshootHistory());
         this.photoshootHistory.clear();
-        this.photoshootHistory.addAll(logData.getPhotoshootHistory());
+        this.photoshootHistory.addAll(mergedPhotoshootHistory);
 
-        this.playtimeHistory.clear();
+        // プレイ時間履歴は、セッションごとの記録なので単純に連結する
         this.playtimeHistory.addAll(logData.getPlaytimeHistory());
 
         // 最終退出日時は、より新しい方で上書きする

@@ -166,29 +166,41 @@ public class ParticipantManager {
         File targetDir = isDischarged ? dischargedDir : activeDir;
 
         File file = new File(targetDir, data.getParticipantId() + ".yml");
-        YamlConfiguration config = new YamlConfiguration();
 
-        config.set("base_name", data.getBaseName());
-        config.set("linked_name", data.getLinkedName());
+        // YamlConfiguration を直接使わず、手動で文字列を構築して仕様通りのフォーマットにする
+        StringBuilder yamlContent = new StringBuilder();
+        yamlContent.append("base_name: '").append(data.getBaseName()).append("'\n");
+        yamlContent.append("linked_name: '").append(data.getLinkedName()).append("'\n");
 
-        Map<String, Object> accountsMap = new LinkedHashMap<>();
+        yamlContent.append("accounts:\n");
         for (Map.Entry<UUID, ParticipantData.AccountInfo> entry : data.getAccounts().entrySet()) {
-            Map<String, Object> accountDetails = new LinkedHashMap<>();
-            accountDetails.put("name", entry.getValue().getName());
-            accountDetails.put("online", entry.getValue().isOnline());
-            accountsMap.put(entry.getKey().toString(), accountDetails);
+            ParticipantData.AccountInfo info = entry.getValue();
+            yamlContent.append("  \"").append(entry.getKey().toString()).append("\": {name: ").append(info.getName()).append(", online: ").append(info.isOnline()).append("}\n");
         }
-        config.set("accounts", accountsMap);
 
-        config.set("statistics", data.getStatistics());
-        config.set("join-history", data.getJoinHistory());
-        config.set("photoshoot-history", data.getPhotoshootHistory());
-        config.set("playtime-history", data.getPlaytimeHistory());
-        config.set("last-quit-time", data.getLastQuitTime());
-        config.set("is-online", data.isOnline());
+        yamlContent.append("statistics:\n");
+        data.getStatistics().forEach((key, value) ->
+                yamlContent.append("  ").append(key).append(": ").append(value).append("\n"));
+
+        yamlContent.append("join-history:\n");
+        data.getJoinHistory().forEach(entry -> yamlContent.append("- '").append(entry).append("'\n"));
+
+        yamlContent.append("photoshoot-history:\n");
+        data.getPhotoshootHistory().forEach(entry -> yamlContent.append("- '").append(entry).append("'\n"));
+
+        yamlContent.append("playtime-history:\n");
+        data.getPlaytimeHistory().forEach(entry -> yamlContent.append("- ").append(entry).append("\n"));
+
+        if (data.getLastQuitTime() != null) {
+            yamlContent.append("last-quit-time: '").append(data.getLastQuitTime()).append("'\n");
+        } else {
+            yamlContent.append("last-quit-time: null\n");
+        }
+
+        yamlContent.append("is-online: ").append(data.isOnline()).append("\n");
 
         try (Writer writer = new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8)) {
-            writer.write(config.saveToString());
+            writer.write(yamlContent.toString());
         } catch (IOException e) {
             plugin.getLogger().log(Level.SEVERE, "Could not save participant data for " + data.getParticipantId(), e);
         }
@@ -281,35 +293,9 @@ public class ParticipantManager {
                         config.load(reader);
                     }
 
-                    // 統計情報のリセット
-                    config.set("statistics.total_deaths", 0);
-                    config.set("statistics.total_joins", 0);
-                    config.set("statistics.total_playtime_seconds", 0L);
-                    config.set("statistics.photoshoot_participations", 0);
-                    config.set("statistics.total_chats", 0);
-                    config.set("statistics.w_count", 0);
-
-                    // 各種履歴のクリア
-                    config.set("join-history", new ArrayList<>());
-                    config.set("photoshoot-history", new ArrayList<>());
-                    config.set("playtime-history", new ArrayList<>());
-
-                    // 状態のリセット
-                    config.set("last-quit-time", null);
-                    config.set("is-online", false);
-
-                    // 関連アカウントの状態もリセット
-                    ConfigurationSection accountsSection = config.getConfigurationSection("accounts");
-                    if (accountsSection != null) {
-                        for (String uuidStr : accountsSection.getKeys(false)) {
-                            accountsSection.set(uuidStr + ".online", false);
-                        }
-                    }
-
-                    // ファイルに保存
-                    try (Writer writer = new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8)) {
-                        writer.write(config.saveToString());
-                    }
+                    ParticipantData data = new ParticipantData(config);
+                    data.resetStats();
+                    saveParticipant(data); // 修正したsaveParticipantを使って保存する
                     count++;
 
                 } catch (Exception e) {

@@ -184,6 +184,7 @@ public class LogCommand implements CommandExecutor {
 
                 while (!accountsToProcess.isEmpty()) {
                     UnprocessedAccount currentAccount = accountsToProcess.iterator().next();
+                    // ★★★ findOrCreateParticipantはメモリ上の既存データを返すため、これをセッション内の一時データとして扱う
                     ParticipantData pData = participantManager.findOrCreateParticipant(Bukkit.getOfflinePlayer(currentAccount.uuid()));
                     pData.addAccount(currentAccount.uuid(), currentAccount.name());
 
@@ -200,16 +201,20 @@ public class LogCommand implements CommandExecutor {
                 }
                 saveMmFile(mmFile, "phase2_nayose_results", sessionParticipants.values().stream().map(ParticipantData::toMap).collect(Collectors.toList()));
 
-                // セッション内データの初期化 & イベント解析とデータ再集計
-                sessionParticipants.values().forEach(ParticipantData::resetStatsForLog);
+                // ★★★ 修正: 統計リセット処理を削除 ★★★
+                // sessionParticipants.values().forEach(ParticipantData::resetStatsForLog);
+
+                // イベント解析とデータ再集計（既存データへの加算）
                 processSessionEvents(sessionFiles, sessionParticipants);
                 saveMmFile(mmFile, "phase3_recalculation_results", sessionParticipants.values().stream().map(ParticipantData::toMap).collect(Collectors.toList()));
 
                 // [フェーズ4] 永続データへの最終合算
+                // processSessionEventsですでにメモリ上のデータが更新されているため、このステップは実質不要だが、
+                // 将来的なロジック変更のために残しておく。ただし、現在のロジックではParticipantManager側での特別な処理は不要。
                 plugin.getAdventure().sender(sender).sendMessage(Component.text("...セッション " + sessionName + " のデータを永続データに合算しています。", NamedTextColor.GRAY));
-                for (ParticipantData logResultData : sessionParticipants.values()) {
-                    participantManager.addOrUpdateDataFromLog(logResultData);
-                }
+
+                // participantManager.addOrUpdateDataFromLog(logResultData) の呼び出しは不要。
+                // 全ての処理が終わった後に一括で保存する。
 
                 moveFilesTo(sessionFiles, processedDir);
 
