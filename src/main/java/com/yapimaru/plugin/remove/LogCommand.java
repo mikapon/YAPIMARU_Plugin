@@ -174,25 +174,55 @@ public class LogCommand implements CommandExecutor {
                             Matcher uuidMatcher = patterns.get("uuid").matcher(line);
                             if (uuidMatcher.find()) {
                                 String name = uuidMatcher.group(1);
-                                unprocessedAccounts.add(new UnprocessedAccount(UUID.fromString(uuidMatcher.group(2)), name));
-                                processedNames.add(name.toLowerCase());
+                                if (processedNames.add(name.toLowerCase())) {
+                                    unprocessedAccounts.add(new UnprocessedAccount(UUID.fromString(uuidMatcher.group(2)), name));
+                                }
                                 continue;
                             }
                             Matcher floodgateMatcher = patterns.get("floodgate-uuid").matcher(line);
                             if (floodgateMatcher.find()) {
                                 String name = floodgateMatcher.group(1);
-                                unprocessedAccounts.add(new UnprocessedAccount(UUID.fromString(floodgateMatcher.group(2)), name));
-                                processedNames.add(name.toLowerCase());
+                                if (processedNames.add(name.toLowerCase())) {
+                                    unprocessedAccounts.add(new UnprocessedAccount(UUID.fromString(floodgateMatcher.group(2)), name));
+                                }
                             }
                         }
                     }
                 }
+
+                // UUID情報がログにない場合のフォールバック
+                if (unprocessedAccounts.isEmpty()) {
+                    logger.warning("[YAPIMARU WARNING] セッション " + sessionName + " からUUID情報を直接抽出できませんでした。Joinログからのフォールバックを試みます。");
+                    for (File logFile : sessionFiles) {
+                        try (BufferedReader reader = getReaderForFile(logFile)) {
+                            String line;
+                            while ((line = reader.readLine()) != null) {
+                                Matcher joinMatcher = patterns.get("join").matcher(line);
+                                if (joinMatcher.find()) {
+                                    String name = joinMatcher.group(1);
+                                    if(processedNames.add(name.toLowerCase())) {
+                                        OfflinePlayer p = Bukkit.getOfflinePlayer(name);
+                                        if (p.hasPlayedBefore() || p.isOnline()) {
+                                            unprocessedAccounts.add(new UnprocessedAccount(p.getUniqueId(), name));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+
                 saveMmFile(mmFile, "phase1_unprocessed_accounts", unprocessedAccounts.stream().map(acc -> Map.of("name", acc.name(), "uuid", acc.uuid().toString())).collect(Collectors.toList()));
 
                 if (unprocessedAccounts.isEmpty()) {
-                    logger.warning("[YAPIMARU WARNING] セッション " + sessionName + " からUUID情報を直接抽出できませんでした。Joinログからのフォールバックを試みます。");
+                    logger.warning("[YAPIMARU WARNING] フォールバック処理後も、セッション " + sessionName + " からアカウント情報を一件も抽出できませんでした。このセッションはスキップされます。");
+                    moveFilesTo(sessionFiles, errorDir);
+                    handleError(sender, sessionName, "アカウント情報が抽出できませんでした。", new Exception("No accounts found in session logs."), sessionFiles);
+                    continue;
                 }
 
+                // 名寄せ（人物の特定）
                 Map<String, ParticipantData> sessionParticipants = new HashMap<>();
                 Set<UnprocessedAccount> accountsToProcess = new HashSet<>(unprocessedAccounts);
 
@@ -391,7 +421,13 @@ public class LogCommand implements CommandExecutor {
     }
 
     private void handleLoginLogic(ParticipantData data, UUID uuid, LocalDateTime loginTime) {
-        if (data == null || uuid == null) return;
+        if (data == null) return;
+        // UUIDがnullでも、dataさえあれば処理を続行
+        if (uuid == null) {
+            uuid = data.getAssociatedUuids().stream().findFirst().orElse(null);
+        }
+        if (uuid == null) return; // やはりUUIDがないとどうしようもない
+
         boolean wasParticipantOnline = data.isOnline();
         data.getAccounts().computeIfPresent(uuid, (k, v) -> {
             v.setOnline(true);
@@ -407,7 +443,13 @@ public class LogCommand implements CommandExecutor {
     }
 
     private void handleLogoutLogic(ParticipantData data, UUID uuid, LocalDateTime logoutTime) {
-        if (data == null || uuid == null) return;
+        if (data == null) return;
+        // UUIDがnullでも、dataさえあれば処理を続行
+        if (uuid == null) {
+            uuid = data.getAssociatedUuids().stream().findFirst().orElse(null);
+        }
+        if (uuid == null) return; // やはりUUIDがないとどうしようもない
+
         data.getAccounts().computeIfPresent(uuid, (k, v) -> {
             v.setOnline(false);
             return v;
