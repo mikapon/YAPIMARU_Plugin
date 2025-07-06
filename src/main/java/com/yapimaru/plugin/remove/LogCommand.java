@@ -10,6 +10,7 @@ import org.bukkit.OfflinePlayer;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
@@ -22,6 +23,7 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -38,33 +40,20 @@ public class LogCommand implements CommandExecutor {
     private final YAPIMARU_Plugin plugin;
     private final ParticipantManager participantManager;
     private final Logger logger;
-
-    // Log line patterns
-    private static final Pattern LOG_LINE_PATTERN = Pattern.compile("^\\[(\\d{2}:\\d{2}:\\d{2})].*");
-    private static final Pattern UUID_PATTERN = Pattern.compile("UUID of player (\\S+) is ([0-9a-f\\-]+)");
-    private static final Pattern FLOODGATE_UUID_PATTERN = Pattern.compile("\\[floodgate] Floodgate.+? (\\S+) でログインしているプレイヤーが参加しました \\(UUID: ([0-9a-f\\-]+)");
-
-    private static final Pattern JOIN_PATTERN = Pattern.compile("] (\\.?[a-zA-Z0-9_]{2,17})(?:\\[.+])? (joined the game|logged in with entity|がマッチングしました)");
-    private static final Pattern LEFT_GAME_PATTERN = Pattern.compile("] (\\.?[a-zA-Z0-9_]{2,17}) (left the game|が退出しました)");
-
-    private static final Pattern DEATH_PATTERN = Pattern.compile(
-            "(\\.?[a-zA-Z0-9_]{2,17}) (was squashed by a falling anvil|was shot by.*|was pricked to death|walked into a cactus.*|was squished too much|was squashed by.*|was roasted in dragon's breath|drowned|died from dehydration|was killed by even more magic|blew up|was blown up by.*|hit the ground too hard|was squashed by a falling block|was skewered by a falling stalactite|was fireballed by.*|went off with a bang|experienced kinetic energy|froze to death|was frozen to death by.*|died|died because of.*|was killed|discovered the floor was lava|walked into the danger zone due to.*|was killed by.*using magic|went up in flames|walked into fire.*|suffocated in a wall|tried to swim in lava|was struck by lightning|was smashed by.*|was killed by magic|was slain by.*|burned to death|was burned to a crisp.*|fell out of the world|didn't want to live in the same world as.*|left the confines of this world|was obliterated by a sonically-charged shriek|was impaled on a stalagmite|starved to death|was stung to death|was poked to death by a sweet berry bush|was killed while trying to hurt.*|was pummeled by.*|was impaled by.*|withered away|was shot by a skull from.*|was killed by.*)"
-    );
-    private static final Pattern PHOTOGRAPHING_PATTERN = Pattern.compile(".*issued server command: /photographing on");
-    private static final Pattern CHAT_PATTERN = Pattern.compile("<(\\S+)> (.*)");
-
-    // Server state patterns
-    private static final Pattern SERVER_START_PATTERN = Pattern.compile("Starting minecraft server version");
+    private final Map<String, Pattern> patterns = new HashMap<>();
 
     private static final Set<String> NON_PLAYER_ENTITIES = new HashSet<>(Arrays.asList(
             "Villager", "Librarian", "Farmer", "Shepherd", "Nitwit", "Leatherworker",
             "Weaponsmith", "Fisherman", "You", "adomin"
     ));
 
-
-    private record LogLine(LocalDateTime timestamp, String content) {}
+    private record LogLineWithSource(LocalDateTime timestamp, String content, int sourceIndex) implements Comparable<LogLineWithSource> {
+        @Override
+        public int compareTo(@NotNull LogLineWithSource other) {
+            return this.timestamp.compareTo(other.timestamp);
+        }
+    }
     private record UnprocessedAccount(UUID uuid, String name) {}
-
     private final Map<String, LocalDateTime> participantSessionStartTimes = new ConcurrentHashMap<>();
     private final AtomicInteger mmFileCounter = new AtomicInteger(1);
 
@@ -72,6 +61,19 @@ public class LogCommand implements CommandExecutor {
         this.plugin = plugin;
         this.participantManager = plugin.getParticipantManager();
         this.logger = plugin.getLogger();
+    }
+
+    private void loadPatterns() {
+        patterns.clear();
+        ConfigurationSection section = plugin.getConfig().getConfigurationSection("log-patterns");
+        if (section == null) {
+            logger.severe("Config.ymlに 'log-patterns' セクションが見つかりません。/log add 機能は動作しません。");
+            return;
+        }
+
+        for (String key : section.getKeys(false)) {
+            patterns.put(key, Pattern.compile(section.getString(key)));
+        }
     }
 
     @Override
@@ -98,12 +100,19 @@ public class LogCommand implements CommandExecutor {
                 sendHelp(sender);
                 break;
         }
-
         return true;
     }
 
     private void handleAddCommand(CommandSender sender) {
         plugin.getAdventure().sender(sender).sendMessage(Component.text("古いログの統計情報への一括反映を開始します...", NamedTextColor.GREEN));
+
+        // [フェーズ1] 準備段階
+        plugin.getAdventure().sender(sender).sendMessage(Component.text("[1/5] 準備中です...", NamedTextColor.GRAY));
+        loadPatterns();
+        if (patterns.isEmpty()) {
+            plugin.getAdventure().sender(sender).sendMessage(Component.text("正規表現パターンの読み込みに失敗しました。処理を中止します。", NamedTextColor.RED));
+            return;
+        }
 
         File logDir = new File(new File(plugin.getDataFolder(), "Participant_Information"), "log");
         File processedDir = new File(logDir, "processed");
@@ -125,37 +134,42 @@ public class LogCommand implements CommandExecutor {
             return;
         }
 
+        // [フェーズ2] サーバーセッションの特定
+        plugin.getAdventure().sender(sender).sendMessage(Component.text("[2/5] ログファイルを解析し、サーバーセッションを特定しています...", NamedTextColor.GRAY));
         List<List<File>> serverSessions = groupLogsByServerSession(logFiles);
         if (serverSessions.isEmpty()) {
             plugin.getAdventure().sender(sender).sendMessage(Component.text("有効なサーバーセッションが見つかりませんでした。", NamedTextColor.YELLOW));
             return;
         }
+        plugin.getAdventure().sender(sender).sendMessage(Component.text("... " + serverSessions.size() + " 個のセッションが見つかりました。", NamedTextColor.GRAY));
 
+
+        // [フェーズ3] セッションごとのデータ処理
         AtomicInteger sessionsWithError = new AtomicInteger(0);
+        int totalSessions = serverSessions.size();
+        int currentSessionNum = 1;
 
         for (List<File> sessionFiles : serverSessions) {
             if (sessionFiles.isEmpty()) continue;
 
             String sessionName = sessionFiles.get(0).getName();
+            plugin.getAdventure().sender(sender).sendMessage(Component.text("[3/5] セッション " + (currentSessionNum++) + "/" + totalSessions + " (" + sessionName + ") の処理を開始...", NamedTextColor.AQUA));
             File mmFile = new File(memoryDumpsDir, "mm_" + mmFileCounter.getAndIncrement() + ".yml");
-
             participantSessionStartTimes.clear();
 
             try {
-                plugin.getAdventure().sender(sender).sendMessage(Component.text("サーバーセッション: " + sessionName + " の処理を開始 (" + sessionFiles.size() + "ファイル)...", NamedTextColor.AQUA));
-
-                // フェーズ1: 全アカウント情報をログから収集
+                // アカウント情報の全集約
                 Set<UnprocessedAccount> unprocessedAccounts = new HashSet<>();
                 for (File logFile : sessionFiles) {
                     try (BufferedReader reader = getReaderForFile(logFile)) {
                         String line;
                         while ((line = reader.readLine()) != null) {
-                            Matcher uuidMatcher = UUID_PATTERN.matcher(line);
+                            Matcher uuidMatcher = patterns.get("uuid").matcher(line);
                             if (uuidMatcher.find()) {
                                 unprocessedAccounts.add(new UnprocessedAccount(UUID.fromString(uuidMatcher.group(2)), uuidMatcher.group(1)));
                                 continue;
                             }
-                            Matcher floodgateMatcher = FLOODGATE_UUID_PATTERN.matcher(line);
+                            Matcher floodgateMatcher = patterns.get("floodgate-uuid").matcher(line);
                             if (floodgateMatcher.find()) {
                                 unprocessedAccounts.add(new UnprocessedAccount(UUID.fromString(floodgateMatcher.group(2)), floodgateMatcher.group(1)));
                             }
@@ -164,17 +178,13 @@ public class LogCommand implements CommandExecutor {
                 }
                 saveMmFile(mmFile, "phase1_unprocessed_accounts", unprocessedAccounts.stream().map(acc -> Map.of("name", acc.name(), "uuid", acc.uuid().toString())).collect(Collectors.toList()));
 
-                // フェーズ2: 名寄せ（企画書準拠ロジック）
+                // 名寄せ（人物の特定）
                 Map<String, ParticipantData> sessionParticipants = new HashMap<>();
                 Set<UnprocessedAccount> accountsToProcess = new HashSet<>(unprocessedAccounts);
 
                 while (!accountsToProcess.isEmpty()) {
                     UnprocessedAccount currentAccount = accountsToProcess.iterator().next();
-
-                    ParticipantData pData = participantManager.findParticipantByAnyName(currentAccount.name())
-                            .or(() -> Optional.ofNullable(participantManager.getParticipant(currentAccount.uuid())))
-                            .orElseGet(() -> participantManager.findOrCreateParticipant(Bukkit.getOfflinePlayer(currentAccount.uuid())));
-
+                    ParticipantData pData = participantManager.findOrCreateParticipant(Bukkit.getOfflinePlayer(currentAccount.uuid()));
                     pData.addAccount(currentAccount.uuid(), currentAccount.name());
 
                     Set<UUID> deletionMarkers_uuid = new HashSet<>(pData.getAssociatedUuids());
@@ -186,19 +196,17 @@ public class LogCommand implements CommandExecutor {
                     if (pData.getLinkedName() != null && !pData.getLinkedName().isEmpty()) deletionMarkers_name.add(pData.getLinkedName());
 
                     accountsToProcess.removeIf(acc -> deletionMarkers_uuid.contains(acc.uuid()) || deletionMarkers_name.contains(acc.name()));
-
                     sessionParticipants.put(pData.getParticipantId(), pData);
                 }
                 saveMmFile(mmFile, "phase2_nayose_results", sessionParticipants.values().stream().map(ParticipantData::toMap).collect(Collectors.toList()));
 
-                // フェーズ3: 再集計
-                for (ParticipantData data : sessionParticipants.values()) {
-                    data.resetStatsForLog();
-                }
+                // セッション内データの初期化 & イベント解析とデータ再集計
+                sessionParticipants.values().forEach(ParticipantData::resetStatsForLog);
                 processSessionEvents(sessionFiles, sessionParticipants);
                 saveMmFile(mmFile, "phase3_recalculation_results", sessionParticipants.values().stream().map(ParticipantData::toMap).collect(Collectors.toList()));
 
-                // フェーズ4: 加算処理
+                // [フェーズ4] 永続データへの最終合算
+                plugin.getAdventure().sender(sender).sendMessage(Component.text("...セッション " + sessionName + " のデータを永続データに合算しています。", NamedTextColor.GRAY));
                 for (ParticipantData logResultData : sessionParticipants.values()) {
                     participantManager.addOrUpdateDataFromLog(logResultData);
                 }
@@ -211,7 +219,10 @@ public class LogCommand implements CommandExecutor {
             }
         }
 
+        // [フェーズ5] 完了処理
+        plugin.getAdventure().sender(sender).sendMessage(Component.text("[4/5] 全ての参加者データをファイルに保存しています...", NamedTextColor.GRAY));
         participantManager.saveAllParticipantData();
+        plugin.getAdventure().sender(sender).sendMessage(Component.text("[5/5] メモリ上のデータを同期しています...", NamedTextColor.GRAY));
         participantManager.reloadAllParticipants();
 
         plugin.getAdventure().sender(sender).sendMessage(Component.text("全てのログ処理が完了しました。", NamedTextColor.GREEN));
@@ -220,82 +231,115 @@ public class LogCommand implements CommandExecutor {
         }
     }
 
-
     private void processSessionEvents(List<File> sessionFiles, Map<String, ParticipantData> sessionParticipants) throws IOException {
-        List<LogLine> allLines = new ArrayList<>();
-        LocalDate currentDate = null;
+        List<BufferedReader> readers = new ArrayList<>();
+        for (File file : sessionFiles) {
+            readers.add(getReaderForFile(file));
+        }
+
+        PriorityQueue<LogLineWithSource> queue = new PriorityQueue<>();
+        LocalDate currentDate = parseDateFromFileName(sessionFiles.get(0).getName());
+        if (currentDate == null) currentDate = LocalDate.now();
         LocalTime lastTime = LocalTime.MIN;
 
-        for (File logFile : sessionFiles) {
-            LocalDate fileDate = parseDateFromFileName(logFile.getName());
-            if (currentDate == null) {
-                currentDate = fileDate;
-            }
-
-            try (BufferedReader reader = getReaderForFile(logFile)) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    Matcher timeMatcher = LOG_LINE_PATTERN.matcher(line);
-                    if (timeMatcher.find()) {
-                        try {
-                            LocalTime currentTime = LocalTime.parse(timeMatcher.group(1));
-                            if (currentTime.isBefore(lastTime)) {
-                                currentDate = currentDate.plusDays(1);
-                            }
-                            allLines.add(new LogLine(currentDate.atTime(currentTime), line));
-                            lastTime = currentTime;
-                        } catch (DateTimeParseException ignored) {}
-                    }
-                }
+        // 各ファイルの最初の行をキューに追加
+        for (int i = 0; i < readers.size(); i++) {
+            String line = readers.get(i).readLine();
+            if (line != null) {
+                Optional<LogLineWithSource> logLineOpt = parseLine(line, i, currentDate, lastTime);
+                logLineOpt.ifPresent(queue::add);
             }
         }
-        allLines.sort(Comparator.comparing(LogLine::timestamp));
 
-        for (LogLine log : allLines) {
-            LocalDateTime timestamp = log.timestamp();
-            String content = log.content();
+        // メモリ効率の良いマージソート的処理
+        while (!queue.isEmpty()) {
+            LogLineWithSource log = queue.poll();
+            int sourceIndex = log.sourceIndex();
 
-            Matcher joinMatcher = JOIN_PATTERN.matcher(content);
-            if (joinMatcher.find()) {
-                String name = joinMatcher.group(1);
-                findParticipantByName(sessionParticipants, name).ifPresent(p -> handleLoginLogic(p, getUuidForName(p, name), timestamp));
-                continue;
+            // タイムスタンプの更新ロジック
+            if(log.timestamp().toLocalTime().isBefore(lastTime)){
+                currentDate = currentDate.plusDays(1);
             }
+            lastTime = log.timestamp().toLocalTime();
 
-            Matcher leftMatcher = LEFT_GAME_PATTERN.matcher(content);
-            if (leftMatcher.find()) {
-                String name = leftMatcher.group(1);
-                findParticipantByName(sessionParticipants, name).ifPresent(p -> handleLogoutLogic(p, getUuidForName(p, name), timestamp));
-                continue;
+            // イベント処理
+            handleLogLine(log.content(), log.timestamp(), sessionParticipants);
+
+            // 次の行を同じファイルから読み込んでキューに追加
+            String nextLine = readers.get(sourceIndex).readLine();
+            if (nextLine != null) {
+                Optional<LogLineWithSource> nextLogLineOpt = parseLine(nextLine, sourceIndex, currentDate, lastTime);
+                nextLogLineOpt.ifPresent(queue::add);
             }
+        }
 
-            Matcher deathMatcher = DEATH_PATTERN.matcher(content);
-            if (deathMatcher.find()) {
-                String name = deathMatcher.group(1).trim();
-                if (NON_PLAYER_ENTITIES.contains(name)) continue;
-                findParticipantByName(sessionParticipants, name).ifPresent(p -> p.incrementStat("total_deaths", 1));
-                continue;
-            }
-
-            if (PHOTOGRAPHING_PATTERN.matcher(content).find()) {
-                sessionParticipants.values().stream().filter(ParticipantData::isOnline)
-                        .forEach(p -> {
-                            p.incrementStat("photoshoot_participations", 1);
-                            p.addHistoryEvent("photoshoot", timestamp);
-                        });
-                continue;
-            }
-
-            Matcher chatMatcher = CHAT_PATTERN.matcher(content);
-            if (chatMatcher.find()) {
-                String playerName = chatMatcher.group(1);
-                findParticipantByName(sessionParticipants, playerName).ifPresent(p -> {
-                    p.incrementStat("total_chats", 1);
-                    p.incrementStat("w_count", participantManager.calculateWCount(chatMatcher.group(2)));
-                });
+        // 全てのリーダーを閉じる
+        for (BufferedReader reader : readers) {
+            try {
+                reader.close();
+            } catch (IOException e) {
+                logger.log(Level.WARNING, "Failed to close BufferedReader.", e);
             }
         }
     }
+
+    private Optional<LogLineWithSource> parseLine(String line, int sourceIndex, LocalDate currentDate, LocalTime lastTime) {
+        Matcher timeMatcher = patterns.get("log-line").matcher(line);
+        if (timeMatcher.find()) {
+            try {
+                LocalTime currentTime = LocalTime.parse(timeMatcher.group(1));
+                LocalDate lineDate = currentDate;
+                if (currentTime.isBefore(lastTime)) {
+                    lineDate = currentDate.plusDays(1);
+                }
+                return Optional.of(new LogLineWithSource(lineDate.atTime(currentTime), line, sourceIndex));
+            } catch (DateTimeParseException ignored) {}
+        }
+        return Optional.empty();
+    }
+
+    private void handleLogLine(String content, LocalDateTime timestamp, Map<String, ParticipantData> sessionParticipants) {
+        Matcher joinMatcher = patterns.get("join").matcher(content);
+        if (joinMatcher.find()) {
+            String name = joinMatcher.group(1);
+            findParticipantByName(sessionParticipants, name).ifPresent(p -> handleLoginLogic(p, getUuidForName(p, name), timestamp));
+            return;
+        }
+
+        Matcher leftMatcher = patterns.get("left-game").matcher(content);
+        if (leftMatcher.find()) {
+            String name = leftMatcher.group(1);
+            findParticipantByName(sessionParticipants, name).ifPresent(p -> handleLogoutLogic(p, getUuidForName(p, name), timestamp));
+            return;
+        }
+
+        Matcher deathMatcher = patterns.get("death").matcher(content);
+        if (deathMatcher.find()) {
+            String name = deathMatcher.group(1).trim();
+            if (NON_PLAYER_ENTITIES.contains(name)) return;
+            findParticipantByName(sessionParticipants, name).ifPresent(p -> p.incrementStat("total_deaths", 1));
+            return;
+        }
+
+        if (patterns.get("photographing").matcher(content).find()) {
+            sessionParticipants.values().stream().filter(ParticipantData::isOnline)
+                    .forEach(p -> {
+                        p.incrementStat("photoshoot_participations", 1);
+                        p.addHistoryEvent("photoshoot", timestamp);
+                    });
+            return;
+        }
+
+        Matcher chatMatcher = patterns.get("chat").matcher(content);
+        if (chatMatcher.find()) {
+            String playerName = chatMatcher.group(1);
+            findParticipantByName(sessionParticipants, playerName).ifPresent(p -> {
+                p.incrementStat("total_chats", 1);
+                p.incrementStat("w_count", participantManager.calculateWCount(chatMatcher.group(2)));
+            });
+        }
+    }
+
 
     private Optional<ParticipantData> findParticipantByName(Map<String, ParticipantData> participants, String name) {
         for (ParticipantData pData : participants.values()) {
@@ -361,10 +405,12 @@ public class LogCommand implements CommandExecutor {
         Arrays.sort(logFiles, Comparator.comparing(this::getFileNameTimestamp).thenComparing(this::getFileNameIndex));
         List<List<File>> sessions = new ArrayList<>();
         List<File> currentSessionFiles = new ArrayList<>();
+        Pattern serverStartPattern = patterns.get("server-start");
+
         for (File currentFile : logFiles) {
             boolean isStart = false;
             try (BufferedReader reader = getReaderForFile(currentFile)) {
-                isStart = reader.lines().anyMatch(SERVER_START_PATTERN.asPredicate());
+                isStart = reader.lines().anyMatch(serverStartPattern.asPredicate());
             } catch (IOException e) {
                 logger.log(Level.WARNING, "Could not read log file: " + currentFile.getName(), e);
                 continue;
@@ -405,7 +451,7 @@ public class LogCommand implements CommandExecutor {
                 return LocalDate.parse(matcher.group(1));
             } catch (DateTimeParseException e) { /* fallback */ }
         }
-        return LocalDate.now();
+        return null; // Let the caller handle null
     }
 
     private void saveMmFile(File mmFile, String key, Object data) {
@@ -430,7 +476,7 @@ public class LogCommand implements CommandExecutor {
 
     private void handleError(CommandSender sender, String sessionName, String message, Exception e, List<File> filesToMove) {
         logger.log(Level.SEVERE, message, e);
-        if (sender instanceof Player) {
+        if (sender instanceof Player || sender.getName().equals("CONSOLE")) {
             plugin.getAdventure().sender(sender).sendMessage(Component.text(message + "詳細はコンソールとerrorフォルダを確認してください。", NamedTextColor.RED));
         }
         if (filesToMove != null && !filesToMove.isEmpty()) {
