@@ -71,9 +71,11 @@ public class LogCommand implements CommandExecutor {
             return;
         }
 
+        logger.info("Loading log patterns...");
         for (String key : section.getKeys(false)) {
             try {
                 patterns.put(key, Pattern.compile(section.getString(key)));
+                logger.info("  - Loaded pattern: " + key);
             } catch (Exception e) {
                 logger.severe("正規表現パターンのコンパイルに失敗しました: " + key);
                 e.printStackTrace();
@@ -167,23 +169,30 @@ public class LogCommand implements CommandExecutor {
                 Set<UnprocessedAccount> unprocessedAccounts = new HashSet<>();
                 Set<String> processedNames = new HashSet<>();
 
+                Pattern uuidPattern = patterns.get("uuid");
+                Pattern floodgatePattern = patterns.get("floodgate-uuid");
+
                 for (File logFile : sessionFiles) {
                     try (BufferedReader reader = getReaderForFile(logFile)) {
                         String line;
                         while ((line = reader.readLine()) != null) {
-                            Matcher uuidMatcher = patterns.get("uuid").matcher(line);
-                            if (uuidMatcher.find()) {
-                                String name = uuidMatcher.group(1);
-                                if (processedNames.add(name.toLowerCase())) {
-                                    unprocessedAccounts.add(new UnprocessedAccount(UUID.fromString(uuidMatcher.group(2)), name));
+                            if (uuidPattern != null) {
+                                Matcher uuidMatcher = uuidPattern.matcher(line);
+                                if (uuidMatcher.find()) {
+                                    String name = uuidMatcher.group(1);
+                                    if (processedNames.add(name.toLowerCase())) {
+                                        unprocessedAccounts.add(new UnprocessedAccount(UUID.fromString(uuidMatcher.group(2)), name));
+                                    }
+                                    continue;
                                 }
-                                continue;
                             }
-                            Matcher floodgateMatcher = patterns.get("floodgate-uuid").matcher(line);
-                            if (floodgateMatcher.find()) {
-                                String name = floodgateMatcher.group(1);
-                                if (processedNames.add(name.toLowerCase())) {
-                                    unprocessedAccounts.add(new UnprocessedAccount(UUID.fromString(floodgateMatcher.group(2)), name));
+                            if (floodgatePattern != null) {
+                                Matcher floodgateMatcher = floodgatePattern.matcher(line);
+                                if (floodgateMatcher.find()) {
+                                    String name = floodgateMatcher.group(1);
+                                    if (processedNames.add(name.toLowerCase())) {
+                                        unprocessedAccounts.add(new UnprocessedAccount(UUID.fromString(floodgateMatcher.group(2)), name));
+                                    }
                                 }
                             }
                         }
@@ -193,22 +202,27 @@ public class LogCommand implements CommandExecutor {
                 // UUID情報がログにない場合のフォールバック
                 if (unprocessedAccounts.isEmpty()) {
                     logger.warning("[YAPIMARU WARNING] セッション " + sessionName + " からUUID情報を直接抽出できませんでした。Joinログからのフォールバックを試みます。");
-                    for (File logFile : sessionFiles) {
-                        try (BufferedReader reader = getReaderForFile(logFile)) {
-                            String line;
-                            while ((line = reader.readLine()) != null) {
-                                Matcher joinMatcher = patterns.get("join").matcher(line);
-                                if (joinMatcher.find()) {
-                                    String name = joinMatcher.group(1);
-                                    if(processedNames.add(name.toLowerCase())) {
-                                        OfflinePlayer p = Bukkit.getOfflinePlayer(name);
-                                        if (p.hasPlayedBefore() || p.isOnline()) {
-                                            unprocessedAccounts.add(new UnprocessedAccount(p.getUniqueId(), name));
+                    Pattern joinPattern = patterns.get("join");
+                    if (joinPattern != null) {
+                        for (File logFile : sessionFiles) {
+                            try (BufferedReader reader = getReaderForFile(logFile)) {
+                                String line;
+                                while ((line = reader.readLine()) != null) {
+                                    Matcher joinMatcher = joinPattern.matcher(line);
+                                    if (joinMatcher.find()) {
+                                        String name = joinMatcher.group(1);
+                                        if (processedNames.add(name.toLowerCase())) {
+                                            OfflinePlayer p = Bukkit.getOfflinePlayer(name);
+                                            if (p.hasPlayedBefore() || p.isOnline()) {
+                                                unprocessedAccounts.add(new UnprocessedAccount(p.getUniqueId(), name));
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
+                    } else {
+                        logger.warning("[YAPIMARU WARNING] 'join' pattern is missing in config.yml. Cannot perform fallback.");
                     }
                 }
 
@@ -248,7 +262,12 @@ public class LogCommand implements CommandExecutor {
                 processSessionEvents(sessionFiles, sessionParticipants);
                 saveMmFile(mmFile, "phase3_recalculation_results", sessionParticipants.values().stream().map(ParticipantData::toMap).collect(Collectors.toList()));
 
-                plugin.getAdventure().sender(sender).sendMessage(Component.text("...セッション " + sessionName + " のデータを永続データに合算しています。", NamedTextColor.GRAY));
+                // ここで実際に永続データに反映
+                for (ParticipantData sessionData : sessionParticipants.values()) {
+                    participantManager.addOrUpdateDataFromLog(sessionData);
+                }
+
+                plugin.getAdventure().sender(sender).sendMessage(Component.text("...セッション " + sessionName + " のデータを永続データに合算しました。", NamedTextColor.GRAY));
 
                 moveFilesTo(sessionFiles, processedDir);
 
@@ -271,6 +290,11 @@ public class LogCommand implements CommandExecutor {
     }
 
     private void processSessionEvents(List<File> sessionFiles, Map<String, ParticipantData> sessionParticipants) throws IOException {
+        // セッション開始前に統計情報をリセット
+        for(ParticipantData pData : sessionParticipants.values()){
+            pData.resetStatsForLog();
+        }
+
         List<BufferedReader> readers = new ArrayList<>();
         for (File file : sessionFiles) {
             readers.add(getReaderForFile(file));
@@ -300,9 +324,11 @@ public class LogCommand implements CommandExecutor {
                 currentDate = currentDate.plusDays(1);
             }
             lastTime = log.timestamp().toLocalTime();
+            LocalDateTime correctedTimestamp = currentDate.atTime(log.timestamp().toLocalTime());
+
 
             // イベント処理
-            handleLogLine(log.content(), log.timestamp(), sessionParticipants);
+            handleLogLine(log.content(), correctedTimestamp, sessionParticipants);
 
             // 次の行を同じファイルから読み込んでキューに追加
             String nextLine = readers.get(sourceIndex).readLine();
@@ -323,7 +349,10 @@ public class LogCommand implements CommandExecutor {
     }
 
     private Optional<LogLineWithSource> parseLine(String line, int sourceIndex, LocalDate currentDate, LocalTime lastTime) {
-        Matcher timeMatcher = patterns.get("log-line").matcher(line);
+        Pattern linePattern = patterns.get("log-line");
+        if(linePattern == null) return Optional.empty();
+
+        Matcher timeMatcher = linePattern.matcher(line);
         if (timeMatcher.find()) {
             try {
                 LocalTime currentTime = LocalTime.parse(timeMatcher.group(1));
@@ -338,29 +367,39 @@ public class LogCommand implements CommandExecutor {
     }
 
     private void handleLogLine(String content, LocalDateTime timestamp, Map<String, ParticipantData> sessionParticipants) {
-        Matcher joinMatcher = patterns.get("join").matcher(content);
-        if (joinMatcher.find()) {
-            String name = joinMatcher.group(1);
-            findParticipantByName(sessionParticipants, name).ifPresent(p -> handleLoginLogic(p, getUuidForName(p, name), timestamp));
-            return;
+        Pattern joinPattern = patterns.get("join");
+        if (joinPattern != null) {
+            Matcher joinMatcher = joinPattern.matcher(content);
+            if (joinMatcher.find()) {
+                String name = joinMatcher.group(1);
+                findParticipantByName(sessionParticipants, name).ifPresent(p -> handleLoginLogic(p, getUuidForName(p, name), timestamp));
+                return;
+            }
         }
 
-        Matcher leftMatcher = patterns.get("left-game").matcher(content);
-        if (leftMatcher.find()) {
-            String name = leftMatcher.group(1);
-            findParticipantByName(sessionParticipants, name).ifPresent(p -> handleLogoutLogic(p, getUuidForName(p, name), timestamp));
-            return;
+        Pattern leftPattern = patterns.get("left-game");
+        if(leftPattern != null) {
+            Matcher leftMatcher = leftPattern.matcher(content);
+            if (leftMatcher.find()) {
+                String name = leftMatcher.group(1);
+                findParticipantByName(sessionParticipants, name).ifPresent(p -> handleLogoutLogic(p, getUuidForName(p, name), timestamp));
+                return;
+            }
         }
 
-        Matcher deathMatcher = patterns.get("death").matcher(content);
-        if (deathMatcher.find()) {
-            String name = deathMatcher.group(1).trim();
-            if (NON_PLAYER_ENTITIES.contains(name)) return;
-            findParticipantByName(sessionParticipants, name).ifPresent(p -> p.incrementStat("total_deaths", 1));
-            return;
+        Pattern deathPattern = patterns.get("death");
+        if(deathPattern != null) {
+            Matcher deathMatcher = deathPattern.matcher(content);
+            if (deathMatcher.find()) {
+                String name = deathMatcher.group(1).trim();
+                if (NON_PLAYER_ENTITIES.contains(name)) return;
+                findParticipantByName(sessionParticipants, name).ifPresent(p -> p.incrementStat("total_deaths", 1));
+                return;
+            }
         }
 
-        if (patterns.get("photographing").matcher(content).find()) {
+        Pattern photoPattern = patterns.get("photographing");
+        if (photoPattern != null && photoPattern.matcher(content).find()) {
             sessionParticipants.values().stream().filter(ParticipantData::isOnline)
                     .forEach(p -> {
                         p.incrementStat("photoshoot_participations", 1);
@@ -369,13 +408,16 @@ public class LogCommand implements CommandExecutor {
             return;
         }
 
-        Matcher chatMatcher = patterns.get("chat").matcher(content);
-        if (chatMatcher.find()) {
-            String playerName = chatMatcher.group(1);
-            findParticipantByName(sessionParticipants, playerName).ifPresent(p -> {
-                p.incrementStat("total_chats", 1);
-                p.incrementStat("w_count", participantManager.calculateWCount(chatMatcher.group(2)));
-            });
+        Pattern chatPattern = patterns.get("chat");
+        if(chatPattern != null) {
+            Matcher chatMatcher = chatPattern.matcher(content);
+            if (chatMatcher.find()) {
+                String playerName = chatMatcher.group(1);
+                findParticipantByName(sessionParticipants, playerName).ifPresent(p -> {
+                    p.incrementStat("total_chats", 1);
+                    p.incrementStat("w_count", participantManager.calculateWCount(chatMatcher.group(2)));
+                });
+            }
         }
     }
 
@@ -383,7 +425,7 @@ public class LogCommand implements CommandExecutor {
     private Optional<ParticipantData> findParticipantByName(Map<String, ParticipantData> participants, String name) {
         // 完全一致を優先
         for (ParticipantData pData : participants.values()) {
-            if (pData.getDisplayName().equalsIgnoreCase(name) || pData.getBaseName().equalsIgnoreCase(name) || (pData.getLinkedName() != null && pData.getLinkedName().equalsIgnoreCase(name))) {
+            if (pData.getBaseName().equalsIgnoreCase(name) || (pData.getLinkedName() != null && !pData.getLinkedName().isEmpty() && pData.getLinkedName().equalsIgnoreCase(name))) {
                 return Optional.of(pData);
             }
             for (ParticipantData.AccountInfo accountInfo : pData.getAccounts().values()) {
@@ -392,21 +434,20 @@ public class LogCommand implements CommandExecutor {
                 }
             }
         }
+
         // LunaChatなどの表示名 `フィンクス(管理人)` 形式に対応
         Pattern pattern = Pattern.compile("(.+)\\((.+)\\)");
         for(ParticipantData pData : participants.values()){
+            // 表示名自体での一致も確認
+            if (pData.getDisplayName().equalsIgnoreCase(name)) {
+                return Optional.of(pData);
+            }
             Matcher matcher = pattern.matcher(pData.getDisplayName());
             if(matcher.matches()){
                 if(matcher.group(1).equalsIgnoreCase(name) || matcher.group(2).equalsIgnoreCase(name)){
                     return Optional.of(pData);
                 }
             }
-        }
-
-        // フォールバックとして、Bukkit APIでプレイヤーを検索
-        OfflinePlayer player = Bukkit.getOfflinePlayer(name);
-        if (player.hasPlayedBefore() || player.isOnline()) {
-            return Optional.of(participantManager.findOrCreateParticipant(player));
         }
 
         return Optional.empty();
@@ -422,20 +463,19 @@ public class LogCommand implements CommandExecutor {
 
     private void handleLoginLogic(ParticipantData data, UUID uuid, LocalDateTime loginTime) {
         if (data == null) return;
-        // UUIDがnullでも、dataさえあれば処理を続行
         if (uuid == null) {
             uuid = data.getAssociatedUuids().stream().findFirst().orElse(null);
         }
-        if (uuid == null) return; // やはりUUIDがないとどうしようもない
+        if (uuid == null) return;
 
         boolean wasParticipantOnline = data.isOnline();
-        data.getAccounts().computeIfPresent(uuid, (k, v) -> {
-            v.setOnline(true);
-            return v;
-        });
+        if(data.getAccounts().get(uuid) != null) {
+            data.getAccounts().get(uuid).setOnline(true);
+        }
+        data.setOnlineStatus(true);
+
 
         if (!wasParticipantOnline) {
-            data.setOnlineStatus(true);
             data.incrementStat("total_joins", 1);
             data.addHistoryEvent("join", loginTime);
             participantSessionStartTimes.put(data.getParticipantId(), loginTime);
@@ -444,16 +484,14 @@ public class LogCommand implements CommandExecutor {
 
     private void handleLogoutLogic(ParticipantData data, UUID uuid, LocalDateTime logoutTime) {
         if (data == null) return;
-        // UUIDがnullでも、dataさえあれば処理を続行
         if (uuid == null) {
             uuid = data.getAssociatedUuids().stream().findFirst().orElse(null);
         }
-        if (uuid == null) return; // やはりUUIDがないとどうしようもない
+        if (uuid == null) return;
 
-        data.getAccounts().computeIfPresent(uuid, (k, v) -> {
-            v.setOnline(false);
-            return v;
-        });
+        if(data.getAccounts().get(uuid) != null) {
+            data.getAccounts().get(uuid).setOnline(false);
+        }
 
         if (data.getAccounts().values().stream().noneMatch(ParticipantData.AccountInfo::isOnline)) {
             data.setOnlineStatus(false);
@@ -474,8 +512,15 @@ public class LogCommand implements CommandExecutor {
         Arrays.sort(logFiles, Comparator.comparing(this::getFileNameTimestamp).thenComparing(this::getFileNameIndex));
         List<List<File>> sessions = new ArrayList<>();
         List<File> currentSessionFiles = new ArrayList<>();
+
         Pattern serverStartPattern = patterns.get("server-start");
         Pattern serverStopPattern = patterns.get("server-stop");
+
+        if (serverStartPattern == null) {
+            logger.warning("'server-start' pattern not found in config.yml. Cannot group logs by session. Treating all logs as one session.");
+            sessions.add(Arrays.asList(logFiles));
+            return sessions;
+        }
 
         for (File currentFile : logFiles) {
             boolean startsNewSession = false;
@@ -485,7 +530,7 @@ public class LogCommand implements CommandExecutor {
                 if (lines.stream().anyMatch(serverStartPattern.asPredicate())) {
                     startsNewSession = true;
                 }
-                if (lines.stream().anyMatch(serverStopPattern.asPredicate())) {
+                if (serverStopPattern != null && lines.stream().anyMatch(serverStopPattern.asPredicate())) {
                     endsLastSession = true;
                 }
             } catch (IOException e) {
@@ -559,7 +604,7 @@ public class LogCommand implements CommandExecutor {
     }
 
     private void handleError(CommandSender sender, String sessionName, String message, Exception e, List<File> filesToMove) {
-        logger.log(Level.SEVERE, message, e);
+        logger.log(Level.SEVERE, "Error during /log add processing (session: " + (sessionName != null ? sessionName : "N/A") + "): " + message, e);
         if (sender instanceof Player || sender.getName().equals("CONSOLE")) {
             plugin.getAdventure().sender(sender).sendMessage(Component.text(message + "詳細はコンソールとerrorフォルダを確認してください。", NamedTextColor.RED));
         }
