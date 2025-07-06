@@ -72,7 +72,12 @@ public class LogCommand implements CommandExecutor {
         }
 
         for (String key : section.getKeys(false)) {
-            patterns.put(key, Pattern.compile(section.getString(key)));
+            try {
+                patterns.put(key, Pattern.compile(section.getString(key)));
+            } catch (Exception e) {
+                logger.severe("正規表現パターンのコンパイルに失敗しました: " + key);
+                e.printStackTrace();
+            }
         }
     }
 
@@ -164,13 +169,18 @@ public class LogCommand implements CommandExecutor {
                     try (BufferedReader reader = getReaderForFile(logFile)) {
                         String line;
                         while ((line = reader.readLine()) != null) {
+                            // ★★★ デバッグ出力 ★★★
+                            logger.info("[YAPIMARU DEBUG] Reading line: " + line);
+
                             Matcher uuidMatcher = patterns.get("uuid").matcher(line);
                             if (uuidMatcher.find()) {
+                                logger.info("[YAPIMARU DEBUG] Matched Java UUID: " + uuidMatcher.group(1));
                                 unprocessedAccounts.add(new UnprocessedAccount(UUID.fromString(uuidMatcher.group(2)), uuidMatcher.group(1)));
                                 continue;
                             }
                             Matcher floodgateMatcher = patterns.get("floodgate-uuid").matcher(line);
                             if (floodgateMatcher.find()) {
+                                logger.info("[YAPIMARU DEBUG] Matched Floodgate UUID: " + floodgateMatcher.group(1));
                                 unprocessedAccounts.add(new UnprocessedAccount(UUID.fromString(floodgateMatcher.group(2)), floodgateMatcher.group(1)));
                             }
                         }
@@ -178,13 +188,16 @@ public class LogCommand implements CommandExecutor {
                 }
                 saveMmFile(mmFile, "phase1_unprocessed_accounts", unprocessedAccounts.stream().map(acc -> Map.of("name", acc.name(), "uuid", acc.uuid().toString())).collect(Collectors.toList()));
 
+                if (unprocessedAccounts.isEmpty()) {
+                    logger.warning("[YAPIMARU WARNING] セッション " + sessionName + " からアカウント情報を一件も抽出できませんでした。正規表現パターンを確認してください。");
+                }
+
                 // 名寄せ（人物の特定）
                 Map<String, ParticipantData> sessionParticipants = new HashMap<>();
                 Set<UnprocessedAccount> accountsToProcess = new HashSet<>(unprocessedAccounts);
 
                 while (!accountsToProcess.isEmpty()) {
                     UnprocessedAccount currentAccount = accountsToProcess.iterator().next();
-                    // ★★★ findOrCreateParticipantはメモリ上の既存データを返すため、これをセッション内の一時データとして扱う
                     ParticipantData pData = participantManager.findOrCreateParticipant(Bukkit.getOfflinePlayer(currentAccount.uuid()));
                     pData.addAccount(currentAccount.uuid(), currentAccount.name());
 
@@ -201,20 +214,11 @@ public class LogCommand implements CommandExecutor {
                 }
                 saveMmFile(mmFile, "phase2_nayose_results", sessionParticipants.values().stream().map(ParticipantData::toMap).collect(Collectors.toList()));
 
-                // ★★★ 修正: 統計リセット処理を削除 ★★★
-                // sessionParticipants.values().forEach(ParticipantData::resetStatsForLog);
-
                 // イベント解析とデータ再集計（既存データへの加算）
                 processSessionEvents(sessionFiles, sessionParticipants);
                 saveMmFile(mmFile, "phase3_recalculation_results", sessionParticipants.values().stream().map(ParticipantData::toMap).collect(Collectors.toList()));
 
-                // [フェーズ4] 永続データへの最終合算
-                // processSessionEventsですでにメモリ上のデータが更新されているため、このステップは実質不要だが、
-                // 将来的なロジック変更のために残しておく。ただし、現在のロジックではParticipantManager側での特別な処理は不要。
                 plugin.getAdventure().sender(sender).sendMessage(Component.text("...セッション " + sessionName + " のデータを永続データに合算しています。", NamedTextColor.GRAY));
-
-                // participantManager.addOrUpdateDataFromLog(logResultData) の呼び出しは不要。
-                // 全ての処理が終わった後に一括で保存する。
 
                 moveFilesTo(sessionFiles, processedDir);
 
@@ -347,15 +351,26 @@ public class LogCommand implements CommandExecutor {
 
 
     private Optional<ParticipantData> findParticipantByName(Map<String, ParticipantData> participants, String name) {
+        // 完全一致を優先
         for (ParticipantData pData : participants.values()) {
-            if (pData.getBaseName() != null && pData.getBaseName().equalsIgnoreCase(name)) return Optional.of(pData);
-            if (pData.getLinkedName() != null && pData.getLinkedName().equalsIgnoreCase(name)) return Optional.of(pData);
+            if (pData.getDisplayName().equalsIgnoreCase(name) || pData.getBaseName().equalsIgnoreCase(name) || (pData.getLinkedName() != null && pData.getLinkedName().equalsIgnoreCase(name))) {
+                return Optional.of(pData);
+            }
             for (ParticipantData.AccountInfo accountInfo : pData.getAccounts().values()) {
                 if (accountInfo.getName() != null && accountInfo.getName().equalsIgnoreCase(name)) {
                     return Optional.of(pData);
                 }
             }
-            if (pData.getDisplayName().equalsIgnoreCase(name)) return Optional.of(pData);
+        }
+        // LunaChatなどの表示名 `フィンクス(管理人)` 形式に対応
+        Pattern pattern = Pattern.compile("(.+)\\((.+)\\)");
+        for(ParticipantData pData : participants.values()){
+            Matcher matcher = pattern.matcher(pData.getDisplayName());
+            if(matcher.matches()){
+                if(matcher.group(1).equalsIgnoreCase(name) || matcher.group(2).equalsIgnoreCase(name)){
+                    return Optional.of(pData);
+                }
+            }
         }
         return Optional.empty();
     }
@@ -411,20 +426,35 @@ public class LogCommand implements CommandExecutor {
         List<List<File>> sessions = new ArrayList<>();
         List<File> currentSessionFiles = new ArrayList<>();
         Pattern serverStartPattern = patterns.get("server-start");
+        Pattern serverStopPattern = patterns.get("server-stop");
 
         for (File currentFile : logFiles) {
-            boolean isStart = false;
+            boolean startsNewSession = false;
+            boolean endsLastSession = false;
             try (BufferedReader reader = getReaderForFile(currentFile)) {
-                isStart = reader.lines().anyMatch(serverStartPattern.asPredicate());
+                List<String> lines = reader.lines().collect(Collectors.toList());
+                if (lines.stream().anyMatch(serverStartPattern.asPredicate())) {
+                    startsNewSession = true;
+                }
+                if (lines.stream().anyMatch(serverStopPattern.asPredicate())) {
+                    endsLastSession = true;
+                }
             } catch (IOException e) {
                 logger.log(Level.WARNING, "Could not read log file: " + currentFile.getName(), e);
                 continue;
             }
-            if (isStart && !currentSessionFiles.isEmpty()) {
+
+            if (startsNewSession && !currentSessionFiles.isEmpty()) {
                 sessions.add(new ArrayList<>(currentSessionFiles));
                 currentSessionFiles.clear();
             }
+
             currentSessionFiles.add(currentFile);
+
+            if (endsLastSession && !currentSessionFiles.isEmpty()) {
+                sessions.add(new ArrayList<>(currentSessionFiles));
+                currentSessionFiles.clear();
+            }
         }
         if (!currentSessionFiles.isEmpty()) sessions.add(currentSessionFiles);
         return sessions;
