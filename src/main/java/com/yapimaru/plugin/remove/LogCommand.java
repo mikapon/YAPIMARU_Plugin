@@ -165,23 +165,24 @@ public class LogCommand implements CommandExecutor {
             try {
                 // アカウント情報の全集約
                 Set<UnprocessedAccount> unprocessedAccounts = new HashSet<>();
+                Set<String> processedNames = new HashSet<>();
+
                 for (File logFile : sessionFiles) {
                     try (BufferedReader reader = getReaderForFile(logFile)) {
                         String line;
                         while ((line = reader.readLine()) != null) {
-                            // ★★★ デバッグ出力 ★★★
-                            logger.info("[YAPIMARU DEBUG] Reading line: " + line);
-
                             Matcher uuidMatcher = patterns.get("uuid").matcher(line);
                             if (uuidMatcher.find()) {
-                                logger.info("[YAPIMARU DEBUG] Matched Java UUID: " + uuidMatcher.group(1));
-                                unprocessedAccounts.add(new UnprocessedAccount(UUID.fromString(uuidMatcher.group(2)), uuidMatcher.group(1)));
+                                String name = uuidMatcher.group(1);
+                                unprocessedAccounts.add(new UnprocessedAccount(UUID.fromString(uuidMatcher.group(2)), name));
+                                processedNames.add(name.toLowerCase());
                                 continue;
                             }
                             Matcher floodgateMatcher = patterns.get("floodgate-uuid").matcher(line);
                             if (floodgateMatcher.find()) {
-                                logger.info("[YAPIMARU DEBUG] Matched Floodgate UUID: " + floodgateMatcher.group(1));
-                                unprocessedAccounts.add(new UnprocessedAccount(UUID.fromString(floodgateMatcher.group(2)), floodgateMatcher.group(1)));
+                                String name = floodgateMatcher.group(1);
+                                unprocessedAccounts.add(new UnprocessedAccount(UUID.fromString(floodgateMatcher.group(2)), name));
+                                processedNames.add(name.toLowerCase());
                             }
                         }
                     }
@@ -189,10 +190,9 @@ public class LogCommand implements CommandExecutor {
                 saveMmFile(mmFile, "phase1_unprocessed_accounts", unprocessedAccounts.stream().map(acc -> Map.of("name", acc.name(), "uuid", acc.uuid().toString())).collect(Collectors.toList()));
 
                 if (unprocessedAccounts.isEmpty()) {
-                    logger.warning("[YAPIMARU WARNING] セッション " + sessionName + " からアカウント情報を一件も抽出できませんでした。正規表現パターンを確認してください。");
+                    logger.warning("[YAPIMARU WARNING] セッション " + sessionName + " からUUID情報を直接抽出できませんでした。Joinログからのフォールバックを試みます。");
                 }
 
-                // 名寄せ（人物の特定）
                 Map<String, ParticipantData> sessionParticipants = new HashMap<>();
                 Set<UnprocessedAccount> accountsToProcess = new HashSet<>(unprocessedAccounts);
 
@@ -372,6 +372,13 @@ public class LogCommand implements CommandExecutor {
                 }
             }
         }
+
+        // フォールバックとして、Bukkit APIでプレイヤーを検索
+        OfflinePlayer player = Bukkit.getOfflinePlayer(name);
+        if (player.hasPlayedBefore() || player.isOnline()) {
+            return Optional.of(participantManager.findOrCreateParticipant(player));
+        }
+
         return Optional.empty();
     }
 
