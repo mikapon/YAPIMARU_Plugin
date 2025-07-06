@@ -33,14 +33,14 @@ log-patterns:
   log-line: '^\\[(\\d{2}:\\d{2}:\\d{2})].*'
   # Java版プレイヤーのUUIDを特定
   uuid: 'UUID of player (\\S+) is ([0-9a-f\\-]+)'
-  # Bedrock版(Floodgate)プレイヤーのUUIDを特定 (末尾に \\) を追加)
+  # Bedrock版(Floodgate)プレイヤーのUUIDを特定
   floodgate-uuid: '\\[floodgate\\] Floodgate.+? (\\S+) でログインしているプレイヤーが参加しました \\(UUID: ([0-9a-f\\-]+)\\)'
-  # プレイヤーの参加を特定
-  join: '(?:]|INFO):? (\\.?[a-zA-Z0-9_]{2,17})(?:\\[.+])? (joined the game|logged in with entity|がマッチングしました)'
-  # プレイヤーの退出を特定
-  left-game: '(?:]|INFO):? (\\.?[a-zA-Z0-9_]{2,17}) (left the game|が退出しました)'
-  # プレイヤーの死亡を特定 (正規表現が長いため、| で区切っています)
-  death: '(\\.?[a-zA-Z0-9_]{2,17}) (was squashed by a falling anvil|was shot by.*|was pricked to death|walked into a cactus.*|was squished too much|was squashed by.*|was roasted in dragon''s breath|drowned|died from dehydration|was killed by even more magic|blew up|was blown up by.*|hit the ground too hard|was squashed by a falling block|was skewered by a falling stalactite|was fireballed by.*|went off with a bang|experienced kinetic energy|froze to death|was frozen to death by.*|died|died because of.*|was killed|discovered the floor was lava|walked into the danger zone due to.*|was killed by.*using magic|went up in flames|walked into fire.*|suffocated in a wall|tried to swim in lava|was struck by lightning|was smashed by.*|was killed by magic|was slain by.*|burned to death|was burned to a crisp.*|fell out of the world|didn''t want to live in the same world as.*|left the confines of this world|was obliterated by a sonically-charged shriek|was impaled on a stalagmite|starved to death|was stung to death|was poked to death by a sweet berry bush|was killed while trying to hurt.*|was pummeled by.*|was impaled by.*|withered away|was shot by a skull from.*|was killed by.*)'
+  # プレイヤーの参加を特定 (プレイヤー名部分を\\S+に修正)
+  join: '(?:]|INFO):? (\\S+)(?:\\[.+])? (joined the game|logged in with entity|がマッチングしました)'
+  # プレイヤーの退出を特定 (プレイヤー名部分を\\S+に修正)
+  left-game: '(?:]|INFO):? (\\S+) (left the game|が退出しました)'
+  # プレイヤーの死亡を特定 (YAML解釈エラーを防ぐため全体を""で囲み、プレイヤー名部分を\\S+に修正)
+  death: "(\\S+) (was squashed by a falling anvil|was shot by.*|was pricked to death|walked into a cactus.*|was squished too much|was squashed by.*|was roasted in dragon's breath|drowned|died from dehydration|was killed by even more magic|blew up|was blown up by.*|hit the ground too hard|was squashed by a falling block|was skewered by a falling stalactite|was fireballed by.*|went off with a bang|experienced kinetic energy|froze to death|was frozen to death by.*|died|died because of.*|was killed|discovered the floor was lava|walked into the danger zone due to.*|was killed by.*using magic|went up in flames|walked into fire.*|suffocated in a wall|tried to swim in lava|was struck by lightning|was smashed by.*|was killed by magic|was slain by.*|burned to death|was burned to a crisp.*|fell out of the world|didn't want to live in the same world as.*|left the confines of this world|was obliterated by a sonically-charged shriek|was impaled on a stalagmite|starved to death|was stung to death|was poked to death by a sweet berry bush|was killed while trying to hurt.*|was pummeled by.*|was impaled by.*|withered away|was shot by a skull from.*|was killed by.*)"
   # 撮影コマンドの実行を特定
   photographing: '.*issued server command: /photographing on'
   # プレイヤーのチャットを特定
