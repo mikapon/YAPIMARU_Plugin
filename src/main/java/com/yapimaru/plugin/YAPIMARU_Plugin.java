@@ -63,8 +63,10 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
         registerListeners();
         registerCommands();
 
+        // サーバー起動時の参加者データ整合性チェック
         participantManager.handleServerStartup();
 
+        // リロード時のオンラインプレイヤー処理
         for (Player player : Bukkit.getOnlinePlayers()) {
             participantManager.handlePlayerLogin(player.getUniqueId(), true);
             nameManager.updatePlayerName(player);
@@ -77,6 +79,7 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
     public void onDisable() {
         if (timerManager != null) timerManager.forceStop(true);
 
+        // サーバー終了時に全参加者データを保存
         if (participantManager != null) {
             participantManager.saveAllParticipantData();
         }

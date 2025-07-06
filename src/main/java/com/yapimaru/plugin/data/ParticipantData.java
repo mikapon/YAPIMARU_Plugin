@@ -54,16 +54,17 @@ public class ParticipantData {
                     UUID uuid = UUID.fromString(uuidStr);
                     // 1行形式と複数行形式の両方に対応
                     if (accountsSection.isConfigurationSection(uuidStr)) {
-                        // 複数行形式
+                        // 複数行形式 (旧形式)
                         String name = accountsSection.getString(uuidStr + ".name");
                         if (name != null) {
                             boolean online = accountsSection.getBoolean(uuidStr + ".online", false);
                             this.accounts.put(uuid, new AccountInfo(name, online));
                         }
                     } else if (accountsSection.isString(uuidStr)) {
-                        // 1行形式 (例: {name: mikanpo33, online: false})
+                        // 1行形式 (新形式)
                         String value = accountsSection.getString(uuidStr);
-                        Pattern p = Pattern.compile("\\{name: (.*), online: (true|false)\\}");
+                        // 正規表現で {name: NAME, online: BOOLEAN} の形式を解析
+                        Pattern p = Pattern.compile("\\{name: (.*), online: (true|false)}");
                         Matcher m = p.matcher(value);
                         if (m.find()) {
                             String name = m.group(1);
@@ -178,7 +179,7 @@ public class ParticipantData {
         }
     }
 
-    public void resetStats() {
+    public void resetAllStats() {
         this.statistics.clear();
         initializeStats();
 
@@ -195,11 +196,12 @@ public class ParticipantData {
         this.statistics.clear();
         initializeStats();
 
+        // 履歴はリセットしない
+        // lastQuitTime もリセットしない
+
         // オンライン状態をリセット
         accounts.values().forEach(acc -> acc.setOnline(false));
         this.isOnline = false;
-
-        // joinHistory, photoshootHistory, playtimeHistory, lastQuitTime は変更しない
     }
 
     public String getParticipantId() {

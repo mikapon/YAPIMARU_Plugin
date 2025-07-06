@@ -98,6 +98,7 @@ public class LogCommand implements CommandExecutor {
         String subCommand = args[0].toLowerCase();
         switch (subCommand) {
             case "add":
+                // 非同期で実行
                 Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> handleAddCommand(sender));
                 break;
             case "reset":
@@ -159,9 +160,9 @@ public class LogCommand implements CommandExecutor {
         for (List<File> sessionFiles : serverSessions) {
             if (sessionFiles.isEmpty()) continue;
 
-            String sessionName = sessionFiles.get(0).getName();
+            String sessionName = sessionFiles.get(0).getName().split("\\.log")[0];
             plugin.getAdventure().sender(sender).sendMessage(Component.text("[3/5] セッション " + (currentSessionNum++) + "/" + totalSessions + " (" + sessionName + ") の処理を開始...", NamedTextColor.AQUA));
-            File mmFile = new File(memoryDumpsDir, "mm_" + mmFileCounter.getAndIncrement() + ".yml");
+            File mmFile = new File(memoryDumpsDir, "mm_" + sessionName + "_" + mmFileCounter.getAndIncrement() + ".yml");
             participantSessionStartTimes.clear();
 
             try {
@@ -180,6 +181,7 @@ public class LogCommand implements CommandExecutor {
                                 Matcher uuidMatcher = uuidPattern.matcher(line);
                                 if (uuidMatcher.find()) {
                                     String name = uuidMatcher.group(1);
+                                    // 重複を避ける
                                     if (processedNames.add(name.toLowerCase())) {
                                         unprocessedAccounts.add(new UnprocessedAccount(UUID.fromString(uuidMatcher.group(2)), name));
                                     }
@@ -213,21 +215,25 @@ public class LogCommand implements CommandExecutor {
 
                 while (!accountsToProcess.isEmpty()) {
                     UnprocessedAccount currentAccount = accountsToProcess.iterator().next();
-                    // 既存データからUUIDまたは名前で検索
+                    accountsToProcess.remove(currentAccount);
+
                     ParticipantData pData = participantManager.findParticipantByAnyName(currentAccount.name())
                             .or(() -> Optional.ofNullable(participantManager.getParticipant(currentAccount.uuid())))
-                            .orElseGet(() -> participantManager.findOrCreateParticipant(Bukkit.getOfflinePlayer(currentAccount.uuid())));
+                            .orElseGet(() -> {
+                                // 新規参加者作成
+                                OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(currentAccount.uuid());
+                                return participantManager.findOrCreateParticipant(offlinePlayer);
+                            });
 
                     pData.addAccount(currentAccount.uuid(), currentAccount.name());
 
-                    Set<UUID> deletionMarkers_uuid = new HashSet<>(pData.getAssociatedUuids());
-                    Set<String> deletionMarkers_name = pData.getAccounts().values().stream()
-                            .map(ParticipantData.AccountInfo::getName)
-                            .filter(Objects::nonNull)
-                            .map(String::toLowerCase)
+                    // 関連アカウントをリストから削除
+                    Set<UUID> relatedUuids = new HashSet<>(pData.getAssociatedUuids());
+                    Set<String> relatedNames = pData.getAccounts().values().stream()
+                            .map(info -> info.getName().toLowerCase())
                             .collect(Collectors.toSet());
+                    accountsToProcess.removeIf(acc -> relatedUuids.contains(acc.uuid()) || relatedNames.contains(acc.name().toLowerCase()));
 
-                    accountsToProcess.removeIf(acc -> deletionMarkers_uuid.contains(acc.uuid()) || deletionMarkers_name.contains(acc.name().toLowerCase()));
                     sessionParticipants.put(pData.getParticipantId(), pData);
                 }
                 saveMmFile(mmFile, "phase2_nayose_results", sessionParticipants.values().stream().map(ParticipantData::toMap).collect(Collectors.toList()));
@@ -244,7 +250,7 @@ public class LogCommand implements CommandExecutor {
                 processSessionEvents(sessionFiles, sessionParticipants);
                 saveMmFile(mmFile, "phase3_recalculation_results", sessionParticipants.values().stream().map(ParticipantData::toMap).collect(Collectors.toList()));
 
-                // フェーズ3: 最終保存
+                // フェーズ4: 永続データへのマージ
                 for (ParticipantData sessionData : sessionParticipants.values()) {
                     participantManager.addOrUpdateDataFromLog(sessionData);
                 }
@@ -294,6 +300,7 @@ public class LogCommand implements CommandExecutor {
             LogLineWithSource log = queue.poll();
             int sourceIndex = log.sourceIndex();
 
+            // 日付またぎ処理
             if(log.timestamp().toLocalTime().isBefore(lastTime)){
                 currentDate = currentDate.plusDays(1);
             }
@@ -327,6 +334,7 @@ public class LogCommand implements CommandExecutor {
             try {
                 LocalTime currentTime = LocalTime.parse(timeMatcher.group(1));
                 LocalDate lineDate = currentDate;
+                // 日付またぎの判定
                 if (currentTime.isBefore(lastTime)) {
                     lineDate = currentDate.plusDays(1);
                 }
@@ -395,16 +403,20 @@ public class LogCommand implements CommandExecutor {
     private Optional<ParticipantData> findParticipantByName(Map<String, ParticipantData> participants, String name) {
         return participants.values().stream()
                 .filter(pData -> {
-                    if (pData.getBaseName().equalsIgnoreCase(name) || (pData.getLinkedName() != null && !pData.getLinkedName().isEmpty() && pData.getLinkedName().equalsIgnoreCase(name))) {
+                    String lowerCaseName = name.toLowerCase();
+                    // base_name or linked_name
+                    if (pData.getBaseName().equalsIgnoreCase(lowerCaseName) || (pData.getLinkedName() != null && !pData.getLinkedName().isEmpty() && pData.getLinkedName().equalsIgnoreCase(lowerCaseName))) {
                         return true;
                     }
-                    if (pData.getAccounts().values().stream().anyMatch(acc -> acc.getName() != null && acc.getName().equalsIgnoreCase(name))) {
+                    // account names
+                    if (pData.getAccounts().values().stream().anyMatch(acc -> acc.getName() != null && acc.getName().equalsIgnoreCase(lowerCaseName))) {
                         return true;
                     }
+                    // linked_name(base_name)
                     Pattern pattern = Pattern.compile("(.+)\\((.+)\\)");
                     Matcher matcher = pattern.matcher(pData.getDisplayName());
                     if (matcher.matches()) {
-                        return matcher.group(1).equalsIgnoreCase(name) || matcher.group(2).equalsIgnoreCase(name);
+                        return matcher.group(1).equalsIgnoreCase(lowerCaseName) || matcher.group(2).equalsIgnoreCase(lowerCaseName);
                     }
                     return false;
                 })
@@ -415,11 +427,13 @@ public class LogCommand implements CommandExecutor {
         if (data == null) return;
         boolean wasParticipantOnline = data.isOnline();
         data.setOnlineStatus(true);
+        data.getAccounts().values().forEach(acc -> acc.setOnline(true)); // 仮で全アカウントをオンラインにする
 
         if (!wasParticipantOnline) {
             LocalDateTime lastQuit = data.getLastQuitTimeAsDate();
             boolean isNewSession = true;
             if (lastQuit != null) {
+                // 10分ルール
                 if (Duration.between(lastQuit, loginTime).toMinutes() < 10) {
                     isNewSession = false;
                 }
@@ -434,8 +448,10 @@ public class LogCommand implements CommandExecutor {
     }
 
     private void handleLogoutLogic(ParticipantData data, LocalDateTime logoutTime) {
-        if (data == null) return;
+        if (data == null || !data.isOnline()) return;
         data.setOnlineStatus(false);
+        data.getAccounts().values().forEach(acc -> acc.setOnline(false));
+
         LocalDateTime startTime = participantSessionStartTimes.remove(data.getParticipantId());
         if (startTime != null) {
             long durationSeconds = Duration.between(startTime, logoutTime).getSeconds();
@@ -445,6 +461,7 @@ public class LogCommand implements CommandExecutor {
                 LocalDateTime lastQuit = data.getLastQuitTimeAsDate();
                 boolean isContinuing = false;
                 if(lastQuit != null){
+                    // 10分ルール
                     if (Duration.between(lastQuit, startTime).toMinutes() < 10) {
                         isContinuing = true;
                     }
@@ -469,22 +486,17 @@ public class LogCommand implements CommandExecutor {
         Pattern serverStartPattern = patterns.get("server-start");
         Pattern serverStopPattern = patterns.get("server-stop");
 
-        if (serverStartPattern == null) {
-            logger.warning("'server-start' pattern not found in config.yml. Cannot group logs by session. Treating all logs as one session.");
+        if (serverStartPattern == null || serverStopPattern == null) {
+            logger.warning("'server-start' or 'server-stop' pattern not found. Treating all logs as one session.");
             sessions.add(Arrays.asList(logFiles));
             return sessions;
         }
 
         for (File currentFile : logFiles) {
             boolean startsNewSession = false;
-            boolean endsLastSession = false;
             try (BufferedReader reader = getReaderForFile(currentFile)) {
-                List<String> lines = reader.lines().collect(Collectors.toList());
-                if (lines.stream().anyMatch(serverStartPattern.asPredicate())) {
+                if (reader.lines().anyMatch(serverStartPattern.asPredicate())) {
                     startsNewSession = true;
-                }
-                if (serverStopPattern != null && lines.stream().anyMatch(serverStopPattern.asPredicate())) {
-                    endsLastSession = true;
                 }
             } catch (IOException e) {
                 logger.log(Level.WARNING, "Could not read log file: " + currentFile.getName(), e);
@@ -497,11 +509,6 @@ public class LogCommand implements CommandExecutor {
             }
 
             currentSessionFiles.add(currentFile);
-
-            if (endsLastSession && !currentSessionFiles.isEmpty()) {
-                sessions.add(new ArrayList<>(currentSessionFiles));
-                currentSessionFiles.clear();
-            }
         }
         if (!currentSessionFiles.isEmpty()) sessions.add(currentSessionFiles);
         return sessions;
@@ -519,7 +526,9 @@ public class LogCommand implements CommandExecutor {
 
     private BufferedReader getReaderForFile(File file) throws IOException {
         InputStream is = new FileInputStream(file);
-        if (file.getName().endsWith(".gz")) {
+        String fileName = file.getName();
+        // .txt は実際には .log ファイルなので、圧縮は考慮しない
+        if (fileName.endsWith(".log.gz")) {
             is = new GZIPInputStream(is);
         }
         return new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8));
@@ -533,7 +542,7 @@ public class LogCommand implements CommandExecutor {
                 return LocalDate.parse(matcher.group(1));
             } catch (DateTimeParseException e) { /* fallback */ }
         }
-        return null; // Let the caller handle null
+        return null;
     }
 
     private void saveMmFile(File mmFile, String key, Object data) {

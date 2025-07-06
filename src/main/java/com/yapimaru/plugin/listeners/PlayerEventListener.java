@@ -55,8 +55,8 @@ public class PlayerEventListener implements Listener {
     public void onPlayerPreLogin(AsyncPlayerPreLoginEvent event) {
         String kickMessage = whitelistManager.checkLogin(event.getUniqueId());
         if (kickMessage != null) {
-            // ★★★ 修正: ComponentではなくStringを渡すように修正
-            event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_WHITELIST, kickMessage);
+            event.setKickMessage(kickMessage);
+            event.setLoginResult(AsyncPlayerPreLoginEvent.Result.KICK_WHITELIST);
         }
     }
 
@@ -99,11 +99,9 @@ public class PlayerEventListener implements Listener {
         joinInvincibilityTasks.put(player.getUniqueId(), task);
     }
 
-    // ★★★ 修正: Paper APIのAsyncChatEventからSpigotのAsyncPlayerChatEventに変更
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerChat(AsyncPlayerChatEvent event) {
         participantManager.incrementChats(event.getPlayer().getUniqueId(), 1);
-        // ★★★ 修正: event.getMessage() を使用するように修正
         int w_count = participantManager.calculateWCount(event.getMessage());
         participantManager.incrementWCount(event.getPlayer().getUniqueId(), w_count);
     }

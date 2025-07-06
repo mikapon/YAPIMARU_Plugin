@@ -32,15 +32,15 @@ log-patterns:
   # ログ行からタイムスタンプを抽出する基本パターン
   log-line: '^\\[(\d{2}:\d{2}:\d{2})].*'
   # Java版プレイヤーのUUIDを特定 (User Authenticator スレッドに対応)
-  uuid: 'UUID of player (\S+) is ([0-9a-f\\-]+)'
+  uuid: 'UUID of player (\\S+) is ([0-9a-f\\-]+)'
   # Bedrock版(Floodgate)プレイヤーのUUIDを特定 (より柔軟なパターンに変更)
-  floodgate-uuid: '\\[floodgate\\] Floodgate.+? (\\S+) でログインしているプレイヤーが参加しました \(UUID: ([0-9a-f\\-]+)\\)'
+  floodgate-uuid: '\\[floodgate\\] Floodgate player (\\S+?)<\\d+> logged in with an offline UUID: ([0-9a-f\\-]+)'
   # プレイヤーの参加を特定 (プレイヤー名部分を\S+に変更し、句点に対応)
-  join: 'INFO]: (\S+?)(?:\\[.+])? (joined the game|logged in with entity|がマッチングしました。?)$'
+  join: 'INFO]: (\\S+?)(?:\\[.+])? (joined the game|logged in with entity|がマッチングしました。?)$'
   # プレイヤーの退出を特定 (プレイヤー名部分を\S+に変更し、句点に対応)
-  left-game: 'INFO]: (\S+) (left the game|が退室しました。?|lost connection:.*)$'
+  left-game: 'INFO]: (\\S+) (left the game|が退室しました。?|lost connection:.*)$'
   # プレイヤーの死亡を特定 (プレイヤー名部分を\S+に変更)
-  death: 'INFO]: (\S+) (was squashed by a falling anvil|was shot by.*|was pricked to death|walked into a cactus.*|was squished too much|was squashed by.*|was roasted in dragon''s breath|drowned|died from dehydration|was killed by even more magic|blew up|was blown up by.*|hit the ground too hard|was squashed by a falling block|was skewered by a falling stalactite|was fireballed by.*|went off with a bang|experienced kinetic energy|froze to death|was frozen to death by.*|died|died because of.*|was killed|discovered the floor was lava|walked into the danger zone due to.*|was killed by.*using magic|went up in flames|walked into fire.*|suffocated in a wall|tried to swim in lava|was struck by lightning|was smashed by.*|was killed by magic|was slain by.*|burned to a crisp.*|fell from a high place|withered away|was shot by a skull from.*|fell out of the world|didn''t want to live in the same world as.*|left the confines of this world|was obliterated by a sonically-charged shriek|was impaled on a stalagmite|starved to death|was stung to death|was poked to death by a sweet berry bush|was killed while trying to hurt.*|was pummeled by.*|was impaled by.*)$'
+  death: 'INFO]: (\\S+) (was squashed by a falling anvil|was shot by.*|was pricked to death|walked into a cactus.*|was squished too much|was squashed by.*|was roasted in dragon''s breath|drowned|died from dehydration|was killed by even more magic|blew up|was blown up by.*|hit the ground too hard|was squashed by a falling block|was skewered by a falling stalactite|was fireballed by.*|went off with a bang|experienced kinetic energy|froze to death|was frozen to death by.*|died|died because of.*|was killed|discovered the floor was lava|walked into the danger zone due to.*|was killed by.*using magic|went up in flames|walked into fire.*|suffocated in a wall|tried to swim in lava|was struck by lightning|was smashed by.*|was killed by magic|was slain by.*|burned to a crisp.*|fell from a high place|withered away|was shot by a skull from.*|fell out of the world|didn''t want to live in the same world as.*|left the confines of this world|was obliterated by a sonically-charged shriek|was impaled on a stalagmite|starved to death|was stung to death|was poked to death by a sweet berry bush|was killed while trying to hurt.*|was pummeled by.*|was impaled by.*)$'
   # 撮影コマンドの実行を特定
   photographing: '.*issued server command: /photographing on'
   # プレイヤーのチャットを特定
@@ -49,3 +49,10 @@ log-patterns:
   server-start: 'Starting minecraft server version'
   # サーバーの停止を特定
   server-stop: 'Stopping server'
+
+# ==================================
+#  /voting evaluation 機能用設定
+# ==================================
+# このセクションはプラグインによって管理されます。
+voting-settings:
+  project-max-stars: {}

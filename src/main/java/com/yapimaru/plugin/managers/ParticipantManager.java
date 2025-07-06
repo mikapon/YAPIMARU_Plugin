@@ -58,6 +58,7 @@ public class ParticipantManager {
 
         Stream.concat(activeParticipants.values().stream(), dischargedParticipants.values().stream())
                 .forEach(data -> {
+                    data.setOnlineStatus(false);
                     for (Map.Entry<UUID, ParticipantData.AccountInfo> entry : data.getAccounts().entrySet()) {
                         if (entry.getValue().isOnline()) {
                             plugin.getLogger().warning("Player " + entry.getValue().getName() + " ("+ data.getParticipantId() +") was marked as online during startup. Correcting status.");
@@ -163,10 +164,9 @@ public class ParticipantManager {
 
         boolean isDischarged = dischargedParticipants.containsKey(data.getParticipantId());
         File targetDir = isDischarged ? dischargedDir : activeDir;
-
         File file = new File(targetDir, data.getParticipantId() + ".yml");
 
-        // YamlConfiguration を直接使わず、手動で文字列を構築して仕様通りのフォーマットにする
+        // 手動でYAML文字列を構築し、指定されたフォーマットを保証する
         StringBuilder yamlContent = new StringBuilder();
         yamlContent.append("base_name: '").append(data.getBaseName()).append("'\n");
         yamlContent.append("linked_name: '").append(data.getLinkedName()).append("'\n");
@@ -174,7 +174,8 @@ public class ParticipantManager {
         yamlContent.append("accounts:\n");
         for (Map.Entry<UUID, ParticipantData.AccountInfo> entry : data.getAccounts().entrySet()) {
             ParticipantData.AccountInfo info = entry.getValue();
-            yamlContent.append("  \"").append(entry.getKey().toString()).append("\": {name: ").append(info.getName()).append(", online: ").append(info.isOnline()).append("}\n");
+            // 新しい1行形式で保存
+            yamlContent.append("  ").append(entry.getKey().toString()).append(": \"{name: ").append(info.getName()).append(", online: ").append(info.isOnline()).append("}\"\n");
         }
 
         yamlContent.append("statistics:\n");
@@ -205,7 +206,6 @@ public class ParticipantManager {
         }
     }
 
-
     public synchronized void registerNewParticipant(ParticipantData data) {
         if (data == null || data.getParticipantId() == null || data.getParticipantId().isEmpty()) {
             return;
@@ -233,6 +233,7 @@ public class ParticipantManager {
 
             boolean isNewSession = true;
             if (lastQuit != null && !isServerStart) {
+                // 10分ルール
                 if (Duration.between(lastQuit, now).toMinutes() < 10) {
                     isNewSession = false;
                 }
@@ -266,6 +267,7 @@ public class ParticipantManager {
                 long durationSeconds = Duration.between(startTime, now).getSeconds();
                 if (durationSeconds > 0) {
                     data.addPlaytime(durationSeconds);
+                    // 10分ルールに基づくプレイ時間履歴の処理
                     if (isContinuingSession.getOrDefault(data.getParticipantId(), false)) {
                         data.addTimeToLastPlaytime(durationSeconds);
                     } else {
@@ -281,28 +283,16 @@ public class ParticipantManager {
 
     public synchronized int resetAllStats() {
         int count = 0;
-        File[] participantDirs = { activeDir, dischargedDir };
-
-        for (File dir : participantDirs) {
-            File[] files = dir.listFiles((d, name) -> name.endsWith(".yml"));
-            if (files == null) continue;
-
-            for (File file : files) {
-                try {
-                    YamlConfiguration config = new YamlConfiguration();
-                    try (Reader reader = new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8)) {
-                        config.load(reader);
-                    }
-
-                    ParticipantData data = new ParticipantData(config);
-                    data.resetStats();
-                    saveParticipant(data); // 修正したsaveParticipantを使って保存する
-                    count++;
-
-                } catch (Exception e) {
-                    plugin.getLogger().log(Level.SEVERE, "Failed to reset stats for file: " + file.getName(), e);
-                }
-            }
+        // 両方のリストのデータを処理
+        for (ParticipantData data : new ArrayList<>(activeParticipants.values())) {
+            data.resetAllStats();
+            saveParticipant(data);
+            count++;
+        }
+        for (ParticipantData data : new ArrayList<>(dischargedParticipants.values())) {
+            data.resetAllStats();
+            saveParticipant(data);
+            count++;
         }
 
         // メモリ上のデータもリロードして同期
@@ -313,15 +303,14 @@ public class ParticipantManager {
     public synchronized void addOrUpdateDataFromLog(ParticipantData logData) {
         ParticipantData existingData = getLoadedParticipant(logData.getParticipantId());
         if (existingData == null) {
-            plugin.getLogger().warning("Log processing found a participant not in memory: " + logData.getParticipantId() + ". This shouldn't happen. Registering as new.");
+            plugin.getLogger().warning("Log processing found a participant not in memory: " + logData.getParticipantId() + ". Registering as new.");
             registerNewParticipant(logData);
-            existingData = logData;
+            existingData = logData; // 登録された新しいデータを取得
         }
 
         existingData.addLogData(logData);
         saveParticipant(existingData);
     }
-
 
     public synchronized void incrementDeaths(UUID uuid, int amount) {
         ParticipantData data = findOrCreateParticipant(Bukkit.getOfflinePlayer(uuid));
@@ -349,10 +338,9 @@ public class ParticipantManager {
     }
 
     public int calculateWCount(String message) {
-        // ステップ1: 【入れ子括弧ブロック】の削除
+        // ステップ1&2: 括弧の処理
         String cleanedMessage = removeNestedParentheses(message);
-        // ステップ2: 【単純な括弧】の除去
-        cleanedMessage = cleanedMessage.replaceAll("[()]", "");
+        cleanedMessage = cleanedMessage.replaceAll("[（）()]", ""); // 全角半角括弧を除去
 
         int count = 0;
         String lowerCaseMessage = cleanedMessage.toLowerCase();
@@ -381,37 +369,37 @@ public class ParticipantManager {
     }
 
     private String removeNestedParentheses(String text) {
-        StringBuilder result = new StringBuilder();
-        int depth = 0;
-        int lastPos = 0;
-        for (int i = 0; i < text.length(); i++) {
-            char c = text.charAt(i);
-            if (c == '(') {
-                if(depth == 0) {
-                    result.append(text, lastPos, i);
-                }
-                depth++;
-            } else if (c == ')') {
-                depth = Math.max(0, depth - 1);
-                if(depth == 0) {
-                    lastPos = i + 1;
+        StringBuilder sb = new StringBuilder(text);
+        while (true) {
+            int start = -1;
+            int depth = 0;
+            int firstStart = -1;
+            boolean changed = false;
+
+            for (int i = 0; i < sb.length(); i++) {
+                char c = sb.charAt(i);
+                if (c == '(' || c == '（') {
+                    if (depth == 0) {
+                        start = i;
+                        if (firstStart == -1) firstStart = i;
+                    }
+                    depth++;
+                } else if (c == ')' || c == '）') {
+                    if (depth > 0) {
+                        depth--;
+                        if (depth == 0 && start != -1) {
+                            sb.delete(start, i + 1);
+                            changed = true;
+                            break; // 文字列が変更されたのでループをやり直す
+                        }
+                    }
                 }
             }
+            if (!changed) {
+                break; // 変更がなければ完了
+            }
         }
-        if (lastPos < text.length()) {
-            result.append(text.substring(lastPos));
-        }
-
-        // 再帰的に処理して、単純な括弧がなくなるまで繰り返す
-        Pattern pattern = Pattern.compile("\\([^()]*\\)");
-        String current = result.toString();
-        String previous;
-        do {
-            previous = current;
-            current = pattern.matcher(previous).replaceAll("");
-        } while (!current.equals(previous));
-
-        return current;
+        return sb.toString();
     }
 
 
@@ -475,24 +463,26 @@ public class ParticipantManager {
         String oldParticipantId = oldData.getParticipantId();
         String newParticipantId = ParticipantData.generateId(newBaseName, newLinkedName);
 
+        // ファイル名が変わらない場合は、内容だけ更新
         if (oldParticipantId.equals(newParticipantId)) {
             oldData.setFullName(newBaseName, newLinkedName);
             saveParticipant(oldData);
             return true;
         }
 
+        // ファイル名が変わる場合は、古いファイルを削除して新しい名前で保存
         File oldFile = new File(activeDir, oldParticipantId + ".yml");
         if(oldFile.exists()) {
             if(!oldFile.delete()) {
                 plugin.getLogger().warning("Failed to delete old participant file: " + oldFile.getName());
-                return false;
+                // 失敗しても処理を続行してみる
             }
         }
 
         activeParticipants.remove(oldParticipantId);
         oldData.setFullName(newBaseName, newLinkedName);
         activeParticipants.put(newParticipantId, oldData);
-        saveParticipant(oldData);
+        saveParticipant(oldData); // 新しいIDで保存
         return true;
     }
 
@@ -533,12 +523,15 @@ public class ParticipantManager {
 
         return Stream.concat(activeParticipants.values().stream(), dischargedParticipants.values().stream())
                 .filter(pData -> {
+                    // base_name または linked_name が一致
                     if (pData.getBaseName() != null && pData.getBaseName().equalsIgnoreCase(lowerCaseName)) return true;
-                    if (pData.getLinkedName() != null && pData.getLinkedName().equalsIgnoreCase(lowerCaseName)) return true;
+                    if (pData.getLinkedName() != null && !pData.getLinkedName().isEmpty() && pData.getLinkedName().equalsIgnoreCase(lowerCaseName)) return true;
 
+                    // 表示名 "linked_name(base_name)" が一致
                     String displayName = pData.getDisplayName();
                     if (displayName.equalsIgnoreCase(lowerCaseName)) return true;
 
+                    // "linked_name(base_name)" の括弧の中または外が一致
                     Pattern pattern = Pattern.compile("(.+)\\((.+)\\)");
                     Matcher matcher = pattern.matcher(displayName);
                     if(matcher.matches()){
@@ -547,6 +540,7 @@ public class ParticipantManager {
                         }
                     }
 
+                    // 関連アカウントのMinecraft IDが一致
                     for (ParticipantData.AccountInfo accountInfo : pData.getAccounts().values()) {
                         if (accountInfo.getName() != null && accountInfo.getName().equalsIgnoreCase(lowerCaseName)) {
                             return true;
