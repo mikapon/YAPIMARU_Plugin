@@ -117,7 +117,6 @@ public class ParticipantManager {
         return activeParticipants.getOrDefault(participantId, dischargedParticipants.get(participantId));
     }
 
-    // ★★★ エラーが出ていた他クラスから呼び出されるメソッドを再追加 ★★★
     public synchronized Collection<ParticipantData> getActiveParticipants() {
         return Collections.unmodifiableCollection(new ArrayList<>(activeParticipants.values()));
     }
@@ -223,7 +222,9 @@ public class ParticipantManager {
         if (data == null) return;
 
         boolean wasParticipantOnline = data.isOnline();
-        data.getAccounts().get(uuid).setOnline(true);
+        if (data.getAccounts().containsKey(uuid)) {
+            data.getAccounts().get(uuid).setOnline(true);
+        }
         data.setOnlineStatus(true);
 
         if (!wasParticipantOnline) {
@@ -348,23 +349,31 @@ public class ParticipantManager {
     }
 
     public int calculateWCount(String message) {
+        // ステップ1: 【入れ子括弧ブロック】の削除
         String cleanedMessage = removeNestedParentheses(message);
+        // ステップ2: 【単純な括弧】の除去
         cleanedMessage = cleanedMessage.replaceAll("[()]", "");
 
         int count = 0;
-        String[] laughWords = {"kusa", "草", "wara", "笑", "lol"};
-        String tempMessage = cleanedMessage.toLowerCase();
-        for (String word : laughWords) {
-            count += (tempMessage.length() - tempMessage.replace(word, "").length()) / word.length();
-            tempMessage = tempMessage.replace(word, "");
+        String lowerCaseMessage = cleanedMessage.toLowerCase();
+
+        // ステップ3, ルールC: キーワードのカウント
+        String[] laughKeywords = {"kusa", "草", "wara", "笑", "lol"};
+        for (String word : laughKeywords) {
+            int occurrences = (lowerCaseMessage.length() - lowerCaseMessage.replace(word, "").length()) / word.length();
+            count += occurrences;
+            lowerCaseMessage = lowerCaseMessage.replace(word, ""); // カウント済みの単語は除去
         }
 
+        // ステップ3, ルールA & B: 'w'のカウント
         Pattern wPattern = Pattern.compile("w{2,}");
-        Matcher wMatcher = wPattern.matcher(tempMessage.toLowerCase());
+        Matcher wMatcher = wPattern.matcher(lowerCaseMessage);
         while(wMatcher.find()) {
             count += wMatcher.group().length();
         }
-        if (tempMessage.endsWith("w") && !tempMessage.endsWith("ww")) {
+        // 連続したwを除去した残りの文字列で末尾のwをチェック
+        String remainingMessage = wMatcher.replaceAll("");
+        if (remainingMessage.endsWith("w")) {
             count++;
         }
 
@@ -393,12 +402,16 @@ public class ParticipantManager {
             result.append(text.substring(lastPos));
         }
 
-        Pattern pattern = Pattern.compile("\\([^()]*\\([^()]*\\)[^()]*\\)");
-        Matcher matcher = pattern.matcher(result.toString());
-        if(matcher.find()){
-            return removeNestedParentheses(matcher.replaceAll(""));
-        }
-        return result.toString();
+        // 再帰的に処理して、単純な括弧がなくなるまで繰り返す
+        Pattern pattern = Pattern.compile("\\([^()]*\\)");
+        String current = result.toString();
+        String previous;
+        do {
+            previous = current;
+            current = pattern.matcher(previous).replaceAll("");
+        } while (!current.equals(previous));
+
+        return current;
     }
 
 

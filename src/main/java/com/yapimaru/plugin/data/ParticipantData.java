@@ -232,7 +232,7 @@ public class ParticipantData {
     public List<String> getPhotoshootHistory() { return photoshootHistory; }
     public String getLastQuitTime() { return lastQuitTime; }
     public LocalDateTime getLastQuitTimeAsDate() {
-        if (lastQuitTime == null) return null;
+        if (lastQuitTime == null || "null".equalsIgnoreCase(lastQuitTime)) return null;
         try {
             return LocalDateTime.parse(lastQuitTime, HISTORY_FORMATTER);
         } catch (Exception e) {

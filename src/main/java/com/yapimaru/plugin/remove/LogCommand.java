@@ -165,7 +165,7 @@ public class LogCommand implements CommandExecutor {
             participantSessionStartTimes.clear();
 
             try {
-                // アカウント情報の全集約
+                // フェーズ1: 情報収集と中間ファイルの作成
                 Set<UnprocessedAccount> unprocessedAccounts = new HashSet<>();
                 Set<String> processedNames = new HashSet<>();
 
@@ -198,71 +198,53 @@ public class LogCommand implements CommandExecutor {
                         }
                     }
                 }
-
-                // UUID情報がログにない場合のフォールバック
-                if (unprocessedAccounts.isEmpty()) {
-                    logger.warning("[YAPIMARU WARNING] セッション " + sessionName + " からUUID情報を直接抽出できませんでした。Joinログからのフォールバックを試みます。");
-                    Pattern joinPattern = patterns.get("join");
-                    if (joinPattern != null) {
-                        for (File logFile : sessionFiles) {
-                            try (BufferedReader reader = getReaderForFile(logFile)) {
-                                String line;
-                                while ((line = reader.readLine()) != null) {
-                                    Matcher joinMatcher = joinPattern.matcher(line);
-                                    if (joinMatcher.find()) {
-                                        String name = joinMatcher.group(1);
-                                        if (processedNames.add(name.toLowerCase())) {
-                                            OfflinePlayer p = Bukkit.getOfflinePlayer(name);
-                                            if (p.hasPlayedBefore() || p.isOnline()) {
-                                                unprocessedAccounts.add(new UnprocessedAccount(p.getUniqueId(), name));
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        logger.warning("[YAPIMARU WARNING] 'join' pattern is missing in config.yml. Cannot perform fallback.");
-                    }
-                }
-
-
                 saveMmFile(mmFile, "phase1_unprocessed_accounts", unprocessedAccounts.stream().map(acc -> Map.of("name", acc.name(), "uuid", acc.uuid().toString())).collect(Collectors.toList()));
 
                 if (unprocessedAccounts.isEmpty()) {
-                    logger.warning("[YAPIMARU WARNING] フォールバック処理後も、セッション " + sessionName + " からアカウント情報を一件も抽出できませんでした。このセッションはスキップされます。");
+                    logger.warning("[YAPIMARU WARNING] セッション " + sessionName + " からアカウント情報を一件も抽出できませんでした。このセッションはスキップされます。");
                     moveFilesTo(sessionFiles, errorDir);
-                    handleError(sender, sessionName, "アカウント情報が抽出できませんでした。", new Exception("No accounts found in session logs."), sessionFiles);
+                    sessionsWithError.getAndIncrement();
                     continue;
                 }
 
-                // 名寄せ（人物の特定）
+                // フェーズ2: 名寄せとデータ統合
                 Map<String, ParticipantData> sessionParticipants = new HashMap<>();
                 Set<UnprocessedAccount> accountsToProcess = new HashSet<>(unprocessedAccounts);
 
                 while (!accountsToProcess.isEmpty()) {
                     UnprocessedAccount currentAccount = accountsToProcess.iterator().next();
-                    ParticipantData pData = participantManager.findOrCreateParticipant(Bukkit.getOfflinePlayer(currentAccount.uuid()));
+                    // 既存データからUUIDまたは名前で検索
+                    ParticipantData pData = participantManager.findParticipantByAnyName(currentAccount.name())
+                            .or(() -> Optional.ofNullable(participantManager.getParticipant(currentAccount.uuid())))
+                            .orElseGet(() -> participantManager.findOrCreateParticipant(Bukkit.getOfflinePlayer(currentAccount.uuid())));
+
                     pData.addAccount(currentAccount.uuid(), currentAccount.name());
 
                     Set<UUID> deletionMarkers_uuid = new HashSet<>(pData.getAssociatedUuids());
                     Set<String> deletionMarkers_name = pData.getAccounts().values().stream()
                             .map(ParticipantData.AccountInfo::getName)
                             .filter(Objects::nonNull)
+                            .map(String::toLowerCase)
                             .collect(Collectors.toSet());
-                    if (pData.getBaseName() != null && !pData.getBaseName().isEmpty()) deletionMarkers_name.add(pData.getBaseName());
-                    if (pData.getLinkedName() != null && !pData.getLinkedName().isEmpty()) deletionMarkers_name.add(pData.getLinkedName());
 
-                    accountsToProcess.removeIf(acc -> deletionMarkers_uuid.contains(acc.uuid()) || deletionMarkers_name.contains(acc.name()));
+                    accountsToProcess.removeIf(acc -> deletionMarkers_uuid.contains(acc.uuid()) || deletionMarkers_name.contains(acc.name().toLowerCase()));
                     sessionParticipants.put(pData.getParticipantId(), pData);
                 }
                 saveMmFile(mmFile, "phase2_nayose_results", sessionParticipants.values().stream().map(ParticipantData::toMap).collect(Collectors.toList()));
 
-                // イベント解析とデータ再集計（既存データへの加算）
+
+                // フェーズ2.5: 統計データのリセット
+                for(ParticipantData pData : sessionParticipants.values()){
+                    pData.resetStatsForLog();
+                }
+                saveMmFile(mmFile, "phase2.5_reset_stats", sessionParticipants.values().stream().map(ParticipantData::toMap).collect(Collectors.toList()));
+
+
+                // フェーズ3: ログからの再集計
                 processSessionEvents(sessionFiles, sessionParticipants);
                 saveMmFile(mmFile, "phase3_recalculation_results", sessionParticipants.values().stream().map(ParticipantData::toMap).collect(Collectors.toList()));
 
-                // ここで実際に永続データに反映
+                // フェーズ3: 最終保存
                 for (ParticipantData sessionData : sessionParticipants.values()) {
                     participantManager.addOrUpdateDataFromLog(sessionData);
                 }
@@ -290,11 +272,6 @@ public class LogCommand implements CommandExecutor {
     }
 
     private void processSessionEvents(List<File> sessionFiles, Map<String, ParticipantData> sessionParticipants) throws IOException {
-        // セッション開始前に統計情報をリセット
-        for(ParticipantData pData : sessionParticipants.values()){
-            pData.resetStatsForLog();
-        }
-
         List<BufferedReader> readers = new ArrayList<>();
         for (File file : sessionFiles) {
             readers.add(getReaderForFile(file));
@@ -305,7 +282,6 @@ public class LogCommand implements CommandExecutor {
         if (currentDate == null) currentDate = LocalDate.now();
         LocalTime lastTime = LocalTime.MIN;
 
-        // 各ファイルの最初の行をキューに追加
         for (int i = 0; i < readers.size(); i++) {
             String line = readers.get(i).readLine();
             if (line != null) {
@@ -314,23 +290,18 @@ public class LogCommand implements CommandExecutor {
             }
         }
 
-        // メモリ効率の良いマージソート的処理
         while (!queue.isEmpty()) {
             LogLineWithSource log = queue.poll();
             int sourceIndex = log.sourceIndex();
 
-            // タイムスタンプの更新ロジック
             if(log.timestamp().toLocalTime().isBefore(lastTime)){
                 currentDate = currentDate.plusDays(1);
             }
             lastTime = log.timestamp().toLocalTime();
             LocalDateTime correctedTimestamp = currentDate.atTime(log.timestamp().toLocalTime());
 
-
-            // イベント処理
             handleLogLine(log.content(), correctedTimestamp, sessionParticipants);
 
-            // 次の行を同じファイルから読み込んでキューに追加
             String nextLine = readers.get(sourceIndex).readLine();
             if (nextLine != null) {
                 Optional<LogLineWithSource> nextLogLineOpt = parseLine(nextLine, sourceIndex, currentDate, lastTime);
@@ -338,7 +309,6 @@ public class LogCommand implements CommandExecutor {
             }
         }
 
-        // 全てのリーダーを閉じる
         for (BufferedReader reader : readers) {
             try {
                 reader.close();
@@ -372,7 +342,7 @@ public class LogCommand implements CommandExecutor {
             Matcher joinMatcher = joinPattern.matcher(content);
             if (joinMatcher.find()) {
                 String name = joinMatcher.group(1);
-                findParticipantByName(sessionParticipants, name).ifPresent(p -> handleLoginLogic(p, getUuidForName(p, name), timestamp));
+                findParticipantByName(sessionParticipants, name).ifPresent(p -> handleLoginLogic(p, timestamp));
                 return;
             }
         }
@@ -382,7 +352,7 @@ public class LogCommand implements CommandExecutor {
             Matcher leftMatcher = leftPattern.matcher(content);
             if (leftMatcher.find()) {
                 String name = leftMatcher.group(1);
-                findParticipantByName(sessionParticipants, name).ifPresent(p -> handleLogoutLogic(p, getUuidForName(p, name), timestamp));
+                findParticipantByName(sessionParticipants, name).ifPresent(p -> handleLogoutLogic(p, timestamp));
                 return;
             }
         }
@@ -423,88 +393,71 @@ public class LogCommand implements CommandExecutor {
 
 
     private Optional<ParticipantData> findParticipantByName(Map<String, ParticipantData> participants, String name) {
-        // 完全一致を優先
-        for (ParticipantData pData : participants.values()) {
-            if (pData.getBaseName().equalsIgnoreCase(name) || (pData.getLinkedName() != null && !pData.getLinkedName().isEmpty() && pData.getLinkedName().equalsIgnoreCase(name))) {
-                return Optional.of(pData);
-            }
-            for (ParticipantData.AccountInfo accountInfo : pData.getAccounts().values()) {
-                if (accountInfo.getName() != null && accountInfo.getName().equalsIgnoreCase(name)) {
-                    return Optional.of(pData);
-                }
-            }
-        }
-
-        // LunaChatなどの表示名 `フィンクス(管理人)` 形式に対応
-        Pattern pattern = Pattern.compile("(.+)\\((.+)\\)");
-        for(ParticipantData pData : participants.values()){
-            // 表示名自体での一致も確認
-            if (pData.getDisplayName().equalsIgnoreCase(name)) {
-                return Optional.of(pData);
-            }
-            Matcher matcher = pattern.matcher(pData.getDisplayName());
-            if(matcher.matches()){
-                if(matcher.group(1).equalsIgnoreCase(name) || matcher.group(2).equalsIgnoreCase(name)){
-                    return Optional.of(pData);
-                }
-            }
-        }
-
-        return Optional.empty();
+        return participants.values().stream()
+                .filter(pData -> {
+                    if (pData.getBaseName().equalsIgnoreCase(name) || (pData.getLinkedName() != null && !pData.getLinkedName().isEmpty() && pData.getLinkedName().equalsIgnoreCase(name))) {
+                        return true;
+                    }
+                    if (pData.getAccounts().values().stream().anyMatch(acc -> acc.getName() != null && acc.getName().equalsIgnoreCase(name))) {
+                        return true;
+                    }
+                    Pattern pattern = Pattern.compile("(.+)\\((.+)\\)");
+                    Matcher matcher = pattern.matcher(pData.getDisplayName());
+                    if (matcher.matches()) {
+                        return matcher.group(1).equalsIgnoreCase(name) || matcher.group(2).equalsIgnoreCase(name);
+                    }
+                    return false;
+                })
+                .findFirst();
     }
 
-    private UUID getUuidForName(ParticipantData p, String name) {
-        return p.getAccounts().entrySet().stream()
-                .filter(entry -> entry.getValue().getName() != null && entry.getValue().getName().equalsIgnoreCase(name))
-                .map(Map.Entry::getKey)
-                .findFirst()
-                .orElse(p.getAssociatedUuids().stream().findFirst().orElse(null));
-    }
-
-    private void handleLoginLogic(ParticipantData data, UUID uuid, LocalDateTime loginTime) {
+    private void handleLoginLogic(ParticipantData data, LocalDateTime loginTime) {
         if (data == null) return;
-        if (uuid == null) {
-            uuid = data.getAssociatedUuids().stream().findFirst().orElse(null);
-        }
-        if (uuid == null) return;
-
         boolean wasParticipantOnline = data.isOnline();
-        if(data.getAccounts().get(uuid) != null) {
-            data.getAccounts().get(uuid).setOnline(true);
-        }
         data.setOnlineStatus(true);
 
-
         if (!wasParticipantOnline) {
-            data.incrementStat("total_joins", 1);
-            data.addHistoryEvent("join", loginTime);
+            LocalDateTime lastQuit = data.getLastQuitTimeAsDate();
+            boolean isNewSession = true;
+            if (lastQuit != null) {
+                if (Duration.between(lastQuit, loginTime).toMinutes() < 10) {
+                    isNewSession = false;
+                }
+            }
+
+            if (isNewSession) {
+                data.incrementStat("total_joins", 1);
+                data.addHistoryEvent("join", loginTime);
+            }
             participantSessionStartTimes.put(data.getParticipantId(), loginTime);
         }
     }
 
-    private void handleLogoutLogic(ParticipantData data, UUID uuid, LocalDateTime logoutTime) {
+    private void handleLogoutLogic(ParticipantData data, LocalDateTime logoutTime) {
         if (data == null) return;
-        if (uuid == null) {
-            uuid = data.getAssociatedUuids().stream().findFirst().orElse(null);
-        }
-        if (uuid == null) return;
+        data.setOnlineStatus(false);
+        LocalDateTime startTime = participantSessionStartTimes.remove(data.getParticipantId());
+        if (startTime != null) {
+            long durationSeconds = Duration.between(startTime, logoutTime).getSeconds();
+            if (durationSeconds > 0) {
+                data.addPlaytime(durationSeconds);
 
-        if(data.getAccounts().get(uuid) != null) {
-            data.getAccounts().get(uuid).setOnline(false);
-        }
+                LocalDateTime lastQuit = data.getLastQuitTimeAsDate();
+                boolean isContinuing = false;
+                if(lastQuit != null){
+                    if (Duration.between(lastQuit, startTime).toMinutes() < 10) {
+                        isContinuing = true;
+                    }
+                }
 
-        if (data.getAccounts().values().stream().noneMatch(ParticipantData.AccountInfo::isOnline)) {
-            data.setOnlineStatus(false);
-            LocalDateTime startTime = participantSessionStartTimes.remove(data.getParticipantId());
-            if (startTime != null) {
-                long durationSeconds = Duration.between(startTime, logoutTime).getSeconds();
-                if (durationSeconds > 0) {
-                    data.addPlaytime(durationSeconds);
+                if (isContinuing) {
+                    data.addTimeToLastPlaytime(durationSeconds);
+                } else {
                     data.addPlaytimeToHistory(durationSeconds);
                 }
             }
-            data.setLastQuitTime(logoutTime);
         }
+        data.setLastQuitTime(logoutTime);
     }
 
     private List<List<File>> groupLogsByServerSession(File[] logFiles) {
