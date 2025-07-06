@@ -111,6 +111,7 @@ public class ParticipantData {
     }
 
     public void addLogData(ParticipantData logData) {
+        // 統計情報は、0から再計算された値を加算する
         logData.getStatistics().forEach((key, value) -> {
             Number currentValue = this.statistics.getOrDefault(key, 0);
             if (currentValue instanceof Long || value instanceof Long) {
@@ -120,24 +121,17 @@ public class ParticipantData {
             }
         });
 
+        // 履歴は、古い履歴+新しい履歴がマージ済みのリストで「上書き」する
+        this.joinHistory.clear();
         this.joinHistory.addAll(logData.getJoinHistory());
-        this.joinHistory.sort(Comparator.naturalOrder());
-        while(this.joinHistory.size() > 10) {
-            this.joinHistory.remove(0);
-        }
 
+        this.photoshootHistory.clear();
         this.photoshootHistory.addAll(logData.getPhotoshootHistory());
-        this.photoshootHistory.sort(Comparator.naturalOrder());
-        while(this.photoshootHistory.size() > 10) {
-            this.photoshootHistory.remove(0);
-        }
 
+        this.playtimeHistory.clear();
         this.playtimeHistory.addAll(logData.getPlaytimeHistory());
-        this.playtimeHistory.sort(Comparator.naturalOrder());
-        while(this.playtimeHistory.size() > 10) {
-            this.playtimeHistory.remove(0);
-        }
 
+        // 最終退出日時は、より新しい方で上書きする
         LocalDateTime existingLQT = this.getLastQuitTimeAsDate();
         LocalDateTime newLQT = logData.getLastQuitTimeAsDate();
         if (newLQT != null && (existingLQT == null || newLQT.isAfter(existingLQT))) {
@@ -180,16 +174,15 @@ public class ParticipantData {
     }
 
     public void resetStatsForLog() {
+        // 統計情報のみをリセット
         this.statistics.clear();
         initializeStats();
 
-        joinHistory.clear();
-        photoshootHistory.clear();
-        playtimeHistory.clear();
-        lastQuitTime = null;
-
+        // オンライン状態をリセット
         accounts.values().forEach(acc -> acc.setOnline(false));
         this.isOnline = false;
+
+        // joinHistory, photoshootHistory, playtimeHistory, lastQuitTime は変更しない
     }
 
     public String getParticipantId() {

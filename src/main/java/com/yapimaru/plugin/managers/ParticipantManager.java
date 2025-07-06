@@ -4,6 +4,7 @@ import com.yapimaru.plugin.YAPIMARU_Plugin;
 import com.yapimaru.plugin.data.ParticipantData;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 
 import java.io.*;
@@ -266,16 +267,59 @@ public class ParticipantManager {
     }
 
     public synchronized int resetAllStats() {
-        List<ParticipantData> allKnownParticipants = new ArrayList<>();
-        allKnownParticipants.addAll(activeParticipants.values());
-        allKnownParticipants.addAll(dischargedParticipants.values());
-
         int count = 0;
-        for (ParticipantData data : allKnownParticipants) {
-            data.resetStats();
-            saveParticipant(data);
-            count++;
+        File[] participantDirs = { activeDir, dischargedDir };
+
+        for (File dir : participantDirs) {
+            File[] files = dir.listFiles((d, name) -> name.endsWith(".yml"));
+            if (files == null) continue;
+
+            for (File file : files) {
+                try {
+                    YamlConfiguration config = new YamlConfiguration();
+                    try (Reader reader = new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8)) {
+                        config.load(reader);
+                    }
+
+                    // 統計情報のリセット
+                    config.set("statistics.total_deaths", 0);
+                    config.set("statistics.total_joins", 0);
+                    config.set("statistics.total_playtime_seconds", 0L);
+                    config.set("statistics.photoshoot_participations", 0);
+                    config.set("statistics.total_chats", 0);
+                    config.set("statistics.w_count", 0);
+
+                    // 各種履歴のクリア
+                    config.set("join-history", new ArrayList<>());
+                    config.set("photoshoot-history", new ArrayList<>());
+                    config.set("playtime-history", new ArrayList<>());
+
+                    // 状態のリセット
+                    config.set("last-quit-time", null);
+                    config.set("is-online", false);
+
+                    // 関連アカウントの状態もリセット
+                    ConfigurationSection accountsSection = config.getConfigurationSection("accounts");
+                    if (accountsSection != null) {
+                        for (String uuidStr : accountsSection.getKeys(false)) {
+                            accountsSection.set(uuidStr + ".online", false);
+                        }
+                    }
+
+                    // ファイルに保存
+                    try (Writer writer = new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8)) {
+                        writer.write(config.saveToString());
+                    }
+                    count++;
+
+                } catch (Exception e) {
+                    plugin.getLogger().log(Level.SEVERE, "Failed to reset stats for file: " + file.getName(), e);
+                }
+            }
         }
+
+        // メモリ上のデータもリロードして同期
+        reloadAllParticipants();
         return count;
     }
 
