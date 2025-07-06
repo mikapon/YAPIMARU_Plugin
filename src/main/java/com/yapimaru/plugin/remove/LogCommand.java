@@ -147,6 +147,8 @@ public class LogCommand implements CommandExecutor {
         List<List<File>> serverSessions = groupLogsByServerSession(logFiles);
         if (serverSessions.isEmpty()) {
             plugin.getAdventure().sender(sender).sendMessage(Component.text("有効なサーバーセッションが見つかりませんでした。", NamedTextColor.YELLOW));
+            // 見つからなかったファイルはエラーに移動
+            moveFilesTo(Arrays.asList(logFiles), errorDir);
             return;
         }
         plugin.getAdventure().sender(sender).sendMessage(Component.text("... " + serverSessions.size() + " 個のセッションが見つかりました。", NamedTextColor.GRAY));
