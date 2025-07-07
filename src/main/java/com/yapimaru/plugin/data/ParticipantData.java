@@ -94,6 +94,32 @@ public class ParticipantData {
         initializeStats();
     }
 
+    /**
+     * Deep copy constructor.
+     * @param original The ParticipantData to copy from.
+     */
+    public ParticipantData(ParticipantData original) {
+        this.baseName = original.baseName;
+        this.linkedName = original.linkedName;
+        // Deep copy for accounts map
+        for(Map.Entry<UUID, AccountInfo> entry : original.accounts.entrySet()){
+            AccountInfo info = entry.getValue();
+            this.accounts.put(entry.getKey(), new AccountInfo(info.getName(), info.isOnline()));
+        }
+        // Deep copy for statistics map
+        this.statistics.putAll(original.statistics);
+        // Deep copy for lists
+        this.joinHistory.addAll(original.joinHistory);
+        this.photoshootHistory.addAll(original.photoshootHistory);
+        this.playtimeHistory.addAll(original.playtimeHistory);
+
+        this.lastQuitTime = original.lastQuitTime;
+        this.isOnline = original.isOnline;
+        // Ensure all keys exist
+        initializeStats();
+    }
+
+
     public Map<String, Object> toMap() {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("participant_id", getParticipantId());

@@ -64,7 +64,7 @@ commands:
     permission: yapimaru.admin
   # ★★★ 以下の定義を修正 ★★★
   log:
-    description: 古いログファイルの処理や統計のリセットを行います。（一時的機能）
+    description: ログファイルを解析し、全参加者の統計情報を高精度に再集計します。
     usage: /<command> <add|reset>
     permission: yapimaru.admin
 
