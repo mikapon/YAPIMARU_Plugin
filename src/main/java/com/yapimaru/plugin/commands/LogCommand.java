@@ -53,7 +53,7 @@ public class LogCommand implements CommandExecutor {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (args.length > 0 && args[0].equalsIgnoreCase("add")) {
-            adventure.sender(sender).sendMessage(Component.text("§a[YAPIMARU] デバッグモードでログ解析を開始します...", NamedTextColor.GREEN));
+            adventure.sender(sender).sendMessage(Component.text("§a[YAPIMARU] ログファイルの解析をバックグラウンドで開始します...", NamedTextColor.GREEN));
             runLogProcessing(sender);
             return true;
         } else if (args.length > 0 && args[0].equalsIgnoreCase("reset")) {
@@ -110,7 +110,7 @@ public class LogCommand implements CommandExecutor {
                 AtomicInteger sessionCounter = new AtomicInteger(1);
                 sessions.forEach(session -> {
                     int currentSessionNum = sessionCounter.getAndIncrement();
-                    debug(sender, ">>>>> セッション " + currentSessionNum + " の処理開始 (ファイル: " + session.logFiles().stream().map(File::getName).collect(Collectors.joining(", ")) + ") <<<<<");
+                    debug(sender, ">>>>> セッション " + currentSessionNum + "/" + sessions.size() + " の処理開始 (ファイル: " + session.logFiles().stream().map(File::getName).collect(Collectors.joining(", ")) + ") <<<<<");
 
                     try {
                         debug(sender, "フェーズ1: プレイヤー情報収集 開始");
@@ -255,7 +255,6 @@ public class LogCommand implements CommandExecutor {
         long lineCount = 0;
 
         for (File logFile : session.logFiles()) {
-            debug(sender, "ファイル " + logFile.getName() + " のイベント解析を開始...");
             try (BufferedReader reader = getReaderForFile(logFile)) {
                 String line;
                 while ((line = reader.readLine()) != null) {
@@ -359,16 +358,18 @@ public class LogCommand implements CommandExecutor {
     }
 
     private LocalDate parseDateFromFileName(File file) {
+        String fileName = file.getName();
         Pattern pattern = Pattern.compile("(\\d{4}-\\d{2}-\\d{2})");
-        Matcher m = pattern.matcher(file.getName());
+        Matcher m = pattern.matcher(fileName);
         if (m.find()) {
             try {
                 return LocalDate.parse(m.group(1));
             } catch (DateTimeParseException e) {
-                logger.warning("Could not parse date from filename: " + file.getName());
+                logger.warning("Could not parse date from filename: " + fileName);
             }
         }
-        return LocalDate.ofEpochDay(file.lastModified() / (24 * 60 * 60 * 1000));
+        // フォールバック
+        return LocalDate.ofEpochDay(file.lastModified() / (1000 * 60 * 60 * 24));
     }
 
     private Integer getLogIndex(File file) {
@@ -411,7 +412,15 @@ public class LogCommand implements CommandExecutor {
     }
 
     private void saveMmFile(File mmFile, Map<String, ParticipantData> participants, Map<UUID, String> unprocessed) {
-        // This is a debug utility, so we don't need to be too fancy.
+        YamlConfiguration config = new YamlConfiguration();
+        config.set("phase1_unprocessed_accounts_found", unprocessed.size());
+        config.set("phase2_integrated_participants_count", participants.size());
+        config.set("phase3_final_participant_data", participants.values().stream().map(ParticipantData::toMap).collect(Collectors.toList()));
+        try {
+            config.save(mmFile);
+        } catch (IOException e) {
+            logger.log(Level.WARNING, "Could not save memory dump file: " + mmFile.getName(), e);
+        }
     }
 
     private record LogSession(List<File> logFiles, LocalDate date) {}
