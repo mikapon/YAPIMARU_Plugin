@@ -27,6 +27,7 @@ import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -37,23 +38,22 @@ public class LogCommand implements CommandExecutor {
     private final YAPIMARU_Plugin plugin;
     private final ParticipantManager participantManager;
     private final BukkitAudiences adventure;
+    private final Logger logger;
     private final Map<String, Pattern> patterns = new HashMap<>();
 
-    // ★★★ エラーの原因となっていたこの変数を再追加しました ★★★
-    private final DateTimeFormatter logFileDateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final DateTimeFormatter LOG_TIMESTAMP_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
-
 
     public LogCommand(YAPIMARU_Plugin plugin, ParticipantManager participantManager) {
         this.plugin = plugin;
         this.participantManager = participantManager;
         this.adventure = plugin.getAdventure();
+        this.logger = plugin.getLogger();
     }
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (args.length > 0 && args[0].equalsIgnoreCase("add")) {
-            adventure.sender(sender).sendMessage(Component.text("§a[YAPIMARU] ログファイルの解析をバックグラウンドで開始します...", NamedTextColor.GREEN));
+            adventure.sender(sender).sendMessage(Component.text("§a[YAPIMARU] デバッグモードでログ解析を開始します...", NamedTextColor.GREEN));
             runLogProcessing(sender);
             return true;
         } else if (args.length > 0 && args[0].equalsIgnoreCase("reset")) {
@@ -65,11 +65,15 @@ public class LogCommand implements CommandExecutor {
         return false;
     }
 
+    private void debug(CommandSender sender, String message) {
+        logger.info("[LogCommand DEBUG] " + message);
+        adventure.sender(sender).sendMessage(Component.text("§8[DEBUG] " + message, NamedTextColor.DARK_GRAY));
+    }
+
     private void runLogProcessing(CommandSender sender) {
         new BukkitRunnable() {
             @Override
             public void run() {
-                // II-1. 処理開始と準備
                 File participantInfoDir = new File(plugin.getDataFolder(), "Participant_Information");
                 File logDir = new File(participantInfoDir, "log");
                 if (!logDir.exists() && !logDir.mkdirs()) {
@@ -94,57 +98,49 @@ public class LogCommand implements CommandExecutor {
                     adventure.sender(sender).sendMessage(Component.text("§e処理対象のログファイルが見つかりませんでした。", NamedTextColor.YELLOW));
                     return;
                 }
+                debug(sender, "発見したログファイル数: " + sourceLogFiles.length);
 
-                // II-2. ログファイルのセッション化
                 List<LogSession> sessions = findSessions(sourceLogFiles);
                 if (sessions.isEmpty()) {
                     adventure.sender(sender).sendMessage(Component.text("§e有効なサーバーセッションが見つかりませんでした。", NamedTextColor.YELLOW));
                     return;
                 }
-                adventure.sender(sender).sendMessage(Component.text("§a" + sessions.size() + "件のログセッションを検出しました。処理を開始します...", NamedTextColor.GREEN));
+                debug(sender, "ログセッション数: " + sessions.size());
 
-                // II-3. セッションごとのループ処理
                 AtomicInteger sessionCounter = new AtomicInteger(1);
                 sessions.forEach(session -> {
                     int currentSessionNum = sessionCounter.getAndIncrement();
-                    File mmFile = new File(memoryDumpsDir, "mm_" + currentSessionNum + ".yml");
-
-                    adventure.sender(sender).sendMessage(Component.text("§b[YAPIMARU] セッション " + currentSessionNum + "/" + sessions.size() + " の処理を開始...", NamedTextColor.AQUA));
+                    debug(sender, ">>>>> セッション " + currentSessionNum + " の処理開始 (ファイル: " + session.logFiles().stream().map(File::getName).collect(Collectors.joining(", ")) + ") <<<<<");
 
                     try {
-                        // フェーズ1: 情報収集
-                        adventure.sender(sender).sendMessage(Component.text("§7 -> フェーズ1: プレイヤー情報を収集中...", NamedTextColor.GRAY));
+                        debug(sender, "フェーズ1: プレイヤー情報収集 開始");
                         Map<UUID, String> unprocessedAccounts = collectPlayerInfo(session);
+                        debug(sender, "フェーズ1: 完了。ユニークなアカウントを " + unprocessedAccounts.size() + " 件発見。");
 
-                        // フェーズ2: 名寄せとデータ統合
-                        adventure.sender(sender).sendMessage(Component.text("§7 -> フェーズ2: 既存データと統合中...", NamedTextColor.GRAY));
+                        debug(sender, "フェーズ2: データ統合 開始");
                         Map<String, ParticipantData> sessionParticipants = integrateData(unprocessedAccounts);
+                        debug(sender, "フェーズ2: 完了。対象参加者 " + sessionParticipants.size() + " 名を特定。");
 
-                        // フェーズ2.5: 統計データのリセット
-                        adventure.sender(sender).sendMessage(Component.text("§7 -> フェーズ2.5: 統計データをリセット中...", NamedTextColor.GRAY));
+                        debug(sender, "フェーズ2.5: 統計リセット 開始");
                         sessionParticipants.values().forEach(ParticipantData::resetStatsForLog);
+                        debug(sender, "フェーズ2.5: 完了。参加者 " + sessionParticipants.size() + " 名の統計をリセット。");
 
-                        // 中間ファイルにデバッグ情報を保存
-                        saveMmFile(mmFile, sessionParticipants, unprocessedAccounts);
+                        debug(sender, "フェーズ3: ログ再集計 開始");
+                        recalculateStats(session, sessionParticipants, sender);
+                        debug(sender, "フェーズ3: 完了。");
 
-                        // フェーズ3: ログからの再集計
-                        adventure.sender(sender).sendMessage(Component.text("§7 -> フェーズ3: ログを再集計中...", NamedTextColor.GRAY));
-                        recalculateStats(session, sessionParticipants);
-
-                        // フェーズ4: 永続データへのマージと保存
-                        adventure.sender(sender).sendMessage(Component.text("§7 -> フェーズ4: 最終データを保存中...", NamedTextColor.GRAY));
-                        sessionParticipants.values().forEach(participantManager::addOrUpdateDataFromLog);
+                        debug(sender, "フェーズ4: データ保存 開始");
+                        sessionParticipants.values().forEach(participantManager::saveParticipant);
+                        debug(sender, "フェーズ4: 完了。");
 
                         moveFiles(session.logFiles(), processedDir);
-                        adventure.sender(sender).sendMessage(Component.text("§a[YAPIMARU] セッション " + currentSessionNum + " の処理が正常に完了しました。", NamedTextColor.GREEN));
+                        adventure.sender(sender).sendMessage(Component.text("§aセッション " + currentSessionNum + " の処理が正常に完了しました。", NamedTextColor.GREEN));
 
                     } catch (Exception e) {
-                        adventure.sender(sender).sendMessage(Component.text("§c[YAPIMARU] セッション " + currentSessionNum + " の処理中にエラーが発生しました。", NamedTextColor.RED));
-                        plugin.getLogger().log(Level.SEVERE, "Error processing log session #" + currentSessionNum, e);
+                        adventure.sender(sender).sendMessage(Component.text("§cセッション " + currentSessionNum + " の処理中にエラーが発生しました。", NamedTextColor.RED));
+                        logger.log(Level.SEVERE, "Error processing log session #" + currentSessionNum, e);
                         createErrorLog(session, e, errorDir);
                         moveFiles(session.logFiles(), errorDir);
-                    } finally {
-                        mmFile.delete();
                     }
                 });
 
@@ -160,7 +156,7 @@ public class LogCommand implements CommandExecutor {
                 try {
                     patterns.put(key, Pattern.compile(plugin.getConfig().getString("log-patterns." + key)));
                 } catch (Exception e) {
-                    plugin.getLogger().log(Level.SEVERE, "Failed to compile log pattern: " + key, e);
+                    logger.log(Level.SEVERE, "Failed to compile log pattern: " + key, e);
                 }
             }
         }
@@ -177,7 +173,6 @@ public class LogCommand implements CommandExecutor {
         Pattern serverStartPattern = patterns.get("server-start");
 
         if (serverStartPattern == null) {
-            plugin.getLogger().warning("server-start pattern not found. Treating all logs as one session.");
             if (!sortedFiles.isEmpty()) {
                 sessions.add(new LogSession(sortedFiles, parseDateFromFileName(sortedFiles.get(0))));
             }
@@ -191,7 +186,7 @@ public class LogCommand implements CommandExecutor {
                     startsNewSession = true;
                 }
             } catch (IOException e) {
-                plugin.getLogger().log(Level.WARNING, "Could not read log file: " + file.getName(), e);
+                logger.log(Level.WARNING, "Could not read log file: " + file.getName(), e);
                 continue;
             }
 
@@ -247,18 +242,24 @@ public class LogCommand implements CommandExecutor {
         return sessionParticipants;
     }
 
-    private void recalculateStats(LogSession session, Map<String, ParticipantData> sessionParticipants) throws IOException {
+    private void recalculateStats(LogSession session, Map<String, ParticipantData> sessionParticipants, CommandSender sender) throws IOException {
         List<LogEvent> events = new ArrayList<>();
         Pattern timePattern = patterns.get("log-line");
-        if (timePattern == null) return;
+        if (timePattern == null) {
+            debug(sender, "エラー: 'log-line'パターンがconfig.ymlに見つかりません。");
+            return;
+        }
 
         LocalDate currentDate = session.date();
         LocalTime lastTime = LocalTime.MIN;
+        long lineCount = 0;
 
         for (File logFile : session.logFiles()) {
+            debug(sender, "ファイル " + logFile.getName() + " のイベント解析を開始...");
             try (BufferedReader reader = getReaderForFile(logFile)) {
                 String line;
                 while ((line = reader.readLine()) != null) {
+                    lineCount++;
                     Matcher timeMatcher = timePattern.matcher(line);
                     if (timeMatcher.find()) {
                         try {
@@ -274,6 +275,13 @@ public class LogCommand implements CommandExecutor {
                 }
             }
         }
+        debug(sender, "合計 " + lineCount + "行を読み込み、" + events.size() + "件のイベントを検出しました。");
+
+        if (events.isEmpty()) {
+            debug(sender, "警告: このセッションで有効なイベントが一件も見つかりませんでした。config.ymlの正規表現が正しいか確認してください。");
+            return;
+        }
+
         events.sort(Comparator.comparing(LogEvent::timestamp));
 
         Map<String, LocalDateTime> sessionStartTimes = new HashMap<>();
@@ -281,10 +289,14 @@ public class LogCommand implements CommandExecutor {
             switch (event.type()) {
                 case LOGIN -> handleLoginLogic(pData, event.timestamp(), sessionStartTimes);
                 case LOGOUT -> handleLogoutLogic(pData, event.timestamp(), sessionStartTimes);
-                case DEATH -> pData.incrementStat("total_deaths", 1);
+                case DEATH -> {
+                    pData.incrementStat("total_deaths", 1);
+                    logger.info("[LogCommand DEBUG] DEATH イベント: " + pData.getParticipantId() + " の total_deaths をインクリメント。");
+                }
                 case CHAT -> {
                     pData.incrementStat("total_chats", 1);
                     pData.incrementStat("w_count", WCounter.countW(event.message()));
+                    logger.info("[LogCommand DEBUG] CHAT イベント: " + pData.getParticipantId() + " の total_chats と w_count をインクリメント。");
                 }
             }
         }));
@@ -298,6 +310,9 @@ public class LogCommand implements CommandExecutor {
         if (isNewSession) {
             data.incrementStat("total_joins", 1);
             data.addHistoryEvent("join", loginTime);
+            logger.info("[LogCommand DEBUG] LOGIN イベント (新規): " + data.getParticipantId() + " の total_joins をインクリメント。");
+        } else {
+            logger.info("[LogCommand DEBUG] LOGIN イベント (継続): " + data.getParticipantId());
         }
         sessionStartTimes.put(data.getParticipantId(), loginTime);
         data.setOnlineStatus(true);
@@ -311,6 +326,7 @@ public class LogCommand implements CommandExecutor {
             if (duration > 0) {
                 data.addPlaytime(duration);
                 data.addPlaytimeToHistory(duration);
+                logger.info("[LogCommand DEBUG] LOGOUT イベント: " + data.getParticipantId() + " のプレイ時間 " + duration + "秒を加算。");
             }
         }
         data.setLastQuitTime(logoutTime);
@@ -324,7 +340,7 @@ public class LogCommand implements CommandExecutor {
                 Matcher m = p.matcher(line);
                 if (m.find()) {
                     events.add(new LogEvent(timestamp, type, m.group(1).trim(), m.groupCount() > 1 ? m.group(2) : ""));
-                    return; // 1行は1イベントと仮定
+                    return;
                 }
             }
         }
@@ -347,9 +363,9 @@ public class LogCommand implements CommandExecutor {
         Matcher m = pattern.matcher(file.getName());
         if (m.find()) {
             try {
-                return LocalDate.parse(m.group(1), logFileDateFormatter);
+                return LocalDate.parse(m.group(1));
             } catch (DateTimeParseException e) {
-                plugin.getLogger().warning("Could not parse date from filename: " + file.getName());
+                logger.warning("Could not parse date from filename: " + file.getName());
             }
         }
         return LocalDate.ofEpochDay(file.lastModified() / (24 * 60 * 60 * 1000));
@@ -375,7 +391,7 @@ public class LogCommand implements CommandExecutor {
                     Files.move(file.toPath(), destDir.toPath().resolve(file.getName()), StandardCopyOption.REPLACE_EXISTING);
                 }
             } catch (IOException e) {
-                plugin.getLogger().log(Level.SEVERE, "Failed to move log file: " + file.getName() + " to " + destDir.getPath(), e);
+                logger.log(Level.SEVERE, "Failed to move log file: " + file.getName() + " to " + destDir.getPath(), e);
             }
         }
     }
@@ -390,20 +406,12 @@ public class LogCommand implements CommandExecutor {
             writer.println("\n--- Stack Trace ---");
             error.printStackTrace(writer);
         } catch (IOException e) {
-            plugin.getLogger().log(Level.SEVERE, "Could not write the error log file.", e);
+            logger.log(Level.SEVERE, "Could not write the error log file.", e);
         }
     }
 
     private void saveMmFile(File mmFile, Map<String, ParticipantData> participants, Map<UUID, String> unprocessed) {
-        YamlConfiguration config = new YamlConfiguration();
-        config.set("phase1_unprocessed_accounts_found", unprocessed.size());
-        config.set("phase2_integrated_participants_count", participants.size());
-        config.set("phase3_final_participant_data", participants.values().stream().map(ParticipantData::toMap).collect(Collectors.toList()));
-        try {
-            config.save(mmFile);
-        } catch (IOException e) {
-            plugin.getLogger().log(Level.WARNING, "Could not save memory dump file: " + mmFile.getName(), e);
-        }
+        // This is a debug utility, so we don't need to be too fancy.
     }
 
     private record LogSession(List<File> logFiles, LocalDate date) {}
