@@ -17,7 +17,6 @@ import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -58,15 +57,15 @@ public class StatsCommand implements CommandExecutor {
 
         String subCommand = args[0].toLowerCase();
         switch (subCommand) {
-            case "player":
+            case "player" -> {
                 if (args.length < 2) {
-                    plugin.getAdventure().sender(sender).sendMessage(Component.text("参加者IDを指定してください。 /stats player <参加者ID>", NamedTextColor.RED));
+                    plugin.getAdventure().sender(sender).sendMessage(Component.text("参加者名を指定してください。 /stats player <参加者名>", NamedTextColor.RED));
                     return true;
                 }
-                String participantId = String.join(" ", Arrays.copyOfRange(args, 1, args.length));
+                String participantId = args[1];
                 displayPlayerStats(sender, participantId);
-                break;
-            case "list":
+            }
+            case "list" -> {
                 if (args.length < 2) {
                     plugin.getAdventure().sender(sender).sendMessage(Component.text("統計項目を指定してください。 /stats list <項目>", NamedTextColor.RED));
                     return true;
@@ -83,16 +82,14 @@ public class StatsCommand implements CommandExecutor {
                 if (page < 0) page = 0;
 
                 displayLeaderboard(sender, statName, worst, page);
-                break;
-            default:
-                sendHelp(sender);
-                break;
+            }
+            default -> sendHelp(sender);
         }
         return true;
     }
 
     private void displayPlayerStats(CommandSender sender, String participantId) {
-        ParticipantData data = participantManager.findParticipantByAnyName(participantId).orElse(null);
+        ParticipantData data = participantManager.getParticipant(participantId);
         if (data == null) {
             plugin.getAdventure().sender(sender).sendMessage(Component.text("参加者「" + participantId + "」は見つかりませんでした。", NamedTextColor.RED));
             return;
@@ -143,12 +140,37 @@ public class StatsCommand implements CommandExecutor {
         int start = page * pageSize;
         int end = Math.min(start + pageSize, allData.size());
 
+        int currentRank = 0;
+        Number lastValue = null;
+        int rankOffset = 0;
+
+        if (start > 0) {
+            for (int i = 0; i < start; i++) {
+                Number currentValue = allData.get(i).getStatistics().get(statName);
+                if (lastValue == null || currentValue.doubleValue() != lastValue.doubleValue()) {
+                    currentRank += (1 + rankOffset);
+                    rankOffset = 0;
+                } else {
+                    rankOffset++;
+                }
+                lastValue = currentValue;
+            }
+        }
+
         for (int i = start; i < end; i++) {
             ParticipantData data = allData.get(i);
             Number value = data.getStatistics().get(statName);
 
+            if (lastValue == null || value.doubleValue() != lastValue.doubleValue()) {
+                currentRank += (1 + rankOffset);
+                rankOffset = 0;
+            } else {
+                rankOffset++;
+            }
+
             String valueStr = (statName.equals("total_playtime_seconds")) ? formatDuration(value.longValue()) : value.toString();
-            plugin.getAdventure().sender(sender).sendMessage(Component.text("  §e" + (i + 1) + "位 - §b" + valueStr + " §e- §f" + data.getDisplayName()));
+            plugin.getAdventure().sender(sender).sendMessage(Component.text("  §e" + currentRank + "位 - §b" + valueStr + " §e- §f" + data.getDisplayName()));
+            lastValue = value;
         }
 
         TextComponent.Builder footerBuilder = Component.text();

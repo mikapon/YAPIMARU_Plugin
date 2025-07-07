@@ -5,6 +5,7 @@ import com.yapimaru.plugin.managers.*;
 import net.kyori.adventure.platform.bukkit.BukkitAudiences;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import org.apache.commons.lang3.StringUtils;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
@@ -55,18 +56,21 @@ public class PlayerEventListener implements Listener {
     public void onPlayerPreLogin(AsyncPlayerPreLoginEvent event) {
         String kickMessage = whitelistManager.checkLogin(event.getUniqueId());
         if (kickMessage != null) {
-            event.setKickMessage(kickMessage);
-            event.setLoginResult(AsyncPlayerPreLoginEvent.Result.KICK_WHITELIST);
+            // ★★★ 最終修正箇所 ★★★
+            // event.disallow には Component ではなく String を渡す
+            event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_WHITELIST, kickMessage);
         }
     }
 
     @EventHandler
+    @SuppressWarnings("deprecation")
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
         Bukkit.getScheduler().runTaskLater(plugin, () -> nameManager.updatePlayerName(player), 5L);
         restrictionManager.applyModeToPlayer(player);
 
-        participantManager.handlePlayerLogin(player.getUniqueId(), false);
+        participantManager.recordLoginTime(player);
+        participantManager.incrementJoins(player.getUniqueId());
 
 
         joinInvinciblePlayers.put(player.getUniqueId(), System.currentTimeMillis() + 60000);
@@ -78,7 +82,7 @@ public class PlayerEventListener implements Listener {
                     this.cancel();
                     return;
                 }
-                boolean isOnGround = player.getLocation().subtract(0, 0.1, 0).getBlock().getType().isSolid();
+                boolean isOnGround = player.isOnGround();
                 boolean isInLiquid = player.getLocation().getBlock().isLiquid();
 
                 if (isOnGround || isInLiquid) {
@@ -99,17 +103,26 @@ public class PlayerEventListener implements Listener {
         joinInvincibilityTasks.put(player.getUniqueId(), task);
     }
 
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerChat(AsyncPlayerChatEvent event) {
-        participantManager.incrementChats(event.getPlayer().getUniqueId(), 1);
-        int w_count = participantManager.calculateWCount(event.getMessage());
+        participantManager.incrementChats(event.getPlayer().getUniqueId());
+        int w_count = StringUtils.countMatches(event.getMessage(), "w");
         participantManager.incrementWCount(event.getPlayer().getUniqueId(), w_count);
     }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerCommand(PlayerCommandPreprocessEvent event) {
+        if (event.getMessage().toLowerCase().startsWith("/skin")) {
+            return; // /skin コマンドは除外
+        }
+        participantManager.incrementChats(event.getPlayer().getUniqueId());
+    }
+
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
-        participantManager.handlePlayerLogout(player.getUniqueId());
+        participantManager.recordQuitTime(player);
         joinInvinciblePlayers.remove(player.getUniqueId());
         if(joinInvincibilityTasks.containsKey(player.getUniqueId())) {
             joinInvincibilityTasks.get(player.getUniqueId()).cancel();
@@ -153,7 +166,7 @@ public class PlayerEventListener implements Listener {
 
     @EventHandler
     public void onPlayerDeath(PlayerDeathEvent event) {
-        participantManager.incrementDeaths(event.getEntity().getUniqueId(), 1);
+        participantManager.incrementDeaths(event.getEntity().getUniqueId());
         pvpManager.handlePlayerDeath(event.getEntity());
     }
 

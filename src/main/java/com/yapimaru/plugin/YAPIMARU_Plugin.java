@@ -3,11 +3,11 @@ package com.yapimaru.plugin;
 import com.sk89q.worldedit.WorldEdit;
 import com.yapimaru.plugin.commands.*;
 import com.yapimaru.plugin.completers.*;
+import com.yapimaru.plugin.data.ParticipantData;
 import com.yapimaru.plugin.listeners.GuiListener;
 import com.yapimaru.plugin.listeners.PlayerEventListener;
 import com.yapimaru.plugin.listeners.VoteListener;
 import com.yapimaru.plugin.managers.*;
-// import com.yapimaru.plugin.remove.LogCommand; // 古い定義を削除
 import net.kyori.adventure.platform.bukkit.BukkitAudiences;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandExecutor;
@@ -55,20 +55,16 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
         }
 
         saveDefaultConfig();
+        loadConfigAndManual();
 
         initializeManagers();
-        loadConfigAndManual();
         linkManagers();
 
         registerListeners();
         registerCommands();
 
-        // サーバー起動時の参加者データ整合性チェック
-        participantManager.handleServerStartup();
-
-        // リロード時のオンラインプレイヤー処理
         for (Player player : Bukkit.getOnlinePlayers()) {
-            participantManager.handlePlayerLogin(player.getUniqueId(), true);
+            participantManager.recordLoginTime(player);
             nameManager.updatePlayerName(player);
         }
 
@@ -77,11 +73,17 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (nameManager != null) {
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                nameManager.resetPlayerName(player);
+            }
+        }
         if (timerManager != null) timerManager.forceStop(true);
 
-        // サーバー終了時に全参加者データを保存
         if (participantManager != null) {
-            participantManager.saveAllParticipantData();
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                participantManager.recordQuitTime(player);
+            }
         }
 
         if(adventure != null) {
@@ -159,8 +161,6 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
         setExecutor("ans", new AnsCommand(voteManager), new AnsTabCompleter(voteManager));
         setExecutor("stats", new StatsCommand(this, participantManager, nameManager), new StatsTabCompleter(participantManager));
         setExecutor("photographing", new PhotographingCommand(this, participantManager));
-        // ★★★ 新しいLogCommandを登録 ★★★
-        setExecutor("log", new com.yapimaru.plugin.commands.LogCommand(this, participantManager));
     }
 
     private void setExecutor(String commandName, CommandExecutor executor) {
@@ -188,4 +188,5 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
     public GuiManager getCreatorGuiManager() { return creatorGuiManager; }
     public ParticipantManager getParticipantManager() { return participantManager; }
     public WhitelistManager getWhitelistManager() { return whitelistManager; }
+    public YmCommand getYmCommand() { return ymCommand; }
 }

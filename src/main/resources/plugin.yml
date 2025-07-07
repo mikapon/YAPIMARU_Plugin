@@ -32,7 +32,6 @@ commands:
   name:
     description: 偽名と名前の色を管理します。
     usage: /<command> [subcommand] [args]
-    permission: yapimaru.admin
   creator:
     description: 便利な管理GUIを開きます。
     usage: /<command> [subcommand] [args]
@@ -61,11 +60,6 @@ commands:
   photographing:
     description: 撮影参加回数を記録します。
     usage: /<command> on
-    permission: yapimaru.admin
-  # ★★★ 以下の定義を修正 ★★★
-  log:
-    description: ログファイルを解析し、全参加者の統計情報を高精度に再集計します。
-    usage: /<command> <add|reset>
     permission: yapimaru.admin
 
 permissions:

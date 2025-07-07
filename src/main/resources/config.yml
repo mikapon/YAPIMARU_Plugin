@@ -14,40 +14,11 @@ hub-location:
 # ==================================
 #  Whitelist (ホワイトリスト) 機能
 # ==================================
+# このセクションはプラグインによって管理されます。
+# オーナー(operators)リストのみ手動で編集可能です。
 whitelist:
   mode: OFF
   owners:
     - "002c8ff8-fbdb-4752-b166-fe609ee031b4"
   candidates: []
   allowed: []
-
-# ==================================
-#  /log add 機能用 正規表現パターン (改善版 v2)
-# ==================================
-log-patterns:
-  # ログ行からタイムスタンプを抽出
-  log-line: '^\\[(\d{2}:\d{2}:\d{2})].*'
-  # Java版プレイヤーのUUIDを特定
-  uuid: 'UUID of player (\S+) is ([0-9a-fA-F\-]+)'
-  # Bedrock版(Floodgate)プレイヤーのUUIDを特定
-  floodgate-uuid: 'Floodgate player \S+? logged in with an offline UUID: ([0-9a-fA-F\-]+)'
-  # プレイヤーの参加を特定
-  join: '\[Server thread/INFO\]: (\S+) joined the game'
-  # プレイヤーの退出を特定
-  left-game: '\[Server thread/INFO\]: (\S+) left the game'
-  # プレイヤーの死亡を特定
-  death: '\[Server thread/INFO\]: (\S+?) (was shot by|was slain by|drowned|fell from|blew up|burned to death|starved to death|suffocated in a wall|withered away|froze to death|died|was killed).*'
-  # 撮影コマンドの実行を特定
-  photographing: 'issued server command: /photographing on'
-  # プレイヤーのチャットを特定
-  chat: '\[Server thread/INFO\]: <(\S+?)> (.*)'
-  # サーバーの起動を特定
-  server-start: 'Starting minecraft server version'
-  # サーバーの停止を特定
-  server-stop: 'Stopping server'
-
-# ==================================
-#  /voting evaluation 機能用設定
-# ==================================
-voting-settings:
-  project-max-stars: {}
