@@ -5,7 +5,6 @@ import net.kyori.adventure.platform.bukkit.BukkitAudiences;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -36,9 +35,9 @@ public class WhitelistManager {
         LOCKDOWN
     }
 
-    public WhitelistManager(YAPIMARU_Plugin plugin, ParticipantManager participantManager) {
+    public WhitelistManager(YAPIMARU_Plugin plugin) {
         this.plugin = plugin;
-        this.participantManager = participantManager;
+        this.participantManager = plugin.getParticipantManager();
         this.adventure = plugin.getAdventure();
         load();
     }
@@ -72,6 +71,7 @@ public class WhitelistManager {
     }
 
     public void syncAllowedPlayers() {
+        if(participantManager == null) return;
         allowedPlayers.clear();
         allowedPlayers.addAll(participantManager.getAllAssociatedUuidsFromActive());
     }

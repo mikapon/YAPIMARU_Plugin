@@ -37,7 +37,16 @@ public class StatsCommand implements CommandExecutor {
     @Override
     public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command, @NotNull String label, @NotNull String[] args) {
         if (!sender.hasPermission("yapimaru.admin")) {
-            plugin.getAdventure().sender(sender).sendMessage(Component.text("このコマンドを使用する権限がありません。", NamedTextColor.RED));
+            if(sender instanceof Player) {
+                ParticipantData data = participantManager.getParticipant(((Player) sender).getUniqueId());
+                if (data != null) {
+                    displayPlayerStats(sender, data.getParticipantId());
+                } else {
+                    plugin.getAdventure().sender(sender).sendMessage(Component.text("あなたの参加者情報が見つかりませんでした。", NamedTextColor.RED));
+                }
+            } else {
+                plugin.getAdventure().sender(sender).sendMessage(Component.text("このコマンドを使用する権限がありません。", NamedTextColor.RED));
+            }
             return true;
         }
 
@@ -59,7 +68,7 @@ public class StatsCommand implements CommandExecutor {
         switch (subCommand) {
             case "player" -> {
                 if (args.length < 2) {
-                    plugin.getAdventure().sender(sender).sendMessage(Component.text("参加者名を指定してください。 /stats player <参加者名>", NamedTextColor.RED));
+                    plugin.getAdventure().sender(sender).sendMessage(Component.text("参加者IDを指定してください。 /stats player <参加者ID>", NamedTextColor.RED));
                     return true;
                 }
                 String participantId = args[1];
@@ -89,7 +98,7 @@ public class StatsCommand implements CommandExecutor {
     }
 
     private void displayPlayerStats(CommandSender sender, String participantId) {
-        ParticipantData data = participantManager.getParticipant(participantId);
+        ParticipantData data = participantManager.getLoadedParticipant(participantId);
         if (data == null) {
             plugin.getAdventure().sender(sender).sendMessage(Component.text("参加者「" + participantId + "」は見つかりませんでした。", NamedTextColor.RED));
             return;

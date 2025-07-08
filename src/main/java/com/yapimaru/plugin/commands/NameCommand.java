@@ -136,7 +136,6 @@ public class NameCommand implements CommandExecutor {
                 if (!sender.hasPermission("yapimaru.admin")) {
                     sender.sendMessage(ChatColor.RED + "このコマンドを使用する権限がありません。");
                     return true;
-
                 }
                 nameManager.reloadData();
                 sender.sendMessage(ChatColor.GREEN + "名前表示をリロードしました。");
