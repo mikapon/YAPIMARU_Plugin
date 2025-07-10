@@ -3,9 +3,9 @@ version: '3.0.0'
 main: com.yapimaru.plugin.YAPIMARU_Plugin
 api-version: '1.21'
 author: YAPIMARU
-description: 動画撮影やサーバー管理に便利な多機能プラグインです。
+description: 動画撮影に便利なプラグインです。
 load: STARTUP
-softdepend: [WorldEdit]
+depend: [WorldEdit]
 
 commands:
   yapimaru:
@@ -13,11 +13,6 @@ commands:
     usage: /<command> [reload|list|cmlist|participant]
     aliases: [ym]
     permission: yapimaru.admin
-  log:
-    description: "ログ関連の管理コマンドです。"
-    aliases: [l]
-    permission: yapimaru.admin
-    usage: "/<command> <add|restore> [options]"
   hub:
     description: ハブにテレポートします。
     usage: /<command>
