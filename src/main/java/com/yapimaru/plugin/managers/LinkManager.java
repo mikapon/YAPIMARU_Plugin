@@ -59,7 +59,11 @@ public class LinkManager {
                 LinkedGroup group = new LinkedGroup(groupName);
                 group.load(file);
                 linkedGroups.put(groupName, group);
-                group.getLinkedChests().forEach(loc -> chestToGroupMap.put(loc, groupName));
+                group.getLinkedChests().forEach(loc -> {
+                    if (loc != null && loc.getWorld() != null) {
+                        chestToGroupMap.put(loc, groupName);
+                    }
+                });
             } catch (Exception e) {
                 plugin.getLogger().log(Level.SEVERE, "Failed to load linked group file: " + file.getName(), e);
             }
@@ -466,7 +470,8 @@ public class LinkManager {
             public void run() {
                 for (Player player : Bukkit.getOnlinePlayers()) {
                     chestToGroupMap.forEach((loc, groupName) -> {
-                        if (loc.getWorld().equals(player.getWorld()) && loc.distanceSquared(player.getLocation()) < 100) {
+                        // **修正点: ワールドがnullでないことを確認**
+                        if (loc.getWorld() != null && loc.getWorld().equals(player.getWorld()) && loc.distanceSquared(player.getLocation()) < 100) {
                             player.spawnParticle(Particle.HAPPY_VILLAGER, loc.clone().add(0.5, 0.5, 0.5), 1, 0.2, 0.2, 0.2, 0);
                         }
                     });
