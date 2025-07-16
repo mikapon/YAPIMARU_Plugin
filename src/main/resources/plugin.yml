@@ -61,6 +61,9 @@ commands:
     description: 撮影参加回数を記録します。
     usage: /<command> on
     permission: yapimaru.admin
+  link:
+    description: 複数のチェストをリンクさせ、インベントリを共有します。
+    usage: /<command> [subcommand] [args]
 
 permissions:
   yapimaru.admin:

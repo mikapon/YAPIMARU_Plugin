@@ -5,6 +5,7 @@ import com.yapimaru.plugin.commands.*;
 import com.yapimaru.plugin.completers.*;
 import com.yapimaru.plugin.data.ParticipantData;
 import com.yapimaru.plugin.listeners.GuiListener;
+import com.yapimaru.plugin.listeners.LinkListener;
 import com.yapimaru.plugin.listeners.PlayerEventListener;
 import com.yapimaru.plugin.listeners.VoteListener;
 import com.yapimaru.plugin.managers.*;
@@ -41,6 +42,7 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
     private ParticipantManager participantManager;
     private WhitelistManager whitelistManager;
     private YmCommand ymCommand;
+    private LinkManager linkManager;
 
     private List<String> commandManual = new ArrayList<>();
 
@@ -131,6 +133,7 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
         timerManager = new TimerManager(this);
         restrictionManager = new PlayerRestrictionManager();
         spectatorManager = new SpectatorManager(this, pvpManager);
+        linkManager = new LinkManager(this);
         ymCommand = new YmCommand(this);
     }
 
@@ -145,6 +148,7 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
         Bukkit.getPluginManager().registerEvents(new VoteListener(voteManager), this);
         Bukkit.getPluginManager().registerEvents(restrictionManager, this);
         Bukkit.getPluginManager().registerEvents(spectatorManager, this);
+        Bukkit.getPluginManager().registerEvents(new LinkListener(this), this);
     }
 
     private void registerCommands() {
@@ -161,6 +165,7 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
         setExecutor("ans", new AnsCommand(voteManager), new AnsTabCompleter(voteManager));
         setExecutor("stats", new StatsCommand(this, participantManager, nameManager), new StatsTabCompleter(participantManager));
         setExecutor("photographing", new PhotographingCommand(this, participantManager));
+        setExecutor("link", new LinkCommand(this), new LinkTabCompleter(this));
     }
 
     private void setExecutor(String commandName, CommandExecutor executor) {
@@ -189,4 +194,5 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
     public ParticipantManager getParticipantManager() { return participantManager; }
     public WhitelistManager getWhitelistManager() { return whitelistManager; }
     public YmCommand getYmCommand() { return ymCommand; }
+    public LinkManager getLinkManager() { return linkManager; }
 }
