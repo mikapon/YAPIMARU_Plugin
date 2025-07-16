@@ -56,8 +56,6 @@ public class PlayerEventListener implements Listener {
     public void onPlayerPreLogin(AsyncPlayerPreLoginEvent event) {
         String kickMessage = whitelistManager.checkLogin(event.getUniqueId());
         if (kickMessage != null) {
-            // ★★★ 最終修正箇所 ★★★
-            // event.disallow には Component ではなく String を渡す
             event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_WHITELIST, kickMessage);
         }
     }
@@ -66,11 +64,13 @@ public class PlayerEventListener implements Listener {
     @SuppressWarnings("deprecation")
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
-        Bukkit.getScheduler().runTaskLater(plugin, () -> nameManager.updatePlayerName(player), 5L);
         restrictionManager.applyModeToPlayer(player);
 
         participantManager.recordLoginTime(player);
         participantManager.incrementJoins(player.getUniqueId());
+        participantManager.handleAccountLinkOnJoin(player);
+
+        Bukkit.getScheduler().runTaskLater(plugin, () -> nameManager.updatePlayerName(player), 5L);
 
 
         joinInvinciblePlayers.put(player.getUniqueId(), System.currentTimeMillis() + 60000);

@@ -4,6 +4,7 @@ import com.yapimaru.plugin.YAPIMARU_Plugin;
 import com.yapimaru.plugin.data.ParticipantData;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 
@@ -320,6 +321,40 @@ public class ParticipantManager {
         // ファイルの中身を保存（ファイル名は新しいIDから取得される）
         saveParticipant(data);
         return true;
+    }
+
+    public void handleAccountLinkOnJoin(Player player) {
+        UUID playerUuid = player.getUniqueId();
+
+        Collection<ParticipantData> currentActiveParticipants = new ArrayList<>(activeParticipants.values());
+
+        for (ParticipantData mainAccountData : currentActiveParticipants) {
+            File participantFile = new File(activeDir, mainAccountData.getParticipantId() + ".yml");
+            if (!participantFile.exists()) {
+                continue;
+            }
+
+            YamlConfiguration config = YamlConfiguration.loadConfiguration(participantFile);
+            if (!config.isConfigurationSection("accounts")) {
+                continue;
+            }
+
+            ConfigurationSection accountsSection = config.getConfigurationSection("accounts");
+            for (String accountUuidString : accountsSection.getKeys(false)) {
+                if (playerUuid.toString().equalsIgnoreCase(accountUuidString)) {
+                    String mainBaseName = mainAccountData.getBaseName();
+                    String mainLinkedName = mainAccountData.getLinkedName();
+
+                    ParticipantData altAccountData = findOrCreateParticipant(player);
+
+                    if (!altAccountData.getBaseName().equals(mainBaseName) || !altAccountData.getLinkedName().equals(mainLinkedName)) {
+                        plugin.getLogger().info("Linking account " + player.getName() + " to " + mainAccountData.getDisplayName() + ". Updating names.");
+                        changePlayerName(playerUuid, mainBaseName, mainLinkedName);
+                    }
+                    return;
+                }
+            }
+        }
     }
 
     private void migrateOldFiles() {
