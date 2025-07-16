@@ -248,27 +248,30 @@ public class LinkManager {
 
 
     public void openLinkedChest(Player player, Location loc, LinkedGroup group) {
-        Block block = loc.getBlock();
-        if (!(block.getState() instanceof Chest)) return;
+        if (loc != null) {
+            Block block = loc.getBlock();
+            if (!(block.getState() instanceof Chest)) return;
 
-        InventoryHolder holder = ((Chest) block.getState()).getInventory().getHolder();
-        boolean isLargeChest = holder instanceof DoubleChest;
+            InventoryHolder holder = ((Chest) block.getState()).getInventory().getHolder();
+            boolean isLargeChest = holder instanceof DoubleChest;
 
-        if (group.getSize() == 54 && !isLargeChest) {
-            adventure.player(player).sendMessage(Component.text("この共有グループはラージチェスト用です。このチェストをラージチェストにしてください。", NamedTextColor.RED));
-            return;
+            if (group.getSize() == 54 && !isLargeChest) {
+                adventure.player(player).sendMessage(Component.text("この共有グループはラージチェスト用です。このチェストをラージチェストにしてください。", NamedTextColor.RED));
+                return;
+            }
+
+            if (group.getSize() == 27 && isLargeChest) {
+                group.expandToLarge();
+                adventure.player(player).sendMessage(Component.text("ラージチェストを開いたため、グループ「" + group.getName() + "」の容量を54スロットに拡張しました。", NamedTextColor.AQUA));
+                saveGroup(group.getName());
+            }
+
+            if (group.isReadOnly(loc) && !player.isOp() && !isModerator(player.getUniqueId(), group.getName())) {
+                adventure.player(player).sendMessage(Component.text("このチェストは読み取り専用です。", NamedTextColor.YELLOW));
+                return;
+            }
         }
 
-        if (group.getSize() == 27 && isLargeChest) {
-            group.expandToLarge();
-            adventure.player(player).sendMessage(Component.text("ラージチェストを開いたため、グループ「" + group.getName() + "」の容量を54スロットに拡張しました。", NamedTextColor.AQUA));
-            saveGroup(group.getName());
-        }
-
-        if (group.isReadOnly(loc) && !player.isOp() && !isModerator(player.getUniqueId(), group.getName())) {
-            adventure.player(player).sendMessage(Component.text("このチェストは読み取り専用です。", NamedTextColor.YELLOW));
-            return;
-        }
 
         Inventory virtualInv = Bukkit.createInventory(null, group.getSize(), "共有: " + group.getName());
         virtualInv.setContents(group.getVirtualInventory().getContents());
@@ -293,16 +296,14 @@ public class LinkManager {
     }
 
     public void handleChestBreak(Player player, Location loc, boolean isCancelled) {
+        if (isCancelled) return;
         String groupName = chestToGroupMap.get(loc);
         if (groupName == null) return;
 
         LinkedGroup group = linkedGroups.get(groupName);
         if (group == null) return;
 
-        if (!player.isOp() && !isModerator(player.getUniqueId(), groupName)) {
-            if (!isCancelled) adventure.player(player).sendMessage(Component.text("リンクされたチェストを破壊する権限がありません。", NamedTextColor.RED));
-            return;
-        }
+        // 破壊権限はリスナー側でチェック済み
 
         // ラージチェストの片割れも一緒に解除する
         Block block = loc.getBlock();
@@ -392,10 +393,7 @@ public class LinkManager {
             adventure.player(player).sendMessage(Component.text("共有グループ「" + name + "」は存在しません。", NamedTextColor.RED));
             return;
         }
-        Inventory virtualInv = Bukkit.createInventory(null, group.getSize(), "共有(v): " + group.getName());
-        virtualInv.setContents(group.getVirtualInventory().getContents());
-        openVirtualInventories.put(virtualInv, group);
-        player.openInventory(virtualInv);
+        openLinkedChest(player, null, group);
     }
 
     public boolean toggleReadOnly(Player player, Location loc) {

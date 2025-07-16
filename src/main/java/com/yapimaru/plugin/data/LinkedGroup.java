@@ -67,6 +67,10 @@ public class LinkedGroup {
         return moderators.remove(uuid);
     }
 
+    public boolean isModerator(UUID uuid) {
+        return moderators.contains(uuid);
+    }
+
     public void sortInventory() {
         List<ItemStack> items = Arrays.stream(virtualInventory.getContents())
                 .filter(Objects::nonNull)
