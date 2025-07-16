@@ -4,10 +4,13 @@ import com.yapimaru.plugin.YAPIMARU_Plugin;
 import com.yapimaru.plugin.data.LinkedGroup;
 import com.yapimaru.plugin.managers.LinkManager;
 import net.kyori.adventure.platform.bukkit.BukkitAudiences;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.block.Chest;
+import org.bukkit.block.DoubleChest;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -19,6 +22,7 @@ import org.bukkit.event.inventory.InventoryMoveItemEvent;
 import org.bukkit.event.inventory.InventoryOpenEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 
 public class LinkListener implements Listener {
@@ -67,11 +71,17 @@ public class LinkListener implements Listener {
         if (!(event.getPlayer() instanceof Player player)) {
             return;
         }
-        Inventory inv = event.getInventory();
-        if (inv.getHolder() instanceof Chest) {
-            Location loc = inv.getLocation();
-            if (loc == null) return;
+        InventoryHolder holder = event.getInventory().getHolder();
+        Location loc = null;
 
+        if (holder instanceof DoubleChest) {
+            DoubleChest dc = (DoubleChest) holder;
+            loc = ((Chest) dc.getLeftSide()).getLocation();
+        } else if (holder instanceof Chest) {
+            loc = ((Chest) holder).getLocation();
+        }
+
+        if (loc != null) {
             LinkedGroup group = linkManager.getGroupFromChestLocation(loc);
             if (group != null) {
                 event.setCancelled(true);

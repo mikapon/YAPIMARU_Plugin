@@ -123,7 +123,8 @@ public class ParticipantManager {
         File targetDir = isDischarged ? dischargedDir : activeDir;
 
         File file = new File(targetDir, data.getParticipantId() + ".yml");
-        YamlConfiguration config = new YamlConfiguration();
+        // 既存のファイルをロードして、未知のセクションを保持する
+        YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
 
         config.set("base_name", data.getBaseName());
         config.setComments("base_name", List.of("プレイヤー名"));
@@ -135,6 +136,8 @@ public class ParticipantManager {
         config.setComments("associated-uuids", List.of("UUID"));
 
         String statsPath = "statistics";
+        // statisticsセクションを一度nullでクリアすることで、古いキーが残るのを防ぐ
+        config.set(statsPath, null);
         config.createSection(statsPath, data.getStatistics());
         config.setComments(statsPath, List.of("統計情報"));
         config.setComments(statsPath + ".total_deaths", List.of("デス合計"));
@@ -285,30 +288,37 @@ public class ParticipantManager {
 
     // --- Name Management Logic ---
     public boolean changePlayerName(UUID uuid, String newBaseName, String newLinkedName) {
-        ParticipantData oldData = getParticipant(uuid);
-        if (oldData == null) return false;
+        ParticipantData data = getParticipant(uuid);
+        if (data == null) return false;
 
-        String oldParticipantId = oldData.getParticipantId();
+        String oldParticipantId = data.getParticipantId();
         String newParticipantId = ParticipantData.generateId(newBaseName, newLinkedName);
 
         if (oldParticipantId.equals(newParticipantId)) {
-            oldData.setFullName(newBaseName, newLinkedName);
-            saveParticipant(oldData);
+            // ID(ファイル名)は変わらないが、大文字小文字などの違いで名前が変わっている可能性があるので保存する
+            data.setFullName(newBaseName, newLinkedName);
+            saveParticipant(data);
             return true;
         }
 
+        // ID(ファイル名)が変わる場合
         File oldFile = new File(activeDir, oldParticipantId + ".yml");
-        if(oldFile.exists()) {
-            if(!oldFile.delete()) {
-                plugin.getLogger().warning("Failed to delete old participant file: " + oldFile.getName());
+        File newFile = new File(activeDir, newParticipantId + ".yml");
+
+        if (oldFile.exists()) {
+            if (!oldFile.renameTo(newFile)) {
+                plugin.getLogger().severe("Failed to rename participant file from '" + oldFile.getName() + "' to '" + newFile.getName() + "'.");
                 return false;
             }
         }
 
+        // メモリ上のデータを更新
         activeParticipants.remove(oldParticipantId);
-        oldData.setFullName(newBaseName, newLinkedName);
-        activeParticipants.put(newParticipantId, oldData);
-        saveParticipant(oldData);
+        data.setFullName(newBaseName, newLinkedName);
+        activeParticipants.put(newParticipantId, data);
+
+        // ファイルの中身を保存（ファイル名は新しいIDから取得される）
+        saveParticipant(data);
         return true;
     }
 

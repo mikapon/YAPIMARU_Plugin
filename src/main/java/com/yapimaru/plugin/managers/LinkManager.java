@@ -272,8 +272,8 @@ public class LinkManager {
             }
         }
 
-
-        Inventory virtualInv = Bukkit.createInventory(null, group.getSize(), "共有: " + group.getName());
+        String title = (loc == null) ? "共有(v): " + group.getName() : "共有: " + group.getName();
+        Inventory virtualInv = Bukkit.createInventory(null, group.getSize(), title);
         virtualInv.setContents(group.getVirtualInventory().getContents());
         openVirtualInventories.put(virtualInv, group);
         player.openInventory(virtualInv);
@@ -303,7 +303,10 @@ public class LinkManager {
         LinkedGroup group = linkedGroups.get(groupName);
         if (group == null) return;
 
-        // 破壊権限はリスナー側でチェック済み
+        if (!player.isOp() && !isModerator(player.getUniqueId(), group.getName())) {
+            // このメッセージはリスナー側で表示されるため、ここでは不要
+            return;
+        }
 
         // ラージチェストの片割れも一緒に解除する
         Block block = loc.getBlock();
