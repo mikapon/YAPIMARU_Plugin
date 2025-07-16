@@ -33,6 +33,7 @@ public class LinkManager {
     private final Map<UUID, String> pendingAdd = new ConcurrentHashMap<>();
     private final Map<UUID, Boolean> pendingRemove = new ConcurrentHashMap<>();
     private final Map<Inventory, LinkedGroup> openVirtualInventories = new ConcurrentHashMap<>();
+    private final Set<UUID> inLinkEditMode = new HashSet<>();
 
 
     private final File linkDir;
@@ -408,13 +409,28 @@ public class LinkManager {
         openLinkedChest(player, null, group);
     }
 
-    public boolean toggleReadOnly(Player player, Location loc) {
+    public void toggleLinkEditMode(Player player) {
+        if (inLinkEditMode.contains(player.getUniqueId())) {
+            inLinkEditMode.remove(player.getUniqueId());
+            adventure.player(player).sendMessage(Component.text("リンク編集モードを終了しました。", NamedTextColor.GOLD));
+        } else {
+            inLinkEditMode.add(player.getUniqueId());
+            adventure.player(player).sendMessage(Component.text("リンク編集モードを開始しました。", NamedTextColor.AQUA));
+            adventure.player(player).sendMessage(Component.text("リンク済みのチェストを左クリックで破壊可否、右クリックで読み取り専用を切り替えます。", NamedTextColor.GRAY));
+        }
+    }
+
+    public boolean isInLinkEditMode(Player player) {
+        return inLinkEditMode.contains(player.getUniqueId());
+    }
+
+    public void toggleReadOnly(Player player, Location loc) {
         String groupName = chestToGroupMap.get(loc);
-        if (groupName == null) return false;
+        if (groupName == null) return;
 
         if (!player.isOp() && !isModerator(player.getUniqueId(), groupName)) {
             adventure.player(player).sendMessage(Component.text("このチェストの設定を変更する権限がありません。", NamedTextColor.RED));
-            return true;
+            return;
         }
         LinkedGroup group = linkedGroups.get(groupName);
 
@@ -434,10 +450,38 @@ public class LinkManager {
         }
 
         saveGroup(groupName);
-
-        adventure.player(player).sendMessage(Component.text("このチェストを「" + (isNowReadOnly ? "読み取り専用" : "書き込み可能") + "」に設定しました。", NamedTextColor.AQUA));
+        adventure.player(player).sendMessage(Component.text("チェストを「" + (isNowReadOnly ? "読み取り専用" : "書き込み可能") + "」に設定しました。", NamedTextColor.AQUA));
         logInteraction(groupName, player.getName(), "READ_ONLY_TOGGLE", loc + " -> " + isNowReadOnly);
-        return true;
+    }
+
+    public void toggleBreakable(Player player, Location loc) {
+        String groupName = chestToGroupMap.get(loc);
+        if (groupName == null) return;
+
+        if (!player.isOp() && !isModerator(player.getUniqueId(), groupName)) {
+            adventure.player(player).sendMessage(Component.text("このチェストの設定を変更する権限がありません。", NamedTextColor.RED));
+            return;
+        }
+        LinkedGroup group = linkedGroups.get(groupName);
+
+        Block block = loc.getBlock();
+        boolean isNowBreakable = false;
+        if (block.getState() instanceof Chest) {
+            InventoryHolder holder = ((Chest) block.getState()).getInventory().getHolder();
+            if (holder instanceof DoubleChest) {
+                DoubleChest doubleChest = (DoubleChest) holder;
+                Location left = ((Chest)doubleChest.getLeftSide()).getLocation();
+                Location right = ((Chest)doubleChest.getRightSide()).getLocation();
+                isNowBreakable = group.toggleBreakable(left);
+                group.setBreakable(right, isNowBreakable);
+            } else {
+                isNowBreakable = group.toggleBreakable(loc);
+            }
+        }
+
+        saveGroup(groupName);
+        adventure.player(player).sendMessage(Component.text("チェストを「" + (isNowBreakable ? "破壊可能" : "破壊不能") + "」に設定しました。", NamedTextColor.GREEN));
+        logInteraction(groupName, player.getName(), "BREAKABLE_TOGGLE", loc + " -> " + isNowBreakable);
     }
 
 

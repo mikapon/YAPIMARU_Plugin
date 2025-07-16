@@ -17,7 +17,6 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
-import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
@@ -46,28 +45,26 @@ public class LinkListener implements Listener {
         Player player = event.getPlayer();
         Block clickedBlock = event.getClickedBlock();
 
-        if (event.getAction() != Action.LEFT_CLICK_BLOCK && event.getAction() != Action.RIGHT_CLICK_BLOCK) {
-            return;
-        }
         if (clickedBlock == null || !(clickedBlock.getState() instanceof Chest)) {
             return;
         }
         Location loc = clickedBlock.getLocation();
 
+        // リンク編集モードの処理
+        if (linkManager.isInLinkEditMode(player)) {
+            event.setCancelled(true);
+            if (event.getAction() == Action.LEFT_CLICK_BLOCK) {
+                linkManager.toggleBreakable(player, loc);
+            } else if (event.getAction() == Action.RIGHT_CLICK_BLOCK) {
+                linkManager.toggleReadOnly(player, loc);
+            }
+            return;
+        }
+
         // リンク追加/削除処理
         if (event.getAction() == Action.LEFT_CLICK_BLOCK) {
             if (linkManager.handleLinkProcess(player, loc)) {
                 event.setCancelled(true);
-            }
-        }
-
-        // 読み取り専用モード切替処理 (スニーク + 素手右クリック)
-        if (event.getAction() == Action.RIGHT_CLICK_BLOCK && player.isSneaking()) {
-            ItemStack mainHand = player.getInventory().getItemInMainHand();
-            if (mainHand.getType() == Material.AIR) {
-                if (linkManager.toggleReadOnly(player, loc)) {
-                    event.setCancelled(true);
-                }
             }
         }
     }
@@ -148,12 +145,12 @@ public class LinkListener implements Listener {
             LinkedGroup group = linkManager.getGroupFromChestLocation(block.getLocation());
             if (group != null) {
                 Player player = event.getPlayer();
-                if (!player.isOp() && !linkManager.isModerator(player.getUniqueId(), group.getName())) {
-                    adventure.player(player).sendMessage(Component.text("リンクされたチェストを破壊する権限がありません。", NamedTextColor.RED));
+                if (!group.isBreakable(block.getLocation()) && !player.isOp() && !linkManager.isModerator(player.getUniqueId(), group.getName())) {
+                    adventure.player(player).sendMessage(Component.text("このチェストは破壊できません。", NamedTextColor.RED));
                     event.setCancelled(true);
-                } else {
-                    linkManager.handleChestBreak(player, block.getLocation(), event.isCancelled());
+                    return;
                 }
+                linkManager.handleChestBreak(player, block.getLocation(), event.isCancelled());
             }
         }
     }

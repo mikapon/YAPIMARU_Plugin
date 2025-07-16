@@ -19,7 +19,7 @@ public class LinkTabCompleter implements TabCompleter {
 
     private final LinkManager linkManager;
     private static final List<String> OP_COMMANDS = Arrays.asList("create", "delete", "list");
-    private static final List<String> MOD_COMMANDS = Arrays.asList("add", "remove", "info", "open", "addmod", "delmod");
+    private static final List<String> MOD_COMMANDS = Arrays.asList("add", "remove", "info", "open", "addmod", "delmod", "mode");
 
     public LinkTabCompleter(YAPIMARU_Plugin plugin) {
         this.linkManager = plugin.getLinkManager();
@@ -39,8 +39,9 @@ public class LinkTabCompleter implements TabCompleter {
             if (player.isOp()) {
                 completions.addAll(OP_COMMANDS);
             }
-            // MOD_COMMANDS は全プレイヤーに補完候補として表示（権限チェックはコマンド実行時に行う）
-            completions.addAll(MOD_COMMANDS);
+            if (player.isOp() || linkManager.canManageAnyGroup(player.getUniqueId())) {
+                completions.addAll(MOD_COMMANDS);
+            }
             return StringUtil.copyPartialMatches(currentArg, completions, new ArrayList<>());
         }
 

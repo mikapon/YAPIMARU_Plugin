@@ -19,6 +19,7 @@ public class LinkedGroup {
     private int size;
     private final Set<Location> linkedChests = new HashSet<>();
     private final Map<Location, Boolean> readOnlyChests = new HashMap<>();
+    private final Map<Location, Boolean> breakableChests = new HashMap<>();
     private final Set<UUID> moderators = new HashSet<>();
 
     public LinkedGroup(String name) {
@@ -48,6 +49,7 @@ public class LinkedGroup {
     public void removeChest(Location loc) {
         linkedChests.remove(loc);
         readOnlyChests.remove(loc);
+        breakableChests.remove(loc);
     }
 
     public boolean isReadOnly(Location loc) {
@@ -63,6 +65,21 @@ public class LinkedGroup {
     public void setReadOnly(Location loc, boolean readOnly) {
         readOnlyChests.put(loc, readOnly);
     }
+
+    public boolean isBreakable(Location loc) {
+        return breakableChests.getOrDefault(loc, true); // デフォルトで破壊可能
+    }
+
+    public boolean toggleBreakable(Location loc) {
+        boolean isNowBreakable = !isBreakable(loc);
+        breakableChests.put(loc, isNowBreakable);
+        return isNowBreakable;
+    }
+
+    public void setBreakable(Location loc, boolean breakable) {
+        breakableChests.put(loc, breakable);
+    }
+
 
     public boolean addModerator(UUID uuid) {
         return moderators.add(uuid);
@@ -109,6 +126,12 @@ public class LinkedGroup {
                 .map(entry -> locationToString(entry.getKey()))
                 .collect(Collectors.toList());
         config.set("readonly", readOnlyLocations);
+        // Save breakable states
+        List<String> breakableLocations = breakableChests.entrySet().stream()
+                .filter(entry -> !entry.getValue()) // false（破壊不能）のみ保存
+                .map(entry -> locationToString(entry.getKey()))
+                .collect(Collectors.toList());
+        config.set("unbreakable", breakableLocations);
         // Save moderators
         List<String> modUuids = moderators.stream().map(UUID::toString).collect(Collectors.toList());
         config.set("moderators", modUuids);
@@ -142,6 +165,12 @@ public class LinkedGroup {
         config.getStringList("readonly").forEach(s -> {
             Location loc = stringToLocation(s);
             if(loc != null) readOnlyChests.put(loc, true);
+        });
+        // Load breakable states
+        breakableChests.clear();
+        config.getStringList("unbreakable").forEach(s -> {
+            Location loc = stringToLocation(s);
+            if(loc != null) breakableChests.put(loc, false);
         });
         // Load moderators
         moderators.clear();

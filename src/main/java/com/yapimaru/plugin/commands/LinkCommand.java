@@ -44,11 +44,12 @@ public class LinkCommand implements CommandExecutor {
             case "delete" -> handleDelete(player, subArgs);
             case "list" -> handleList(player);
             case "add" -> handleAdd(player, subArgs);
-            case "remove" -> handleRemove(player, subArgs);
+            case "remove" -> handleRemove(player);
             case "info" -> handleInfo(player, subArgs);
             case "open" -> handleOpen(player, subArgs);
             case "addmod" -> handleAddMod(player, subArgs);
             case "delmod" -> handleDelMod(player, subArgs);
+            case "mode" -> handleMode(player);
             default -> sendHelp(player);
         }
         return true;
@@ -101,7 +102,7 @@ public class LinkCommand implements CommandExecutor {
         linkManager.startAddProcess(player, groupName);
     }
 
-    private void handleRemove(Player player, String[] args) {
+    private void handleRemove(Player player) {
         if (!player.isOp() && !linkManager.canManageAnyGroup(player.getUniqueId())) {
             adventure.player(player).sendMessage(Component.text("いずれかのグループの管理者である必要があります。", NamedTextColor.RED));
             return;
@@ -172,20 +173,30 @@ public class LinkCommand implements CommandExecutor {
         linkManager.removeModerator(player, groupName, target);
     }
 
+    private void handleMode(Player player) {
+        if (!player.isOp() && !linkManager.canManageAnyGroup(player.getUniqueId())) {
+            adventure.player(player).sendMessage(Component.text("いずれかのグループの管理者である必要があります。", NamedTextColor.RED));
+            return;
+        }
+        linkManager.toggleLinkEditMode(player);
+    }
+
 
     private void sendHelp(Player player) {
         adventure.player(player).sendMessage(Component.text("--- 共有チェスト機能 ヘルプ ---", NamedTextColor.GOLD));
-        if (player.isOp()) {
-            adventure.player(player).sendMessage(Component.text("/link create <名前> - 新しい共有グループを作成", NamedTextColor.AQUA));
-            adventure.player(player).sendMessage(Component.text("/link delete <名前> - 共有グループを削除", NamedTextColor.AQUA));
-            adventure.player(player).sendMessage(Component.text("/link list - 全ての共有グループを一覧表示", NamedTextColor.AQUA));
+        if (player.isOp() || linkManager.canManageAnyGroup(player.getUniqueId())) {
+            adventure.player(player).sendMessage(Component.text("/link mode - リンク編集モード切替", NamedTextColor.YELLOW));
         }
-        adventure.player(player).sendMessage(Component.text("/link add <名前> - チェストをグループに追加 (コマンド実行後にチェストを左クリック)", NamedTextColor.AQUA));
-        adventure.player(player).sendMessage(Component.text("/link remove - チェストをグループから解除 (コマンド実行後にチェストを左クリック)", NamedTextColor.AQUA));
-        adventure.player(player).sendMessage(Component.text("/link info <名前> - グループの詳細情報を表示", NamedTextColor.AQUA));
+        if (player.isOp()) {
+            adventure.player(player).sendMessage(Component.text("/link create <名前> - 新規グループ作成", NamedTextColor.AQUA));
+            adventure.player(player).sendMessage(Component.text("/link delete <名前> - グループ削除", NamedTextColor.AQUA));
+            adventure.player(player).sendMessage(Component.text("/link list - 全グループ一覧", NamedTextColor.AQUA));
+        }
+        adventure.player(player).sendMessage(Component.text("/link add <名前> - チェスト追加", NamedTextColor.AQUA));
+        adventure.player(player).sendMessage(Component.text("/link remove - チェスト解除", NamedTextColor.AQUA));
+        adventure.player(player).sendMessage(Component.text("/link info <名前> - グループ情報", NamedTextColor.AQUA));
         adventure.player(player).sendMessage(Component.text("/link open <名前> - 仮想インベントリを開く", NamedTextColor.AQUA));
-        adventure.player(player).sendMessage(Component.text("/link addmod <名前> <プレイヤー名> - グループの管理者に任命", NamedTextColor.AQUA));
-        adventure.player(player).sendMessage(Component.text("/link delmod <名前> <プレイヤー名> - グループの管理者を解任", NamedTextColor.AQUA));
-        adventure.player(player).sendMessage(Component.text("素手で共有チェストを右クリック - 読み取り専用モード切替", NamedTextColor.GRAY));
+        adventure.player(player).sendMessage(Component.text("/link addmod <名前> <プレイヤー> - 管理者任命", NamedTextColor.AQUA));
+        adventure.player(player).sendMessage(Component.text("/link delmod <名前> <プレイヤー> - 管理者解任", NamedTextColor.AQUA));
     }
 }
