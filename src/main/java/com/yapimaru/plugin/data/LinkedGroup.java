@@ -14,21 +14,31 @@ import java.util.stream.Collectors;
 
 public class LinkedGroup {
     private final String name;
-    private final Inventory virtualInventory;
+    private Inventory virtualInventory;
+    private int size;
     private final Set<Location> linkedChests = new HashSet<>();
     private final Map<Location, Boolean> readOnlyChests = new HashMap<>();
     private final Set<UUID> moderators = new HashSet<>();
 
     public LinkedGroup(String name) {
         this.name = name;
-        // 54 slots = double chest size
-        this.virtualInventory = Bukkit.createInventory(null, 54, "Virtual " + name);
+        this.size = 27; // Default to single chest size
+        this.virtualInventory = Bukkit.createInventory(null, this.size, "Virtual " + name);
     }
 
     public String getName() { return name; }
     public Inventory getVirtualInventory() { return virtualInventory; }
+    public int getSize() { return size; }
     public Set<Location> getLinkedChests() { return Collections.unmodifiableSet(linkedChests); }
     public Set<UUID> getModerators() { return Collections.unmodifiableSet(moderators); }
+
+    public void expandToLarge() {
+        if (this.size == 54) return;
+        this.size = 54;
+        Inventory newInventory = Bukkit.createInventory(null, this.size, "Virtual " + name);
+        newInventory.setContents(this.virtualInventory.getContents());
+        this.virtualInventory = newInventory;
+    }
 
     public void addChest(Location loc) {
         linkedChests.add(loc);
@@ -57,10 +67,6 @@ public class LinkedGroup {
         return moderators.remove(uuid);
     }
 
-    public boolean isModerator(UUID uuid) {
-        return moderators.contains(uuid);
-    }
-
     public void sortInventory() {
         List<ItemStack> items = Arrays.stream(virtualInventory.getContents())
                 .filter(Objects::nonNull)
@@ -77,6 +83,7 @@ public class LinkedGroup {
 
     public void save(File file) throws IOException {
         YamlConfiguration config = new YamlConfiguration();
+        config.set("size", this.size);
         // Save inventory
         for (int i = 0; i < virtualInventory.getSize(); i++) {
             ItemStack item = virtualInventory.getItem(i);
@@ -102,13 +109,17 @@ public class LinkedGroup {
 
     public void load(File file) {
         YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
+        this.size = config.getInt("size", 27);
+        this.virtualInventory = Bukkit.createInventory(null, this.size, "Virtual " + name);
         // Load inventory
         if (config.isConfigurationSection("inventory")) {
             virtualInventory.clear();
             for (String key : config.getConfigurationSection("inventory").getKeys(false)) {
                 int slot = Integer.parseInt(key);
-                ItemStack item = config.getItemStack("inventory." + key);
-                virtualInventory.setItem(slot, item);
+                if (slot < this.size) {
+                    ItemStack item = config.getItemStack("inventory." + key);
+                    virtualInventory.setItem(slot, item);
+                }
             }
         }
         // Load chests

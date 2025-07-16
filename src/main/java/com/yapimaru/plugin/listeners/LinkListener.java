@@ -4,8 +4,6 @@ import com.yapimaru.plugin.YAPIMARU_Plugin;
 import com.yapimaru.plugin.data.LinkedGroup;
 import com.yapimaru.plugin.managers.LinkManager;
 import net.kyori.adventure.platform.bukkit.BukkitAudiences;
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
@@ -95,16 +93,7 @@ public class LinkListener implements Listener {
     public void onBlockBreak(BlockBreakEvent event) {
         Block block = event.getBlock();
         if (block.getState() instanceof Chest) {
-            LinkedGroup group = linkManager.getGroupFromChestLocation(block.getLocation());
-            if (group != null) {
-                Player player = event.getPlayer();
-                if (!player.isOp() && !linkManager.isModerator(player.getUniqueId(), group.getName())) {
-                    adventure.player(player).sendMessage(Component.text("リンクされたチェストを破壊する権限がありません。", NamedTextColor.RED));
-                    event.setCancelled(true);
-                } else {
-                    linkManager.handleChestBreak(player, block.getLocation());
-                }
-            }
+            linkManager.handleChestBreak(event.getPlayer(), block.getLocation(), event.isCancelled());
         }
     }
 
