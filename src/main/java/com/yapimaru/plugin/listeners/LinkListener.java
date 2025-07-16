@@ -17,20 +17,26 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.inventory.InventoryAction;
+import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.inventory.InventoryMoveItemEvent;
 import org.bukkit.event.inventory.InventoryOpenEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.scheduler.BukkitRunnable;
 
 public class LinkListener implements Listener {
 
+    private final YAPIMARU_Plugin plugin;
     private final LinkManager linkManager;
     private final BukkitAudiences adventure;
 
     public LinkListener(YAPIMARU_Plugin plugin) {
+        this.plugin = plugin;
         this.linkManager = plugin.getLinkManager();
         this.adventure = plugin.getAdventure();
     }
@@ -82,10 +88,18 @@ public class LinkListener implements Listener {
         }
 
         if (loc != null) {
-            LinkedGroup group = linkManager.getGroupFromChestLocation(loc);
+            final Location finalLoc = loc; // for use in lambda
+            LinkedGroup group = linkManager.getGroupFromChestLocation(finalLoc);
             if (group != null) {
                 event.setCancelled(true);
-                linkManager.openLinkedChest(player, loc, group);
+                // Schedule the virtual inventory opening for the next tick
+                // This allows the client to properly close the physical chest GUI first
+                new BukkitRunnable() {
+                    @Override
+                    public void run() {
+                        linkManager.openLinkedChest(player, finalLoc, group);
+                    }
+                }.runTask(plugin);
             }
         }
     }
@@ -99,11 +113,48 @@ public class LinkListener implements Listener {
         linkManager.handleVirtualInventoryClose(player, inv);
     }
 
+    @EventHandler(priority = EventPriority.NORMAL, ignoreCancelled = true)
+    public void onInventoryClick(InventoryClickEvent event) {
+        Inventory topInventory = event.getView().getTopInventory();
+        if (linkManager.isVirtualInventory(topInventory)) {
+            // 遅延させて更新をかけることで、クライアント側の描画と同期させる
+            new BukkitRunnable() {
+                @Override
+                public void run() {
+                    linkManager.updateAllVirtualInventories(topInventory);
+                }
+            }.runTask(plugin);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.NORMAL, ignoreCancelled = true)
+    public void onInventoryDrag(InventoryDragEvent event) {
+        Inventory topInventory = event.getView().getTopInventory();
+        if (linkManager.isVirtualInventory(topInventory)) {
+            new BukkitRunnable() {
+                @Override
+                public void run() {
+                    linkManager.updateAllVirtualInventories(topInventory);
+                }
+            }.runTask(plugin);
+        }
+    }
+
+
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onBlockBreak(BlockBreakEvent event) {
         Block block = event.getBlock();
         if (block.getState() instanceof Chest) {
-            linkManager.handleChestBreak(event.getPlayer(), block.getLocation(), event.isCancelled());
+            LinkedGroup group = linkManager.getGroupFromChestLocation(block.getLocation());
+            if (group != null) {
+                Player player = event.getPlayer();
+                if (!player.isOp() && !linkManager.isModerator(player.getUniqueId(), group.getName())) {
+                    adventure.player(player).sendMessage(Component.text("リンクされたチェストを破壊する権限がありません。", NamedTextColor.RED));
+                    event.setCancelled(true);
+                } else {
+                    linkManager.handleChestBreak(player, block.getLocation(), event.isCancelled());
+                }
+            }
         }
     }
 

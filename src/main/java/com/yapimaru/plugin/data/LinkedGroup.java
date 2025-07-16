@@ -3,6 +3,7 @@ package com.yapimaru.plugin.data;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.World;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
@@ -57,6 +58,10 @@ public class LinkedGroup {
         boolean isNowReadOnly = !isReadOnly(loc);
         readOnlyChests.put(loc, isNowReadOnly);
         return isNowReadOnly;
+    }
+
+    public void setReadOnly(Location loc, boolean readOnly) {
+        readOnlyChests.put(loc, readOnly);
     }
 
     public boolean addModerator(UUID uuid) {
@@ -128,10 +133,16 @@ public class LinkedGroup {
         }
         // Load chests
         linkedChests.clear();
-        config.getStringList("chests").forEach(s -> linkedChests.add(stringToLocation(s)));
+        config.getStringList("chests").forEach(s -> {
+            Location loc = stringToLocation(s);
+            if(loc != null) linkedChests.add(loc);
+        });
         // Load read-only states
         readOnlyChests.clear();
-        config.getStringList("readonly").forEach(s -> readOnlyChests.put(stringToLocation(s), true));
+        config.getStringList("readonly").forEach(s -> {
+            Location loc = stringToLocation(s);
+            if(loc != null) readOnlyChests.put(loc, true);
+        });
         // Load moderators
         moderators.clear();
         config.getStringList("moderators").forEach(s -> moderators.add(UUID.fromString(s)));
@@ -144,7 +155,9 @@ public class LinkedGroup {
 
     private Location stringToLocation(String s) {
         String[] parts = s.split(",");
-        return new Location(Bukkit.getWorld(parts[0]),
+        World world = Bukkit.getWorld(parts[0]);
+        if (world == null) return null; // ワールドが存在しない場合はnullを返す
+        return new Location(world,
                 Integer.parseInt(parts[1]),
                 Integer.parseInt(parts[2]),
                 Integer.parseInt(parts[3]));

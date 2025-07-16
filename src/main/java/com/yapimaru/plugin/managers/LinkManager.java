@@ -49,6 +49,11 @@ public class LinkManager {
         startBackupTask();
     }
 
+    public boolean isVirtualInventory(Inventory inventory) {
+        return openVirtualInventories.containsKey(inventory);
+    }
+
+
     public void loadGroups() {
         File[] groupFiles = linkDir.listFiles((dir, name) -> name.endsWith(".yml"));
         if (groupFiles == null) return;
@@ -412,13 +417,29 @@ public class LinkManager {
             return true;
         }
         LinkedGroup group = linkedGroups.get(groupName);
-        boolean isNowReadOnly = group.toggleReadOnly(loc);
+
+        Block block = loc.getBlock();
+        boolean isNowReadOnly = false;
+        if (block.getState() instanceof Chest) {
+            InventoryHolder holder = ((Chest) block.getState()).getInventory().getHolder();
+            if (holder instanceof DoubleChest) {
+                DoubleChest doubleChest = (DoubleChest) holder;
+                Location left = ((Chest)doubleChest.getLeftSide()).getLocation();
+                Location right = ((Chest)doubleChest.getRightSide()).getLocation();
+                isNowReadOnly = group.toggleReadOnly(left); // 片方の状態で判定
+                group.setReadOnly(right, isNowReadOnly); // もう片方も同じ状態に設定
+            } else {
+                isNowReadOnly = group.toggleReadOnly(loc);
+            }
+        }
+
         saveGroup(groupName);
 
         adventure.player(player).sendMessage(Component.text("このチェストを「" + (isNowReadOnly ? "読み取り専用" : "書き込み可能") + "」に設定しました。", NamedTextColor.AQUA));
         logInteraction(groupName, player.getName(), "READ_ONLY_TOGGLE", loc + " -> " + isNowReadOnly);
         return true;
     }
+
 
     public void addModerator(Player sender, String groupName, Player target) {
         LinkedGroup group = linkedGroups.get(groupName);
@@ -464,13 +485,25 @@ public class LinkManager {
                 .collect(Collectors.toList());
     }
 
+    public void updateAllVirtualInventories(Inventory topInventory) {
+        LinkedGroup group = openVirtualInventories.get(topInventory);
+        if (group == null) return;
+
+        group.getVirtualInventory().setContents(topInventory.getContents());
+        for (Inventory openInv : new ArrayList<>(openVirtualInventories.keySet())) {
+            if (openVirtualInventories.get(openInv).equals(group) && !openInv.equals(topInventory)) {
+                openInv.setContents(group.getVirtualInventory().getContents());
+            }
+        }
+    }
+
+
     private void startParticleTask() {
         new BukkitRunnable() {
             @Override
             public void run() {
                 for (Player player : Bukkit.getOnlinePlayers()) {
                     chestToGroupMap.forEach((loc, groupName) -> {
-                        // **修正点: ワールドがnullでないことを確認**
                         if (loc.getWorld() != null && loc.getWorld().equals(player.getWorld()) && loc.distanceSquared(player.getLocation()) < 100) {
                             player.spawnParticle(Particle.HAPPY_VILLAGER, loc.clone().add(0.5, 0.5, 0.5), 1, 0.2, 0.2, 0.2, 0);
                         }
