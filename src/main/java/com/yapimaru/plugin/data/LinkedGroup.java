@@ -18,6 +18,7 @@ public class LinkedGroup {
     private Inventory virtualInventory;
     private int size;
     private final Set<Location> linkedChests = new HashSet<>();
+    private final List<String> chestLocationStrings = new ArrayList<>(); // ワールドロード前の一時保管場所
     private final Map<Location, Boolean> readOnlyChests = new HashMap<>();
     private final Map<Location, Boolean> breakableChests = new HashMap<>();
     private final Set<UUID> moderators = new HashSet<>();
@@ -44,10 +45,12 @@ public class LinkedGroup {
 
     public void addChest(Location loc) {
         linkedChests.add(loc);
+        chestLocationStrings.add(locationToString(loc));
     }
 
     public void removeChest(Location loc) {
         linkedChests.remove(loc);
+        chestLocationStrings.remove(locationToString(loc));
         readOnlyChests.remove(loc);
         breakableChests.remove(loc);
     }
@@ -118,8 +121,7 @@ public class LinkedGroup {
             }
         }
         // Save chest locations
-        List<String> chestLocations = linkedChests.stream().map(this::locationToString).collect(Collectors.toList());
-        config.set("chests", chestLocations);
+        config.set("chests", chestLocationStrings);
         // Save read-only states
         List<String> readOnlyLocations = readOnlyChests.entrySet().stream()
                 .filter(Map.Entry::getValue)
@@ -154,27 +156,34 @@ public class LinkedGroup {
                 }
             }
         }
-        // Load chests
-        linkedChests.clear();
-        config.getStringList("chests").forEach(s -> {
-            Location loc = stringToLocation(s);
-            if(loc != null) linkedChests.add(loc);
-        });
-        // Load read-only states
+
+        chestLocationStrings.clear();
+        chestLocationStrings.addAll(config.getStringList("chests"));
+
         readOnlyChests.clear();
         config.getStringList("readonly").forEach(s -> {
             Location loc = stringToLocation(s);
             if(loc != null) readOnlyChests.put(loc, true);
         });
-        // Load breakable states
+
         breakableChests.clear();
         config.getStringList("unbreakable").forEach(s -> {
             Location loc = stringToLocation(s);
             if(loc != null) breakableChests.put(loc, false);
         });
-        // Load moderators
+
         moderators.clear();
         config.getStringList("moderators").forEach(s -> moderators.add(UUID.fromString(s)));
+    }
+
+    public void initializeLocations() {
+        linkedChests.clear();
+        for (String s : chestLocationStrings) {
+            Location loc = stringToLocation(s);
+            if (loc != null) {
+                linkedChests.add(loc);
+            }
+        }
     }
 
 

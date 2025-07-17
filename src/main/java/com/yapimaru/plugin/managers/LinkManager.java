@@ -73,11 +73,12 @@ public class LinkManager {
         plugin.getLogger().info("Loaded " + linkedGroups.size() + " linked groups from files.");
     }
 
-    public void reloadAllChestMappings() {
+    public void initializeChestMappings() {
         chestToGroupMap.clear();
         linkedGroups.forEach((groupName, group) -> {
+            group.initializeLocations(); // 文字列からLocationオブジェクトへ変換
             group.getLinkedChests().forEach(loc -> {
-                if (loc != null && loc.getWorld() != null) { // ワールドがロードされているか再確認
+                if (loc != null && loc.getWorld() != null) {
                     chestToGroupMap.put(loc, groupName);
                 }
             });
@@ -403,8 +404,9 @@ public class LinkManager {
         adventure.player(player).sendMessage(Component.text("チェスト座標:", NamedTextColor.AQUA));
         group.getLinkedChests().forEach(loc -> {
             String readOnlyStatus = group.isReadOnly(loc) ? " (読み取り専用)" : "";
-            adventure.player(player).sendMessage(Component.text(String.format("  - W: %s, X: %d, Y: %d, Z: %d%s",
-                    loc.getWorld().getName(), loc.getBlockX(), loc.getBlockY(), loc.getBlockZ(), readOnlyStatus), NamedTextColor.WHITE));
+            String breakableStatus = group.isBreakable(loc) ? "" : " (破壊不能)";
+            adventure.player(player).sendMessage(Component.text(String.format("  - W: %s, X: %d, Y: %d, Z: %d%s%s",
+                    loc.getWorld().getName(), loc.getBlockX(), loc.getBlockY(), loc.getBlockZ(), readOnlyStatus, breakableStatus), NamedTextColor.WHITE));
         });
     }
 
