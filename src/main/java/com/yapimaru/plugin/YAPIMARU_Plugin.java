@@ -3,7 +3,6 @@ package com.yapimaru.plugin;
 import com.sk89q.worldedit.WorldEdit;
 import com.yapimaru.plugin.commands.*;
 import com.yapimaru.plugin.completers.*;
-import com.yapimaru.plugin.data.ParticipantData;
 import com.yapimaru.plugin.listeners.GuiListener;
 import com.yapimaru.plugin.listeners.LinkListener;
 import com.yapimaru.plugin.listeners.PlayerEventListener;

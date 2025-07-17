@@ -73,7 +73,6 @@ public class LinkManager {
         plugin.getLogger().info("Loaded " + linkedGroups.size() + " linked groups from files.");
     }
 
-    // ▼▼▼ 新規追加メソッド ▼▼▼
     public void reloadAllChestMappings() {
         chestToGroupMap.clear();
         linkedGroups.forEach((groupName, group) -> {
@@ -84,7 +83,6 @@ public class LinkManager {
             });
         });
     }
-    // ▲▲▲ 新規追加メソッド ▲▲▲
 
 
     public void saveGroup(String name) {
