@@ -398,6 +398,7 @@ public class LinkManager {
         }
         adventure.player(player).sendMessage(Component.text("--- グループ情報: " + name + " ---", NamedTextColor.GOLD));
         adventure.player(player).sendMessage(Component.text("インベントリサイズ: " + group.getSize(), NamedTextColor.AQUA));
+        adventure.player(player).sendMessage(Component.text("自動整理: " + (group.isAutoSortEnabled() ? "有効" : "無効"), NamedTextColor.AQUA));
         adventure.player(player).sendMessage(Component.text("リンクされたチェストの数: " + group.getLinkedChests().size(), NamedTextColor.AQUA));
         adventure.player(player).sendMessage(Component.text("管理者: ", NamedTextColor.AQUA)
                 .append(Component.text(group.getModerators().stream().map(uuid -> Bukkit.getOfflinePlayer(uuid).getName()).collect(Collectors.joining(", ")), NamedTextColor.WHITE)));
@@ -437,7 +438,10 @@ public class LinkManager {
 
     public void toggleReadOnly(Player player, Location loc) {
         String groupName = chestToGroupMap.get(loc);
-        if (groupName == null) return;
+        if (groupName == null) {
+            adventure.player(player).sendMessage(Component.text("このチェストはリンクされていません。", NamedTextColor.YELLOW));
+            return;
+        }
 
         if (!player.isOp() && !isModerator(player.getUniqueId(), groupName)) {
             adventure.player(player).sendMessage(Component.text("このチェストの設定を変更する権限がありません。", NamedTextColor.RED));
@@ -467,7 +471,10 @@ public class LinkManager {
 
     public void toggleBreakable(Player player, Location loc) {
         String groupName = chestToGroupMap.get(loc);
-        if (groupName == null) return;
+        if (groupName == null) {
+            adventure.player(player).sendMessage(Component.text("このチェストはリンクされていません。", NamedTextColor.YELLOW));
+            return;
+        }
 
         if (!player.isOp() && !isModerator(player.getUniqueId(), groupName)) {
             adventure.player(player).sendMessage(Component.text("このチェストの設定を変更する権限がありません。", NamedTextColor.RED));
@@ -493,6 +500,20 @@ public class LinkManager {
         saveGroup(groupName);
         adventure.player(player).sendMessage(Component.text("チェストを「" + (isNowBreakable ? "破壊可能" : "破壊不能") + "」に設定しました。", NamedTextColor.GREEN));
         logInteraction(groupName, player.getName(), "BREAKABLE_TOGGLE", loc + " -> " + isNowBreakable);
+    }
+
+    public void toggleAutoSort(Player player, String groupName, Optional<Boolean> newStateOpt) {
+        LinkedGroup group = linkedGroups.get(groupName);
+        if (group == null) {
+            adventure.player(player).sendMessage(Component.text("共有グループ「" + groupName + "」は存在しません。", NamedTextColor.RED));
+            return;
+        }
+
+        boolean finalState = newStateOpt.orElse(!group.isAutoSortEnabled());
+        group.setAutoSort(finalState);
+        saveGroup(groupName);
+
+        adventure.player(player).sendMessage(Component.text("グループ「" + groupName + "」の自動整理を" + (finalState ? "有効" : "無効") + "にしました。", NamedTextColor.AQUA));
     }
 
 

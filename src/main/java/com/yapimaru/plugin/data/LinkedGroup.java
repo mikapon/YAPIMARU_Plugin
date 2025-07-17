@@ -22,6 +22,7 @@ public class LinkedGroup {
     private final Map<Location, Boolean> readOnlyChests = new HashMap<>();
     private final Map<Location, Boolean> breakableChests = new HashMap<>();
     private final Set<UUID> moderators = new HashSet<>();
+    private boolean autoSort = true;
 
     public LinkedGroup(String name) {
         this.name = name;
@@ -34,6 +35,9 @@ public class LinkedGroup {
     public int getSize() { return size; }
     public Set<Location> getLinkedChests() { return Collections.unmodifiableSet(linkedChests); }
     public Set<UUID> getModerators() { return Collections.unmodifiableSet(moderators); }
+    public boolean isAutoSortEnabled() { return autoSort; }
+    public void setAutoSort(boolean enabled) { this.autoSort = enabled; }
+
 
     public void expandToLarge() {
         if (this.size == 54) return;
@@ -45,7 +49,9 @@ public class LinkedGroup {
 
     public void addChest(Location loc) {
         linkedChests.add(loc);
-        chestLocationStrings.add(locationToString(loc));
+        if (!chestLocationStrings.contains(locationToString(loc))) {
+            chestLocationStrings.add(locationToString(loc));
+        }
     }
 
     public void removeChest(Location loc) {
@@ -97,6 +103,7 @@ public class LinkedGroup {
     }
 
     public void sortInventory() {
+        if (!this.autoSort) return;
         List<ItemStack> items = Arrays.stream(virtualInventory.getContents())
                 .filter(Objects::nonNull)
                 .sorted(Comparator.comparing(ItemStack::getType, Comparator.comparing(Material::name))
@@ -113,6 +120,7 @@ public class LinkedGroup {
     public void save(File file) throws IOException {
         YamlConfiguration config = new YamlConfiguration();
         config.set("size", this.size);
+        config.set("auto-sort", this.autoSort);
         // Save inventory
         for (int i = 0; i < virtualInventory.getSize(); i++) {
             ItemStack item = virtualInventory.getItem(i);
@@ -144,6 +152,7 @@ public class LinkedGroup {
     public void load(File file) {
         YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
         this.size = config.getInt("size", 27);
+        this.autoSort = config.getBoolean("auto-sort", true);
         this.virtualInventory = Bukkit.createInventory(null, this.size, "Virtual " + name);
         // Load inventory
         if (config.isConfigurationSection("inventory")) {
@@ -178,12 +187,12 @@ public class LinkedGroup {
 
     public void initializeLocations() {
         linkedChests.clear();
-        for (String s : chestLocationStrings) {
+        chestLocationStrings.forEach(s -> {
             Location loc = stringToLocation(s);
             if (loc != null) {
                 linkedChests.add(loc);
             }
-        }
+        });
     }
 
 

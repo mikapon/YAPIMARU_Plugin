@@ -19,7 +19,8 @@ public class LinkTabCompleter implements TabCompleter {
 
     private final LinkManager linkManager;
     private static final List<String> OP_COMMANDS = Arrays.asList("create", "delete", "list");
-    private static final List<String> MOD_COMMANDS = Arrays.asList("add", "remove", "info", "open", "addmod", "delmod", "mode");
+    private static final List<String> MOD_COMMANDS = Arrays.asList("add", "remove", "info", "open", "addmod", "delmod", "mode", "autosort");
+    private static final List<String> ON_OFF_ARGS = Arrays.asList("on", "off");
 
     public LinkTabCompleter(YAPIMARU_Plugin plugin) {
         this.linkManager = plugin.getLinkManager();
@@ -50,18 +51,23 @@ public class LinkTabCompleter implements TabCompleter {
         // /link <subcommand> <groupName>
         if (args.length == 2) {
             switch (subCommand) {
-                case "add", "info", "open", "delete", "addmod", "delmod" -> {
+                case "add", "info", "open", "delete", "addmod", "delmod", "autosort" -> {
                     List<String> manageableGroups = linkManager.getManageableGroupNames(player);
                     return StringUtil.copyPartialMatches(currentArg, manageableGroups, new ArrayList<>());
                 }
             }
         }
 
-        // /link addmod <groupName> <player>
-        // /link delmod <groupName> <player>
-        if (args.length == 3 && (subCommand.equals("addmod") || subCommand.equals("delmod"))) {
-            List<String> playerNames = Bukkit.getOnlinePlayers().stream().map(Player::getName).collect(Collectors.toList());
-            return StringUtil.copyPartialMatches(currentArg, playerNames, new ArrayList<>());
+        if (args.length == 3) {
+            // /link addmod <groupName> <player> or /link delmod <groupName> <player>
+            if (subCommand.equals("addmod") || subCommand.equals("delmod")) {
+                List<String> playerNames = Bukkit.getOnlinePlayers().stream().map(Player::getName).collect(Collectors.toList());
+                return StringUtil.copyPartialMatches(currentArg, playerNames, new ArrayList<>());
+            }
+            // /link autosort <groupName> [on|off]
+            if (subCommand.equals("autosort")) {
+                return StringUtil.copyPartialMatches(currentArg, ON_OFF_ARGS, new ArrayList<>());
+            }
         }
 
         return List.of();

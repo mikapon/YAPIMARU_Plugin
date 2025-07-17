@@ -13,6 +13,7 @@ import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Arrays;
+import java.util.Optional;
 
 public class LinkCommand implements CommandExecutor {
 
@@ -50,6 +51,7 @@ public class LinkCommand implements CommandExecutor {
             case "addmod" -> handleAddMod(player, subArgs);
             case "delmod" -> handleDelMod(player, subArgs);
             case "mode" -> handleMode(player);
+            case "autosort" -> handleAutoSort(player, subArgs);
             default -> sendHelp(player);
         }
         return true;
@@ -181,11 +183,34 @@ public class LinkCommand implements CommandExecutor {
         linkManager.toggleLinkEditMode(player);
     }
 
+    private void handleAutoSort(Player player, String[] args) {
+        if (args.length < 1) {
+            adventure.player(player).sendMessage(Component.text("使い方: /link autosort <名前> [on|off]", NamedTextColor.RED));
+            return;
+        }
+        String groupName = args[0];
+        if (!player.isOp() && !linkManager.isModerator(player.getUniqueId(), groupName)) {
+            adventure.player(player).sendMessage(Component.text("このグループの設定を変更する権限がありません。", NamedTextColor.RED));
+            return;
+        }
+
+        Optional<Boolean> newState = Optional.empty();
+        if (args.length > 1) {
+            if (args[1].equalsIgnoreCase("on")) {
+                newState = Optional.of(true);
+            } else if (args[1].equalsIgnoreCase("off")) {
+                newState = Optional.of(false);
+            }
+        }
+        linkManager.toggleAutoSort(player, groupName, newState);
+    }
+
 
     private void sendHelp(Player player) {
         adventure.player(player).sendMessage(Component.text("--- 共有チェスト機能 ヘルプ ---", NamedTextColor.GOLD));
         if (player.isOp() || linkManager.canManageAnyGroup(player.getUniqueId())) {
             adventure.player(player).sendMessage(Component.text("/link mode - リンク編集モード切替", NamedTextColor.YELLOW));
+            adventure.player(player).sendMessage(Component.text("/link autosort <名前> [on|off] - 自動整理切替", NamedTextColor.YELLOW));
         }
         if (player.isOp()) {
             adventure.player(player).sendMessage(Component.text("/link create <名前> - 新規グループ作成", NamedTextColor.AQUA));
