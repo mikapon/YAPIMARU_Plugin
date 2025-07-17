@@ -16,6 +16,7 @@ import org.bukkit.command.PluginCommand;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitRunnable;
 
 import java.io.File;
 import java.io.IOException;
@@ -69,6 +70,17 @@ public final class YAPIMARU_Plugin extends JavaPlugin {
             participantManager.recordLoginTime(player);
             nameManager.updatePlayerName(player);
         }
+
+        // ▼▼▼ 修正箇所 ▼▼▼
+        // サーバー起動処理が完全に完了した後に、チェスト情報を再マッピングする
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                linkManager.reloadAllChestMappings();
+                getLogger().info("Shared chest mappings have been reloaded after server startup.");
+            }
+        }.runTaskLater(this, 1L);
+        // ▲▲▲ 修正箇所 ▲▲▲
 
         getLogger().info("YAPIMARU Plugin has been enabled!");
     }

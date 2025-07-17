@@ -65,17 +65,27 @@ public class LinkManager {
                 LinkedGroup group = new LinkedGroup(groupName);
                 group.load(file);
                 linkedGroups.put(groupName, group);
-                group.getLinkedChests().forEach(loc -> {
-                    if (loc != null && loc.getWorld() != null) {
-                        chestToGroupMap.put(loc, groupName);
-                    }
-                });
+                // マッピングはサーバー起動完了後に行う
             } catch (Exception e) {
                 plugin.getLogger().log(Level.SEVERE, "Failed to load linked group file: " + file.getName(), e);
             }
         }
-        plugin.getLogger().info("Loaded " + linkedGroups.size() + " linked groups.");
+        plugin.getLogger().info("Loaded " + linkedGroups.size() + " linked groups from files.");
     }
+
+    // ▼▼▼ 新規追加メソッド ▼▼▼
+    public void reloadAllChestMappings() {
+        chestToGroupMap.clear();
+        linkedGroups.forEach((groupName, group) -> {
+            group.getLinkedChests().forEach(loc -> {
+                if (loc != null && loc.getWorld() != null) { // ワールドがロードされているか再確認
+                    chestToGroupMap.put(loc, groupName);
+                }
+            });
+        });
+    }
+    // ▲▲▲ 新規追加メソッド ▲▲▲
+
 
     public void saveGroup(String name) {
         LinkedGroup group = linkedGroups.get(name);
@@ -313,7 +323,7 @@ public class LinkManager {
         LinkedGroup group = linkedGroups.get(groupName);
         if (group == null) return;
 
-        if (!player.isOp() && !isModerator(player.getUniqueId(), group.getName())) {
+        if (!group.isBreakable(loc) && !player.isOp() && !isModerator(player.getUniqueId(), group.getName())) {
             // このメッセージはリスナー側で表示されるため、ここでは不要
             return;
         }
@@ -423,6 +433,7 @@ public class LinkManager {
     public boolean isInLinkEditMode(Player player) {
         return inLinkEditMode.contains(player.getUniqueId());
     }
+
 
     public void toggleReadOnly(Player player, Location loc) {
         String groupName = chestToGroupMap.get(loc);
