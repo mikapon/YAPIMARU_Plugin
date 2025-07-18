@@ -237,6 +237,23 @@ public class PlayerEventListener implements Listener {
     }
 
     @EventHandler
+    public void onPlayerChangedWorld(PlayerChangedWorldEvent event) {
+        Player player = event.getPlayer();
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                Set<PotionEffect> effectsToApply = guiManager.getStickyEffectsForPlayer(player.getUniqueId());
+                if (effectsToApply != null && !effectsToApply.isEmpty()) {
+                    for (PotionEffect effect : effectsToApply) {
+                        player.addPotionEffect(effect);
+                    }
+                    adventure.player(player).sendMessage(Component.text("ワールドを移動したため、設定されていたエフェクトを再付与しました。", NamedTextColor.AQUA));
+                }
+            }
+        }.runTaskLater(plugin, 1L);
+    }
+
+    @EventHandler
     public void onBlockBreak(BlockBreakEvent event) {
         if (pvpManager.getGameState() == PvpManager.GameState.IDLE) return;
         if (pvpManager.isLocationInProtectedArea(event.getBlock().getLocation()) || pvpManager.isLocationInSpawnProtection(event.getBlock().getLocation())) {
